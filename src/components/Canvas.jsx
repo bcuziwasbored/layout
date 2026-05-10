@@ -380,22 +380,37 @@ export default function Canvas({ openPickerRef }) {
       }
     }
 
-    // "layer" name on hit Rects/KImages lets us know the touch landed on a layer node
-    const isLayerHit = (e.target?.attrs?.name || '') === 'layer'
+    // Coordinate-based hit test — bypasses Konva hit detection entirely.
+    // Konva's hit canvas is unreliable inside clipFunc groups, so we test
+    // layer bounding boxes directly in canvas (world) space.
+    const containerRect = containerRef.current?.getBoundingClientRect()
+    const clientX = pt.clientX - (containerRect?.left ?? 0)
+    const clientY = pt.clientY - (containerRect?.top ?? 0)
+    const canvasX = (clientX - v.x) / v.scale
+    const canvasY = (clientY - v.y) / v.scale
 
-    if (activeId) {
-      if (!isLayerHit) {
-        // Background tap while a layer is selected → track as deselect candidate
-        panRef.current = { type: 'deselect', startX: pt.clientX, startY: pt.clientY, moved: false }
+    const hitLayer = [...curLayers].reverse().find(l =>
+      l.src &&
+      canvasX >= l.x && canvasX <= l.x + l.w &&
+      canvasY >= l.y && canvasY <= l.y + l.h
+    )
+
+    if (hitLayer) {
+      if (hitLayer.id === activeId) {
+        // Same active layer — let Konva's draggable handle it, no panRef needed
+        return
       }
-      // If it IS a layer hit, let Konva's own draggable/onClick handle it — no pan, no deselect
+      // Different layer (or no selection) — track as select candidate; fall back to pan on drag
+      panRef.current = { type: 'select', layerId: hitLayer.id,
+        startX: pt.clientX, startY: pt.clientY, viewX: v.x, viewY: v.y, moved: false }
       return
     }
 
-    // Also skip pan when touching a layer node with nothing selected.
-    // If we start a pan here, any finger movement (common on touchscreens) marks p.moved=true
-    // and Konva cancels the tap event, so the layer never gets selected.
-    if (isLayerHit) return
+    if (activeId) {
+      // Tapped empty space while a layer is active → deselect candidate
+      panRef.current = { type: 'deselect', startX: pt.clientX, startY: pt.clientY, moved: false }
+      return
+    }
 
     panRef.current = { type: 'pan', startX: pt.clientX, startY: pt.clientY,
       viewX: v.x, viewY: v.y, moved: false }
@@ -416,7 +431,7 @@ export default function Canvas({ openPickerRef }) {
     const vs = viewRef.current.scale
     const { ratio: r, layers: curLayers, slides: curSlides, updateLayer: upd } = fresh.current
 
-    if (p.type === 'pan') {
+    if (p.type === 'pan' || p.type === 'select') {
       setViewSync(v => ({ ...v, x: p.viewX + dx, y: p.viewY + dy }))
     } else if (p.type === 'resize') {
       const sl = p.startLayer
@@ -447,6 +462,13 @@ export default function Canvas({ openPickerRef }) {
 
     if (p.type === 'addslide' && !p.moved) {
       fresh.current.addSlide()
+      return
+    }
+
+    if (p.type === 'select' && !p.moved) {
+      fresh.current.setActiveLayer(p.layerId)
+      const layer = fresh.current.layers.find(l => l.id === p.layerId)
+      if (layer) fresh.current.setActiveSlide(Math.floor(layer.x / fresh.current.ratio.w))
       return
     }
 
