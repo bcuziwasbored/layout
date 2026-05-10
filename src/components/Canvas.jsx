@@ -51,29 +51,41 @@ function snapEdge(v, lines, thr) {
 
 const CELL_GAP = 6  // must match GAP in useStore applyTemplate
 
-// Returns { vertical: [xMid, ...], horizontal: [yMid, ...] } seam midpoints
+// Returns { vertical: [{xMid, y1, y2},...], horizontal: [{yMid, x1, x2},...] }
+// y1/y2 and x1/x2 are the actual shared edge span, used to center the handle.
+// Multiple cell pairs sharing the same seam x/y are merged into one entry.
 function findGroupSeams(groupLayers) {
   const tol = CELL_GAP + 2
-  const seen = new Set()
-  const vertical = [], horizontal = []
+  const vMap = new Map()  // key: rounded xMid → { xMid, y1, y2 }
+  const hMap = new Map()  // key: rounded yMid → { yMid, x1, x2 }
   for (const a of groupLayers) {
     for (const b of groupLayers) {
       if (a === b) continue
-      // Vertical seam: a's right edge near b's left edge
-      const key1 = `v${Math.round(a.x + a.w)}`
-      if (!seen.has(key1) && Math.abs((a.x + a.w) - b.x) <= tol && Math.abs((a.x + a.w) - b.x) > 0) {
-        seen.add(key1)
-        vertical.push((a.x + a.w + b.x) / 2)
+      const gapX = b.x - (a.x + a.w)
+      if (gapX >= 0 && gapX <= tol) {
+        const sharedY1 = Math.max(a.y, b.y)
+        const sharedY2 = Math.min(a.y + a.h, b.y + b.h)
+        if (sharedY2 > sharedY1) {
+          const xMid = (a.x + a.w + b.x) / 2
+          const key = Math.round(xMid)
+          if (!vMap.has(key)) vMap.set(key, { xMid, y1: sharedY1, y2: sharedY2 })
+          else { const v = vMap.get(key); v.y1 = Math.min(v.y1, sharedY1); v.y2 = Math.max(v.y2, sharedY2) }
+        }
       }
-      // Horizontal seam: a's bottom edge near b's top edge
-      const key2 = `h${Math.round(a.y + a.h)}`
-      if (!seen.has(key2) && Math.abs((a.y + a.h) - b.y) <= tol && Math.abs((a.y + a.h) - b.y) > 0) {
-        seen.add(key2)
-        horizontal.push((a.y + a.h + b.y) / 2)
+      const gapY = b.y - (a.y + a.h)
+      if (gapY >= 0 && gapY <= tol) {
+        const sharedX1 = Math.max(a.x, b.x)
+        const sharedX2 = Math.min(a.x + a.w, b.x + b.w)
+        if (sharedX2 > sharedX1) {
+          const yMid = (a.y + a.h + b.y) / 2
+          const key = Math.round(yMid)
+          if (!hMap.has(key)) hMap.set(key, { yMid, x1: sharedX1, x2: sharedX2 })
+          else { const h = hMap.get(key); h.x1 = Math.min(h.x1, sharedX1); h.x2 = Math.max(h.x2, sharedX2) }
+        }
       }
     }
   }
-  return { vertical, horizontal }
+  return { vertical: [...vMap.values()], horizontal: [...hMap.values()] }
 }
 
 function computeResize(sl, handle, ddx, ddy) {
@@ -548,23 +560,34 @@ export default function Canvas({ openPickerRef }) {
         })
       }
     } else if (p.type === 'seam-drag') {
-      const delta = (p.seamType === 'v' ? dx : dy) / vs
+      let delta = (p.seamType === 'v' ? dx : dy) / vs
       const halfGap = CELL_GAP / 2
+      const MIN = 40
+      // Clamp delta so no cell goes below MIN size
+      for (const sl of p.groupLayers) {
+        if (p.seamType === 'v') {
+          if (Math.abs(sl.x + sl.w - (p.seamMid - halfGap)) <= 3) delta = Math.max(delta, MIN - sl.w)
+          else if (Math.abs(sl.x - (p.seamMid + halfGap)) <= 3)   delta = Math.min(delta, sl.w - MIN)
+        } else {
+          if (Math.abs(sl.y + sl.h - (p.seamMid - halfGap)) <= 3) delta = Math.max(delta, MIN - sl.h)
+          else if (Math.abs(sl.y - (p.seamMid + halfGap)) <= 3)   delta = Math.min(delta, sl.h - MIN)
+        }
+      }
       p.groupLayers.forEach(sl => {
         if (p.seamType === 'v') {
           if (Math.abs(sl.x + sl.w - (p.seamMid - halfGap)) <= 3) {
-            const nw = Math.max(20, sl.w + delta)
+            const nw = sl.w + delta
             upd(sl.id, { w: nw, ...fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, nw, sl.h) })
           } else if (Math.abs(sl.x - (p.seamMid + halfGap)) <= 3) {
-            const nw = Math.max(20, sl.w - delta)
+            const nw = sl.w - delta
             upd(sl.id, { x: sl.x + delta, w: nw, ...fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, nw, sl.h) })
           }
         } else {
           if (Math.abs(sl.y + sl.h - (p.seamMid - halfGap)) <= 3) {
-            const nh = Math.max(20, sl.h + delta)
+            const nh = sl.h + delta
             upd(sl.id, { h: nh, ...fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, sl.w, nh) })
           } else if (Math.abs(sl.y - (p.seamMid + halfGap)) <= 3) {
-            const nh = Math.max(20, sl.h - delta)
+            const nh = sl.h - delta
             upd(sl.id, { y: sl.y + delta, h: nh, ...fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, sl.w, nh) })
           }
         }
@@ -799,20 +822,20 @@ export default function Canvas({ openPickerRef }) {
                 return (
                   <Group>
                     <SelectionOverlay layer={{ id: activeLayerId, x: gx, y: gy, w: gx2 - gx, h: gy2 - gy }} vs={vs} />
-                    {seams.vertical.map(xMid => (
-                      <Rect key={`sv${Math.round(xMid)}`}
-                        name={`seam|v|${activeLayerId}|${xMid.toFixed(1)}`}
-                        x={xMid - 5 / vs} y={(gy + gy2) / 2 - 18 / vs}
+                    {seams.vertical.map(seam => (
+                      <Rect key={`sv${Math.round(seam.xMid)}`}
+                        name={`seam|v|${activeLayerId}|${seam.xMid.toFixed(1)}`}
+                        x={seam.xMid - 5 / vs} y={(seam.y1 + seam.y2) / 2 - 18 / vs}
                         width={10 / vs} height={36 / vs}
                         cornerRadius={4 / vs}
                         fill="white" stroke={BORDER_COLOR} strokeWidth={1.5 / vs}
                         hitStrokeWidth={22 / vs}
                       />
                     ))}
-                    {seams.horizontal.map(yMid => (
-                      <Rect key={`sh${Math.round(yMid)}`}
-                        name={`seam|h|${activeLayerId}|${yMid.toFixed(1)}`}
-                        x={(gx + gx2) / 2 - 18 / vs} y={yMid - 5 / vs}
+                    {seams.horizontal.map(seam => (
+                      <Rect key={`sh${Math.round(seam.yMid)}`}
+                        name={`seam|h|${activeLayerId}|${seam.yMid.toFixed(1)}`}
+                        x={(seam.x1 + seam.x2) / 2 - 18 / vs} y={seam.yMid - 5 / vs}
                         width={36 / vs} height={10 / vs}
                         cornerRadius={4 / vs}
                         fill="white" stroke={BORDER_COLOR} strokeWidth={1.5 / vs}
