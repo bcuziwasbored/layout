@@ -187,12 +187,13 @@ export const useStore = create((set, get) => ({
     const newLayers = template.cells.map(cell => ({
       id: uid(),
       type: 'image',
+      locked: true,
       src: null,
       x: offsetX + Math.round(cell.x * ratio.w + (cell.x > 0 ? GAP / 2 : 0)),
       y: Math.round(cell.y * ratio.h + (cell.y > 0 ? GAP / 2 : 0)),
       w: Math.round(cell.w * ratio.w - (cell.x > 0 ? GAP / 2 : 0) - (cell.x + cell.w < 1 ? GAP / 2 : 0)),
       h: Math.round(cell.h * ratio.h - (cell.y > 0 ? GAP / 2 : 0) - (cell.y + cell.h < 1 ? GAP / 2 : 0)),
-      imgX: 0, imgY: 0, imgScale: 1, opacity: 1,
+      imgX: 0, imgY: 0, imgScale: 1, opacity: 1, naturalW: null, naturalH: null,
     }))
 
     set({ layers: [...kept, ...newLayers], panel: null })

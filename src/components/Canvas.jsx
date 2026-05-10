@@ -3,85 +3,119 @@ import { Stage, Layer, Rect, Image as KImage, Group, Text, Line } from 'react-ko
 import { useStore, fitInCell } from '../useStore'
 import useImage from 'use-image'
 
-const SLIDE_GAP = 3 // visual px gap between slides (not in export space)
-const HANDLE_SIZE = 10
-const BORDER_COLOR = '#3b82f6' // blue-500, visible on any bg
+const BORDER_COLOR = '#3b82f6'
+const HANDLE_PX = 10  // screen pixels, stays constant regardless of zoom
 
-function EmptyCell({ x, y, w, h, scale, slideOffsetPx, onClick }) {
-  const cx = (x + slideOffsetPx) * scale
-  const cy = y * scale
-  const cw = w * scale
-  const ch = h * scale
+function getDistance(a, b) {
+  return Math.hypot(b.x - a.x, b.y - a.y)
+}
+
+// ─── EmptyCell ───────────────────────────────────────────────────────────────
+
+function EmptyCell({ layer, onPress }) {
   const r = 20
   return (
-    <Group x={cx} y={cy} onClick={onClick} onTap={onClick}>
-      <Rect width={cw} height={ch} fill="#e0e0e0" />
-      <Rect width={r * 2} height={r * 2} x={cw / 2 - r} y={ch / 2 - r} cornerRadius={r} fill="rgba(0,0,0,0.18)" />
-      <Text text="+" fontSize={22} fill="rgba(0,0,0,0.45)" x={cw / 2 - 7} y={ch / 2 - 13} listening={false} />
+    <Group x={layer.x} y={layer.y} onClick={onPress} onTap={onPress}>
+      <Rect width={layer.w} height={layer.h} fill="#e0e0e0" />
+      <Rect x={layer.w / 2 - r} y={layer.h / 2 - r} width={r * 2} height={r * 2}
+        cornerRadius={r} fill="rgba(0,0,0,0.18)" />
+      <Text text="+" fontSize={22} fill="rgba(0,0,0,0.45)"
+        x={layer.w / 2 - 7} y={layer.h / 2 - 13} listening={false} />
     </Group>
   )
 }
 
-function FilledCell({ layer, scale, slideOffsetPx, isSelected, isCropTarget, onSelect, onDragEnd }) {
+// ─── FilledCell ───────────────────────────────────────────────────────────────
+
+function FilledCell({ layer, vs, isSelected, isCropTarget, onSelect, onMoveEnd, onPanEnd }) {
   const [img] = useImage(layer.src)
-  const x = (layer.x + slideOffsetPx) * scale
-  const y = layer.y * scale
-  const w = layer.w * scale
-  const h = layer.h * scale
+  const hs = HANDLE_PX / vs   // handle half-size in logical units
 
-  const imgX = (layer.imgX ?? 0) * scale
-  const imgY = (layer.imgY ?? 0) * scale
-  const imgW = img ? img.naturalWidth * (layer.imgScale ?? 1) * scale : 0
-  const imgH = img ? img.naturalHeight * (layer.imgScale ?? 1) * scale : 0
+  const imgW = img ? img.naturalWidth * (layer.imgScale ?? 1) : 0
+  const imgH = img ? img.naturalHeight * (layer.imgScale ?? 1) : 0
+  const imgX = layer.imgX ?? 0
+  const imgY = layer.imgY ?? 0
 
+  const clampPos = (x, y) => ({
+    x: Math.max(Math.min(0, layer.w - imgW), Math.min(0, x)),
+    y: Math.max(Math.min(0, layer.h - imgH), Math.min(0, y)),
+  })
+
+  // ── Crop-target overlay ──
   if (isCropTarget) {
-    // In crop mode: show full image faded, clip region at full opacity
     return (
       <Group>
-        {/* Faded full image outside clip */}
         {img && (
-          <KImage image={img} x={x + imgX} y={y + imgY} width={imgW} height={imgH} opacity={0.2} listening={false} />
+          <KImage image={img} x={layer.x + imgX} y={layer.y + imgY}
+            width={imgW} height={imgH} opacity={0.2} listening={false} />
         )}
-        {/* Full opacity within clip */}
-        <Group clipFunc={ctx => ctx.rect(x, y, w, h)} listening={false}>
-          {img && <KImage image={img} x={x + imgX} y={y + imgY} width={imgW} height={imgH} opacity={1} />}
+        <Group clipFunc={ctx => ctx.rect(layer.x, layer.y, layer.w, layer.h)} listening={false}>
+          {img && <KImage image={img} x={layer.x + imgX} y={layer.y + imgY}
+            width={imgW} height={imgH} opacity={1} />}
         </Group>
-        {/* Dashed cell border */}
-        <Rect x={x} y={y} width={w} height={h} stroke="white" strokeWidth={1.5} dash={[6, 4]} listening={false} />
+        <Rect x={layer.x} y={layer.y} width={layer.w} height={layer.h}
+          stroke="white" strokeWidth={1.5 / vs} dash={[6 / vs, 4 / vs]} listening={false} />
       </Group>
     )
   }
 
-  return (
-    <Group
-      x={x} y={y} width={w} height={h}
-      clipFunc={ctx => ctx.rect(0, 0, w, h)}
-      draggable
-      onClick={onSelect}
-      onTap={onSelect}
-      onDragStart={onSelect}
-      onDragEnd={e => onDragEnd({ x: e.target.x() / scale - slideOffsetPx, y: e.target.y() / scale })}
-      opacity={layer.opacity ?? 1}
-    >
-      {img && <KImage image={img} x={imgX} y={imgY} width={imgW} height={imgH} />}
+  const handles = [[0, 0], [layer.w, 0], [0, layer.h], [layer.w, layer.h]]
 
-      {/* Selection border + handles */}
-      {isSelected && (
-        <>
-          <Rect width={w} height={h} stroke={BORDER_COLOR} strokeWidth={2} listening={false} />
-          {/* Corner handles */}
-          {[[0,0],[w,0],[0,h],[w,h]].map(([hx, hy], i) => (
-            <Rect key={i} x={hx - HANDLE_SIZE/2} y={hy - HANDLE_SIZE/2}
-              width={HANDLE_SIZE} height={HANDLE_SIZE}
-              fill="white" stroke={BORDER_COLOR} strokeWidth={1.5}
-              cornerRadius={2} listening={false}
-            />
+  // ── Cell-locked: drag image to pan within clip ──
+  if (layer.locked) {
+    return (
+      <Group x={layer.x} y={layer.y} clipFunc={ctx => ctx.rect(0, 0, layer.w, layer.h)}
+        onClick={onSelect} onTap={onSelect} opacity={layer.opacity ?? 1}>
+        {img && (
+          <KImage
+            image={img} x={imgX} y={imgY} width={imgW} height={imgH}
+            draggable={isSelected}
+            onDragMove={e => {
+              const { x, y } = clampPos(e.target.x(), e.target.y())
+              e.target.position({ x, y })
+            }}
+            onDragEnd={e => {
+              const { x, y } = clampPos(e.target.x(), e.target.y())
+              onPanEnd({ imgX: x, imgY: y })
+            }}
+          />
+        )}
+        {isSelected && <>
+          <Rect width={layer.w} height={layer.h}
+            stroke={BORDER_COLOR} strokeWidth={2 / vs} listening={false} />
+          {handles.map(([hx, hy], i) => (
+            <Rect key={i} x={hx - hs} y={hy - hs} width={hs * 2} height={hs * 2}
+              fill="white" stroke={BORDER_COLOR} strokeWidth={1.5 / vs}
+              cornerRadius={2} listening={false} />
           ))}
-        </>
-      )}
+        </>}
+      </Group>
+    )
+  }
+
+  // ── Free layer: drag to reposition ──
+  return (
+    <Group x={layer.x} y={layer.y} width={layer.w} height={layer.h}
+      clipFunc={ctx => ctx.rect(0, 0, layer.w, layer.h)}
+      draggable={isSelected}
+      onClick={onSelect} onTap={onSelect}
+      onDragEnd={e => onMoveEnd({ x: e.target.x(), y: e.target.y() })}
+      opacity={layer.opacity ?? 1}>
+      {img && <KImage image={img} x={imgX} y={imgY} width={imgW} height={imgH} />}
+      {isSelected && <>
+        <Rect width={layer.w} height={layer.h}
+          stroke={BORDER_COLOR} strokeWidth={2 / vs} listening={false} />
+        {handles.map(([hx, hy], i) => (
+          <Rect key={i} x={hx - hs} y={hy - hs} width={hs * 2} height={hs * 2}
+            fill="white" stroke={BORDER_COLOR} strokeWidth={1.5 / vs}
+            cornerRadius={2} listening={false} />
+        ))}
+      </>}
     </Group>
   )
 }
+
+// ─── Canvas ───────────────────────────────────────────────────────────────────
 
 export default function Canvas({ openPickerRef }) {
   const ratio = useStore(s => s.ratio)
@@ -99,12 +133,28 @@ export default function Canvas({ openPickerRef }) {
   const fillCells = useStore(s => s.fillCells)
 
   const containerRef = useRef()
+  const stageRef = useRef()
   const fileRef = useRef()
   const pendingLayerId = useRef(null)
   const pendingSlideIdx = useRef(null)
   const isMulti = useRef(false)
-  const [containerSize, setContainerSize] = useState({ w: 300, h: 500 })
+  const panOrigin = useRef(null)
+  const pinchRef = useRef({ active: false, lastDist: 0 })
+  const viewRef = useRef(null)
 
+  const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
+  const [view, setView] = useState(null)   // { x, y, scale }
+
+  // Keep a ref always synced to latest view for use in event handlers
+  const setViewSync = useCallback((updater) => {
+    setView(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      viewRef.current = next
+      return next
+    })
+  }, [])
+
+  // ── Measure container ──
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -113,24 +163,100 @@ export default function Canvas({ openPickerRef }) {
     return () => ro.disconnect()
   }, [])
 
-  const PADDING = 20
-  const scaleY = (containerSize.h - PADDING * 2) / ratio.h
-  const scaleX = (containerSize.w - PADDING * 2) / ratio.w
-  const scale = Math.min(scaleX, scaleY, scaleY) // fit height, allow horizontal scroll
+  // ── Initialize view (once container is measured) ──
+  useEffect(() => {
+    if (!containerSize.w || view) return
+    const scale = Math.min(
+      (containerSize.w - 32) / ratio.w,
+      (containerSize.h - 32) / ratio.h
+    )
+    const initView = {
+      x: (containerSize.w - ratio.w * scale) / 2,
+      y: (containerSize.h - ratio.h * scale) / 2,
+      scale,
+    }
+    viewRef.current = initView
+    setView(initView)
+  }, [containerSize, ratio, view])
 
-  const slideW = ratio.w * scale
-  const slideH = ratio.h * scale
-  const totalW = slides.length * slideW + (slides.length - 1) * SLIDE_GAP
+  // ── Snap to active slide when it changes ──
+  useEffect(() => {
+    if (!view) return
+    setViewSync(v => ({
+      ...v,
+      x: (containerSize.w - ratio.w * v.scale) / 2 - activeSlideIdx * ratio.w * v.scale,
+    }))
+  }, [activeSlideIdx, slides.length]) // eslint-disable-line
 
-  // Visual x offset for slide N on the canvas (accounts for gaps)
-  const slideVisualX = (idx) => idx * (slideW + SLIDE_GAP)
-  // Export-space offset for slide N (no gaps in export)
-  const slideExportOffset = (idx) => -idx * ratio.w
+  // ── Pinch zoom (passive:false required for preventDefault) ──
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const handler = (e) => {
+      if (e.touches.length < 2) return
+      e.preventDefault()
+      const t1 = e.touches[0], t2 = e.touches[1]
+      const newDist = getDistance({ x: t1.clientX, y: t1.clientY }, { x: t2.clientX, y: t2.clientY })
+      const mid = {
+        x: (t1.clientX + t2.clientX) / 2 - el.getBoundingClientRect().left,
+        y: (t1.clientY + t2.clientY) / 2 - el.getBoundingClientRect().top,
+      }
+      if (!pinchRef.current.active) {
+        pinchRef.current = { active: true, lastDist: newDist }
+        // cancel any canvas pan that started
+        panOrigin.current = null
+        return
+      }
+      const factor = newDist / pinchRef.current.lastDist
+      pinchRef.current.lastDist = newDist
+      setViewSync(v => {
+        const ns = Math.max(0.15, Math.min(8, v.scale * factor))
+        return {
+          scale: ns,
+          x: mid.x - (mid.x - v.x) * (ns / v.scale),
+          y: mid.y - (mid.y - v.y) * (ns / v.scale),
+        }
+      })
+    }
+    const endHandler = () => { pinchRef.current = { active: false, lastDist: 0 } }
+    el.addEventListener('touchmove', handler, { passive: false })
+    el.addEventListener('touchend', endHandler)
+    return () => {
+      el.removeEventListener('touchmove', handler)
+      el.removeEventListener('touchend', endHandler)
+    }
+  }, [setViewSync])
 
-  const handleStageClick = useCallback((e) => {
-    if (e.target === e.target.getStage()) setActiveLayer(null)
+  // ── Canvas pan via Konva (1-finger on background) ──
+  const handleBgPointerDown = useCallback((e) => {
+    // Only start pan from background, not from a layer node
+    const nativeTouches = e.evt.touches
+    if (nativeTouches && nativeTouches.length > 1) return  // let pinch handler take over
+    const pt = nativeTouches ? nativeTouches[0] : e.evt
+    panOrigin.current = {
+      clientX: pt.clientX,
+      clientY: pt.clientY,
+      vx: viewRef.current?.x ?? 0,
+      vy: viewRef.current?.y ?? 0,
+    }
+    setActiveLayer(null)
   }, [setActiveLayer])
 
+  const handleStageMouseMove = useCallback((e) => {
+    if (!panOrigin.current) return
+    const nativeTouches = e.evt.touches
+    if (nativeTouches && nativeTouches.length > 1) { panOrigin.current = null; return }
+    const pt = nativeTouches ? nativeTouches[0] : e.evt
+    const dx = pt.clientX - panOrigin.current.clientX
+    const dy = pt.clientY - panOrigin.current.clientY
+    setViewSync(v => ({ ...v, x: panOrigin.current.vx + dx, y: panOrigin.current.vy + dy }))
+  }, [setViewSync])
+
+  const handleStagePointerUp = useCallback(() => {
+    panOrigin.current = null
+  }, [])
+
+  // ── File picker ──
   const openPickerForCell = useCallback((layerId, slideIdx, multi = false) => {
     pendingLayerId.current = layerId
     pendingSlideIdx.current = slideIdx
@@ -142,8 +268,10 @@ export default function Canvas({ openPickerRef }) {
   }, [])
 
   useEffect(() => {
-    if (openPickerRef) openPickerRef.current = (layerId = null, slideIdx = null, multi = false) =>
-      openPickerForCell(layerId, slideIdx ?? activeSlideIdx, multi)
+    if (openPickerRef) {
+      openPickerRef.current = (layerId = null, slideIdx = null, multi = false) =>
+        openPickerForCell(layerId, slideIdx ?? activeSlideIdx, multi)
+    }
   }, [openPickerRef, openPickerForCell, activeSlideIdx])
 
   const handleFileChange = (e) => {
@@ -151,7 +279,6 @@ export default function Canvas({ openPickerRef }) {
     if (!files.length) return
 
     if (isMulti.current && files.length > 1) {
-      // Multi-select: fill empty cells in order
       fillCells(files)
     } else {
       const file = files[0]
@@ -162,7 +289,9 @@ export default function Canvas({ openPickerRef }) {
           const layer = useStore.getState().layers.find(l => l.id === pendingLayerId.current)
           if (layer) {
             const fit = fitInCell(img.naturalWidth, img.naturalHeight, layer.w, layer.h)
-            updateLayerWithHistory(pendingLayerId.current, { src: url, naturalW: img.naturalWidth, naturalH: img.naturalHeight, ...fit })
+            updateLayerWithHistory(pendingLayerId.current, {
+              src: url, naturalW: img.naturalWidth, naturalH: img.naturalHeight, ...fit,
+            })
           }
           pendingLayerId.current = null
         } else {
@@ -176,127 +305,123 @@ export default function Canvas({ openPickerRef }) {
 
   const activeLayer = layers.find(l => l.id === activeLayerId)
 
+  if (!view) return <div ref={containerRef} className="flex-1 w-full" />
+
+  const vs = view.scale
+
   return (
-    <div ref={containerRef} className="flex-1 w-full flex flex-col items-center justify-center overflow-hidden">
+    <div ref={containerRef} className="flex-1 w-full overflow-hidden">
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
 
-      {/* Horizontally scrollable canvas area */}
-      <div
-        className="overflow-x-auto overflow-y-hidden"
-        style={{ maxWidth: '100%', width: totalW + PADDING * 2 }}
+      <Stage
+        ref={stageRef}
+        width={containerSize.w}
+        height={containerSize.h}
+        onMouseMove={handleStageMouseMove}
+        onTouchMove={handleStageMouseMove}
+        onMouseUp={handleStagePointerUp}
+        onTouchEnd={handleStagePointerUp}
       >
-        <div style={{ padding: PADDING, width: totalW + PADDING * 2 }}>
-          <Stage
-            width={totalW}
-            height={slideH}
-            onClick={handleStageClick}
-            onTap={handleStageClick}
-            style={{ display: 'block', boxShadow: '0 4px 40px rgba(0,0,0,0.5)' }}
-          >
-            <Layer>
-              {/* Slide backgrounds */}
-              {slides.map((slide, i) => (
-                <Rect
-                  key={slide.id}
-                  x={slideVisualX(i)} y={0}
-                  width={slideW} height={slideH}
-                  fill={bgColor}
-                  onClick={() => setActiveSlide(i)}
-                  onTap={() => setActiveSlide(i)}
-                />
-              ))}
+        <Layer>
+          {/* Content group: all slides in logical coordinates, transformed for pan/zoom */}
+          <Group x={view.x} y={view.y} scaleX={vs} scaleY={vs}>
 
-              {/* Active slide indicator */}
-              <Rect
-                x={slideVisualX(activeSlideIdx)} y={0}
-                width={slideW} height={slideH}
-                stroke={BORDER_COLOR} strokeWidth={2}
-                listening={false}
+            {/* Large background catch-all for pan + deselect */}
+            <Rect
+              x={-ratio.w * 2} y={-ratio.h * 2}
+              width={(slides.length + 4) * ratio.w} height={ratio.h * 5}
+              fill="transparent"
+              onMouseDown={handleBgPointerDown}
+              onTouchStart={handleBgPointerDown}
+            />
+
+            {/* Slide backgrounds */}
+            {slides.map((slide, i) => (
+              <Rect key={slide.id}
+                x={i * ratio.w} y={0} width={ratio.w} height={ratio.h}
+                fill={bgColor}
+                onMouseDown={e => { setActiveSlide(i); handleBgPointerDown(e) }}
+                onTouchStart={e => { setActiveSlide(i); handleBgPointerDown(e) }}
               />
+            ))}
 
-              {/* Slide dividers */}
-              {slides.slice(1).map((_, i) => (
-                <Line
-                  key={i}
-                  points={[slideVisualX(i + 1) - SLIDE_GAP / 2, 0, slideVisualX(i + 1) - SLIDE_GAP / 2, slideH]}
-                  stroke="#333" strokeWidth={SLIDE_GAP}
-                  listening={false}
-                />
-              ))}
+            {/* Active slide indicator */}
+            <Rect
+              x={activeSlideIdx * ratio.w} y={0}
+              width={ratio.w} height={ratio.h}
+              stroke={BORDER_COLOR} strokeWidth={2 / vs}
+              listening={false}
+            />
 
-              {/* Crop mode dark overlay */}
-              {cropMode && (
-                <Rect width={totalW} height={slideH} fill="rgba(0,0,0,0.75)" listening={false} />
-              )}
+            {/* Slide dividers (no coordinate gap — purely visual) */}
+            {slides.slice(1).map((_, i) => (
+              <Line key={i}
+                points={[(i + 1) * ratio.w, 0, (i + 1) * ratio.w, ratio.h]}
+                stroke="#555" strokeWidth={2 / vs} listening={false}
+              />
+            ))}
 
-              {/* Layers */}
-              {layers.map(layer => {
-                // Figure out which visual slide offset to use based on layer's global x
-                const lSlideIdx = Math.floor(layer.x / ratio.w)
-                // Visual offset: gap adjustments for slide index
-                const visualOffset = slideVisualX(lSlideIdx) - lSlideIdx * slideW
+            {/* Crop overlay */}
+            {cropMode && (
+              <Rect
+                x={0} y={0} width={slides.length * ratio.w} height={ratio.h}
+                fill="rgba(0,0,0,0.75)" listening={false}
+              />
+            )}
 
-                if (cropMode && layer.id === activeLayerId) {
-                  return (
-                    <FilledCell
-                      key={layer.id}
-                      layer={layer}
-                      scale={scale}
-                      slideOffsetPx={visualOffset / scale}
-                      isSelected={false}
-                      isCropTarget={true}
-                      onSelect={() => {}}
-                      onDragEnd={() => {}}
-                    />
-                  )
-                }
-                if (cropMode) return null // hide other layers in crop mode
-
-                return layer.src ? (
-                  <FilledCell
-                    key={layer.id}
-                    layer={layer}
-                    scale={scale}
-                    slideOffsetPx={visualOffset / scale}
-                    isSelected={activeLayerId === layer.id}
-                    isCropTarget={false}
-                    onSelect={() => setActiveLayer(layer.id)}
-                    onDragEnd={pos => updateLayer(layer.id, pos)}
-                  />
-                ) : (
-                  <EmptyCell
-                    key={layer.id}
-                    x={layer.x} y={layer.y} w={layer.w} h={layer.h}
-                    scale={scale}
-                    slideOffsetPx={visualOffset / scale}
-                    onClick={() => {
-                      const si = Math.floor(layer.x / ratio.w)
-                      const emptyInSlide = layers.filter(l => !l.src && Math.floor(l.x / ratio.w) === si)
-                      openPickerForCell(layer.id, si, emptyInSlide.length > 1)
-                    }}
-                  />
+            {/* Layers */}
+            {layers.map(layer => {
+              if (cropMode && layer.id === activeLayerId) {
+                return (
+                  <FilledCell key={layer.id} layer={layer} vs={vs}
+                    isSelected={false} isCropTarget={true}
+                    onSelect={() => {}} onMoveEnd={() => {}} onPanEnd={() => {}} />
                 )
-              })}
-            </Layer>
-          </Stage>
-        </div>
-      </div>
+              }
+              if (cropMode) return null
 
-      {/* Crop mode controls */}
-      {cropMode && activeLayer && (
-        <CropControls layer={activeLayer} scale={scale} />
-      )}
+              return layer.src ? (
+                <FilledCell key={layer.id} layer={layer} vs={vs}
+                  isSelected={activeLayerId === layer.id}
+                  isCropTarget={false}
+                  onSelect={() => {
+                    setActiveLayer(layer.id)
+                    setActiveSlide(Math.floor(layer.x / ratio.w))
+                  }}
+                  onMoveEnd={pos => updateLayerWithHistory(layer.id, pos)}
+                  onPanEnd={pos => updateLayerWithHistory(layer.id, pos)}
+                />
+              ) : (
+                <EmptyCell key={layer.id} layer={layer}
+                  onPress={() => {
+                    const si = Math.floor(layer.x / ratio.w)
+                    const emptyInSlide = layers.filter(l => !l.src && Math.floor(l.x / ratio.w) === si)
+                    openPickerForCell(layer.id, si, emptyInSlide.length > 1)
+                  }}
+                />
+              )
+            })}
+          </Group>
+        </Layer>
+      </Stage>
+
+      {cropMode && activeLayer && <CropControls layer={activeLayer} />}
     </div>
   )
 }
 
-function CropControls({ layer, scale }) {
+// ─── CropControls ─────────────────────────────────────────────────────────────
+
+function CropControls({ layer }) {
   const updateLayer = useStore(s => s.updateLayer)
   const updateLayerWithHistory = useStore(s => s.updateLayerWithHistory)
   const setCropMode = useStore(s => s.setCropMode)
 
-  const maxPanX = layer.w * 0.9
-  const maxPanY = layer.h * 0.9
+  const imgW = (layer.naturalW ?? 1) * (layer.imgScale ?? 1)
+  const imgH = (layer.naturalH ?? 1) * (layer.imgScale ?? 1)
+  const maxPanX = Math.max(0, imgW - layer.w)
+  const maxPanY = Math.max(0, imgH - layer.h)
+  const minScale = Math.max(layer.w / (layer.naturalW ?? 1), layer.h / (layer.naturalH ?? 1))
 
   return (
     <div className="w-full bg-black/90 px-5 pt-3 pb-4">
@@ -309,16 +434,19 @@ function CropControls({ layer, scale }) {
         >Done</button>
       </div>
       <div className="space-y-3">
-        <SliderRow label="Scale" min={0.1} max={5} step={0.01} value={layer.imgScale}
+        <SliderRow label="Scale" min={minScale} max={minScale * 4} step={0.001}
+          value={layer.imgScale ?? 1}
           onChange={v => updateLayer(layer.id, { imgScale: v })}
           onDone={() => updateLayerWithHistory(layer.id, {})}
-          display={`${layer.imgScale.toFixed(2)}×`}
+          display={`${(layer.imgScale ?? 1).toFixed(2)}×`}
         />
-        <SliderRow label="Pan X" min={-maxPanX} max={maxPanX} step={1} value={layer.imgX ?? 0}
+        <SliderRow label="Pan X" min={-maxPanX} max={0} step={1}
+          value={layer.imgX ?? 0}
           onChange={v => updateLayer(layer.id, { imgX: v })}
           onDone={() => updateLayerWithHistory(layer.id, {})}
         />
-        <SliderRow label="Pan Y" min={-maxPanY} max={maxPanY} step={1} value={layer.imgY ?? 0}
+        <SliderRow label="Pan Y" min={-maxPanY} max={0} step={1}
+          value={layer.imgY ?? 0}
           onChange={v => updateLayer(layer.id, { imgY: v })}
           onDone={() => updateLayerWithHistory(layer.id, {})}
         />
@@ -331,8 +459,7 @@ function SliderRow({ label, min, max, step, value, onChange, onDone, display }) 
   return (
     <div className="flex items-center gap-3">
       <span className="text-xs text-white/50 w-12 shrink-0">{label}</span>
-      <input
-        type="range" min={min} max={max} step={step} value={value}
+      <input type="range" min={min} max={max} step={step} value={value}
         onChange={e => onChange(parseFloat(e.target.value))}
         onMouseUp={onDone} onTouchEnd={onDone}
         className="flex-1 accent-blue-500"
