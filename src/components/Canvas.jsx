@@ -110,23 +110,9 @@ function FilledCell({ layer, vs, isActive, onSelect, onMoveEnd, onPanEnd }) {
       <Group x={layer.x} y={layer.y}
         opacity={layer.opacity ?? 1}
         onClick={handleSelect} onTap={handleSelect}>
-        {/* Visual clip — listening=false so only the hit Rect below catches events */}
-        <Group clipFunc={ctx => ctx.rect(0, 0, layer.w, layer.h)} listening={isActive}>
-          {img && (
-            <KImage name="layer" image={img} x={imgX} y={imgY} width={imgW} height={imgH}
-              draggable={isActive}
-              onDragMove={e => {
-                e.cancelBubble = true
-                const x = clamp(e.target.x(), minImgX, 0)
-                const y = clamp(e.target.y(), minImgY, 0)
-                e.target.position({ x, y })
-              }}
-              onDragEnd={e => {
-                e.cancelBubble = true
-                onPanEnd({ imgX: clamp(e.target.x(), minImgX, 0), imgY: clamp(e.target.y(), minImgY, 0) })
-              }}
-            />
-          )}
+        {/* Visual clip only — image panning within cell is done via crop mode */}
+        <Group clipFunc={ctx => ctx.rect(0, 0, layer.w, layer.h)} listening={false}>
+          {img && <KImage image={img} x={imgX} y={imgY} width={imgW} height={imgH} />}
         </Group>
         {/* Hit area outside clipFunc — always reliably hittable */}
         <Rect name="layer" width={layer.w} height={layer.h} fill="rgba(0,0,0,0.01)"
@@ -274,7 +260,7 @@ export default function Canvas({ openPickerRef }) {
   useEffect(() => {
     if (!containerSize.w || view) return
     const { ratio: r } = fresh.current
-    const scale = Math.min((containerSize.w - 32) / r.w, (containerSize.h - 32) / r.h)
+    const scale = Math.min((containerSize.w - 32) / r.w, (containerSize.h - 32) / r.h) * 0.88
     const init = {
       x: (containerSize.w - r.w * scale) / 2,
       y: (containerSize.h - r.h * scale) / 2,
@@ -351,11 +337,33 @@ export default function Canvas({ openPickerRef }) {
       return
     }
 
+    // Canvas coords needed by both crop-pan and hit test — compute once up front
+    const containerRect = containerRef.current?.getBoundingClientRect()
+    const clientX = pt.clientX - (containerRect?.left ?? 0)
+    const clientY = pt.clientY - (containerRect?.top ?? 0)
+    const canvasX = (clientX - v.x) / v.scale
+    const canvasY = (clientY - v.y) / v.scale
+    const { ratio: curRatio } = fresh.current
+
     if (info?.type === 'resize' && info.layerId === activeId && !isCrop) {
       const layer = curLayers.find(l => l.id === info.layerId)
       if (layer) {
-        panRef.current = { type: 'resize', handle: info.handle, layerId: info.layerId,
-          startLayer: { ...layer }, startX: pt.clientX, startY: pt.clientY, moved: false }
+        if (layer.locked) {
+          // Treat all locked layers on this slide as one group
+          const si = Math.floor(layer.x / curRatio.w)
+          const grp = curLayers.filter(l => l.locked && Math.floor(l.x / curRatio.w) === si)
+          const gx = Math.min(...grp.map(l => l.x))
+          const gy = Math.min(...grp.map(l => l.y))
+          const gw = Math.max(...grp.map(l => l.x + l.w)) - gx
+          const gh = Math.max(...grp.map(l => l.y + l.h)) - gy
+          panRef.current = { type: 'group-resize', handle: info.handle,
+            groupLayers: grp.map(l => ({ ...l })),
+            startBounds: { x: gx, y: gy, w: gw, h: gh },
+            startX: pt.clientX, startY: pt.clientY, moved: false }
+        } else {
+          panRef.current = { type: 'resize', handle: info.handle, layerId: info.layerId,
+            startLayer: { ...layer }, startX: pt.clientX, startY: pt.clientY, moved: false }
+        }
         return
       }
     }
@@ -369,24 +377,18 @@ export default function Canvas({ openPickerRef }) {
       }
     }
 
-    // In crop mode any non-handle touch pans the image within the crop boundary
+    // In crop mode: touch outside layer bounds exits crop; inside pans the image
     if (isCrop && activeId) {
       const layer = curLayers.find(l => l.id === activeId)
-      if (layer) {
-        panRef.current = { type: 'crop-pan', layerId: activeId,
-          startLayer: { ...layer }, startX: pt.clientX, startY: pt.clientY, moved: false }
+      if (!layer || canvasX < layer.x || canvasX > layer.x + layer.w ||
+          canvasY < layer.y || canvasY > layer.y + layer.h) {
+        fresh.current.setCropMode(false)
+        return
       }
+      panRef.current = { type: 'crop-pan', layerId: activeId,
+        startLayer: { ...layer }, startX: pt.clientX, startY: pt.clientY, moved: false }
       return
     }
-
-    // Coordinate-based hit test — bypasses Konva hit detection entirely.
-    // Konva's hit canvas is unreliable inside clipFunc groups, so we test
-    // layer bounding boxes directly in canvas (world) space.
-    const containerRect = containerRef.current?.getBoundingClientRect()
-    const clientX = pt.clientX - (containerRect?.left ?? 0)
-    const clientY = pt.clientY - (containerRect?.top ?? 0)
-    const canvasX = (clientX - v.x) / v.scale
-    const canvasY = (clientY - v.y) / v.scale
 
     const hitLayer = [...curLayers].reverse().find(l =>
       l.src &&
@@ -439,6 +441,19 @@ export default function Canvas({ openPickerRef }) {
         upd(sl.id, { x: nx, y: ny, w: nw, h: nh, imgScale: newImgScale, imgX: newImgX, imgY: newImgY })
         setSnapGuides({ x: null, y: null })
       }
+    } else if (p.type === 'group-resize') {
+      const gb = p.startBounds
+      const { x: ngx, y: ngy, w: ngw, h: ngh } = computeResize(gb, p.handle, dx / vs, dy / vs)
+      if (ngw > 20 && ngh > 20) {
+        p.groupLayers.forEach(sl => {
+          const nx = ngx + (sl.x - gb.x) / gb.w * ngw
+          const ny = ngy + (sl.y - gb.y) / gb.h * ngh
+          const nw = sl.w / gb.w * ngw
+          const nh = sl.h / gb.h * ngh
+          const { imgScale, imgX, imgY } = fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, nw, nh)
+          upd(sl.id, { x: nx, y: ny, w: nw, h: nh, imgScale, imgX, imgY })
+        })
+      }
     } else if (p.type === 'crop-pan') {
       const sl = p.startLayer
       const imgW = (sl.naturalW ?? sl.w) * (sl.imgScale ?? 1)
@@ -481,6 +496,11 @@ export default function Canvas({ openPickerRef }) {
 
     if (p.type === 'crop-pan' && p.moved) {
       fresh.current.updateLayerWithHistory(p.startLayer.id, {})
+      return
+    }
+
+    if (p.type === 'group-resize' && p.moved) {
+      if (p.groupLayers.length) fresh.current.updateLayerWithHistory(p.groupLayers[0].id, {})
       return
     }
 
@@ -637,9 +657,18 @@ export default function Canvas({ openPickerRef }) {
             })}
 
             {/* Selection border + resize handles (outside clip) */}
-            {!cropMode && activeLayer?.src && (
-              <SelectionOverlay layer={activeLayer} vs={vs} />
-            )}
+            {!cropMode && activeLayer?.src && (() => {
+              if (activeLayer.locked) {
+                const si = Math.floor(activeLayer.x / ratio.w)
+                const grp = layers.filter(l => l.locked && Math.floor(l.x / ratio.w) === si)
+                const gx = Math.min(...grp.map(l => l.x))
+                const gy = Math.min(...grp.map(l => l.y))
+                const gw = Math.max(...grp.map(l => l.x + l.w)) - gx
+                const gh = Math.max(...grp.map(l => l.y + l.h)) - gy
+                return <SelectionOverlay layer={{ id: activeLayerId, x: gx, y: gy, w: gw, h: gh }} vs={vs} />
+              }
+              return <SelectionOverlay layer={activeLayer} vs={vs} />
+            })()}
           </Group>
         </Layer>
       </Stage>

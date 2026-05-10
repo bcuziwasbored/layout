@@ -16,21 +16,29 @@ export default function BottomBar() {
   const activeSlideIdx = useStore(s => s.activeSlideIdx)
 
   return (
-    <div className="flex items-center justify-between px-2 py-2 bg-black border-t border-white/10">
-      <Icon label="Background" active={panel === 'background'} onClick={() => setPanel('background')}>◉</Icon>
-      <Icon label="Layers" active={panel === 'layers'} onClick={() => setPanel('layers')}>⊞</Icon>
-
-      <button
-        onClick={() => setPanel('add')}
-        className="w-12 h-12 rounded-full bg-white text-black text-2xl font-light flex items-center justify-center shadow-lg active:scale-95 transition-transform"
-      >
-        +
-      </button>
-
-      <Icon label="Ratio" active={panel === 'ratio'} onClick={() => setPanel('ratio')}>▭</Icon>
-      <Icon label="Slides" active={panel === 'slides'} onClick={() => setPanel('slides')}>
-        <span className="text-sm font-semibold">{activeSlideIdx + 1}</span>
-      </Icon>
+    <div className="flex items-center bg-black border-t border-white/10">
+      <div className="flex-1 flex justify-center py-2">
+        <Icon label="Background" active={panel === 'background'} onClick={() => setPanel('background')}>◉</Icon>
+      </div>
+      <div className="flex-1 flex justify-center py-2">
+        <Icon label="Layers" active={panel === 'layers'} onClick={() => setPanel('layers')}>⊞</Icon>
+      </div>
+      <div className="flex-1 flex justify-center py-2">
+        <button
+          onClick={() => setPanel('add')}
+          className="w-12 h-12 rounded-full bg-white text-black text-2xl font-light flex items-center justify-center shadow-lg active:scale-95 transition-transform"
+        >
+          +
+        </button>
+      </div>
+      <div className="flex-1 flex justify-center py-2">
+        <Icon label="Ratio" active={panel === 'ratio'} onClick={() => setPanel('ratio')}>▭</Icon>
+      </div>
+      <div className="flex-1 flex justify-center py-2">
+        <Icon label="Slides" active={panel === 'slides'} onClick={() => setPanel('slides')}>
+          <span className="text-sm font-semibold">{activeSlideIdx + 1}</span>
+        </Icon>
+      </div>
     </div>
   )
 }

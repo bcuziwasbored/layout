@@ -184,10 +184,12 @@ export const useStore = create((set, get) => ({
     // Remove existing layers in this slide
     const kept = layers.filter(l => Math.floor(l.x / ratio.w) !== activeSlideIdx)
 
+    const groupId = uid()
     const newLayers = template.cells.map(cell => ({
       id: uid(),
       type: 'image',
       locked: true,
+      groupId,
       src: null,
       x: offsetX + Math.round(cell.x * ratio.w + (cell.x > 0 ? GAP / 2 : 0)),
       y: Math.round(cell.y * ratio.h + (cell.y > 0 ? GAP / 2 : 0)),
