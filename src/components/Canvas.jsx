@@ -5,7 +5,7 @@ import useImage from 'use-image'
 
 const BORDER_COLOR = '#3b82f6'
 const HANDLE_R_PX = 14
-const DRAG_THRESHOLD_PX = 5
+const DRAG_THRESHOLD_PX = 12
 const SNAP_THRESHOLD_PX = 8
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
