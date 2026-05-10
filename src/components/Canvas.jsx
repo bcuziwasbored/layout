@@ -549,13 +549,10 @@ export default function Canvas({ openPickerRef }) {
               width={(slides.length + 4) * ratio.w} height={ratio.h * 5}
               fill="rgba(0,0,0,0.001)" />
 
-            {/* Slide backgrounds */}
+            {/* Slide backgrounds — no tap handler; slide selection is via Slides panel only */}
             {slides.map((slide, i) => (
               <Rect key={slide.id} x={i * ratio.w} y={0} width={ratio.w} height={ratio.h}
-                fill={bgColor}
-                onClick={() => { fresh.current.setActiveSlide(i); fresh.current.setActiveLayer(null) }}
-                onTap={() => { fresh.current.setActiveSlide(i); fresh.current.setActiveLayer(null) }}
-              />
+                fill={bgColor} listening={false} />
             ))}
 
             {/* Inner 1px grey border (visual only, not in export) */}
@@ -565,10 +562,6 @@ export default function Canvas({ openPickerRef }) {
                 width={ratio.w - 2 / vs} height={ratio.h - 2 / vs}
                 stroke="rgba(150,150,150,0.3)" strokeWidth={1 / vs} listening={false} />
             ))}
-
-            {/* Active slide indicator */}
-            <Rect x={activeSlideIdx * ratio.w} y={0} width={ratio.w} height={ratio.h}
-              stroke={BORDER_COLOR} strokeWidth={2 / vs} listening={false} />
 
             {/* Slide dividers */}
             {slides.slice(1).map((_, i) => (
