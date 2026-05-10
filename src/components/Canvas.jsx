@@ -395,23 +395,28 @@ export default function Canvas({ openPickerRef }) {
       canvasY >= l.y && canvasY <= l.y + l.h
     )
 
+    console.log('[DOWN] canvasXY:', Math.round(canvasX), Math.round(canvasY),
+      '| layers:', curLayers.length, '| hit:', hitLayer?.id ?? 'none',
+      '| activeId:', activeId ?? 'none')
+
     if (hitLayer) {
       if (hitLayer.id === activeId) {
-        // Same active layer — let Konva's draggable handle it, no panRef needed
+        console.log('[DOWN] → same active layer, letting Konva handle drag')
         return
       }
-      // Different layer (or no selection) — track as select candidate; fall back to pan on drag
+      console.log('[DOWN] → panRef=select', hitLayer.id)
       panRef.current = { type: 'select', layerId: hitLayer.id,
         startX: pt.clientX, startY: pt.clientY, viewX: v.x, viewY: v.y, moved: false }
       return
     }
 
     if (activeId) {
-      // Tapped empty space while a layer is active → deselect candidate
+      console.log('[DOWN] → panRef=deselect')
       panRef.current = { type: 'deselect', startX: pt.clientX, startY: pt.clientY, moved: false }
       return
     }
 
+    console.log('[DOWN] → panRef=pan')
     panRef.current = { type: 'pan', startX: pt.clientX, startY: pt.clientY,
       viewX: v.x, viewY: v.y, moved: false }
   }
@@ -466,13 +471,20 @@ export default function Canvas({ openPickerRef }) {
     }
 
     if (p.type === 'select' && !p.moved) {
+      console.log('[UP] select →', p.layerId)
       fresh.current.setActiveLayer(p.layerId)
       const layer = fresh.current.layers.find(l => l.id === p.layerId)
       if (layer) fresh.current.setActiveSlide(Math.floor(layer.x / fresh.current.ratio.w))
       return
     }
 
+    if (p.type === 'select' && p.moved) {
+      console.log('[UP] select but moved — treating as pan, no selection')
+      return
+    }
+
     if (p.type === 'deselect' && !p.moved) {
+      console.log('[UP] deselect')
       fresh.current.setActiveLayer(null)
       return
     }
