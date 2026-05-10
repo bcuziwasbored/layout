@@ -31,6 +31,7 @@ export const useStore = create((set, get) => ({
   layers: [],           // global coordinate space
   activeSlideIdx: 0,
   activeLayerId: null,
+  activeCellId: null,   // sub-selected cell within a locked group (for image pan)
   panel: null,
   elementPanel: null,
   cropMode: false,
@@ -81,6 +82,7 @@ export const useStore = create((set, get) => ({
       layers: [],
       activeSlideIdx: 0,
       activeLayerId: null,
+      activeCellId: null,
       panel: null,
       elementPanel: null,
       cropMode: false,
@@ -98,11 +100,22 @@ export const useStore = create((set, get) => ({
   },
 
   setActiveSlide(idx) {
-    set({ activeSlideIdx: idx, activeLayerId: null, panel: null, elementPanel: null, cropMode: false })
+    set({ activeSlideIdx: idx, activeLayerId: null, activeCellId: null, panel: null, elementPanel: null, cropMode: false })
   },
 
   setActiveLayer(id) {
-    set({ activeLayerId: id, panel: null, elementPanel: null, cropMode: false })
+    if (!id) {
+      set({ activeLayerId: null, activeCellId: null, panel: null, elementPanel: null, cropMode: false })
+      return
+    }
+    const { layers, ratio } = get()
+    const layer = layers.find(l => l.id === id)
+    const slideIdx = layer ? Math.floor(layer.x / ratio.w) : get().activeSlideIdx
+    set({ activeLayerId: id, activeCellId: null, activeSlideIdx: slideIdx, panel: null, elementPanel: null, cropMode: false })
+  },
+
+  setActiveCellId(id) {
+    set({ activeCellId: id })
   },
 
   setCropMode(on) {
@@ -256,6 +269,19 @@ export const useStore = create((set, get) => ({
     set(s => ({
       layers: s.layers.filter(l => l.id !== id),
       activeLayerId: null,
+      activeCellId: null,
+      elementPanel: null,
+      cropMode: false,
+    }))
+  },
+
+  deleteGroup(slideIdx) {
+    get()._pushHistory()
+    const { ratio } = get()
+    set(s => ({
+      layers: s.layers.filter(l => !(l.locked && Math.floor(l.x / ratio.w) === slideIdx)),
+      activeLayerId: null,
+      activeCellId: null,
       elementPanel: null,
       cropMode: false,
     }))

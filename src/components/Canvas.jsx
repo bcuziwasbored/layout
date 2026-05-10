@@ -254,9 +254,11 @@ export default function Canvas({ openPickerRef }) {
   const layers       = useStore(s => s.layers)
   const activeSlideIdx  = useStore(s => s.activeSlideIdx)
   const activeLayerId   = useStore(s => s.activeLayerId)
+  const activeCellId    = useStore(s => s.activeCellId)
   const cropMode        = useStore(s => s.cropMode)
   const setActiveLayer  = useStore(s => s.setActiveLayer)
-  const setActiveSlide  = useStore(s => s.setActiveSlide)
+  const setActiveCellId = useStore(s => s.setActiveCellId)
+  const setCropMode     = useStore(s => s.setCropMode)
   const addSlide        = useStore(s => s.addSlide)
   const updateLayer     = useStore(s => s.updateLayer)
   const updateLayerWithHistory = useStore(s => s.updateLayerWithHistory)
@@ -276,8 +278,8 @@ export default function Canvas({ openPickerRef }) {
 
   // Keep always-fresh values accessible in stable callbacks
   const fresh = useRef({})
-  fresh.current = { layers, slides, ratio, activeLayerId, cropMode, activeSlideIdx,
-    setActiveLayer, setActiveSlide, addSlide, updateLayer, updateLayerWithHistory,
+  fresh.current = { layers, slides, ratio, activeLayerId, activeCellId, cropMode, activeSlideIdx,
+    setActiveLayer, setActiveCellId, setCropMode, addSlide, updateLayer, updateLayerWithHistory,
     addImageLayer, fillCells }
 
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
@@ -383,7 +385,7 @@ export default function Canvas({ openPickerRef }) {
 
     const info = getHandleInfo(e.target)
     const v = viewRef.current
-    const { activeLayerId: activeId, layers: curLayers, cropMode: isCrop } = fresh.current
+    const { activeLayerId: activeId, activeCellId: curCellId, layers: curLayers, cropMode: isCrop } = fresh.current
 
     if (info?.type === 'addslide') {
       panRef.current = { type: 'addslide' }
@@ -464,15 +466,26 @@ export default function Canvas({ openPickerRef }) {
       if (hitLayer.locked) {
         const si = Math.floor(hitLayer.x / curRatio.w)
         const grp = curLayers.filter(l => l.locked && Math.floor(l.x / curRatio.w) === si)
-        if (hitLayer.id !== activeId) {
-          // Select first, drag will start next gesture
+        const isGroupActive = grp.some(l => l.id === activeId)
+        if (!isGroupActive) {
+          // Group not selected — select it
           panRef.current = { type: 'select', layerId: hitLayer.id,
             startX: pt.clientX, startY: pt.clientY, viewX: v.x, viewY: v.y, moved: false }
-        } else {
-          // Already selected — drag the group
+        } else if (!curCellId) {
+          // Group selected, no cell sub-selected — drag group; tap will enter cell
           panRef.current = { type: 'group-drag',
-            groupLayers: grp.map(l => ({ ...l })),
+            groupLayers: grp.map(l => ({ ...l })), tappedCellId: hitLayer.id,
             startX: pt.clientX, startY: pt.clientY, moved: false }
+        } else {
+          // A cell is sub-selected — pan its image or clear sub-selection
+          const cell = curLayers.find(l => l.id === curCellId)
+          if (cell && canvasX >= cell.x && canvasX <= cell.x + cell.w &&
+              canvasY >= cell.y && canvasY <= cell.y + cell.h) {
+            panRef.current = { type: 'crop-pan', layerId: curCellId,
+              startLayer: { ...cell }, startX: pt.clientX, startY: pt.clientY, moved: false }
+          } else {
+            panRef.current = { type: 'clear-cell', moved: false }
+          }
         }
         return
       }
@@ -621,9 +634,8 @@ export default function Canvas({ openPickerRef }) {
     }
 
     if (p.type === 'select' && !p.moved) {
-      const layer = fresh.current.layers.find(l => l.id === p.layerId)
-      if (layer) fresh.current.setActiveSlide(Math.floor(layer.x / fresh.current.ratio.w))
-      fresh.current.setActiveLayer(p.layerId)  // must come after setActiveSlide (which resets activeLayerId)
+      // setActiveLayer now atomically updates activeSlideIdx — no separate setActiveSlide needed
+      fresh.current.setActiveLayer(p.layerId)
       return
     }
 
@@ -642,8 +654,19 @@ export default function Canvas({ openPickerRef }) {
       return
     }
 
+    if (p.type === 'group-drag' && !p.moved) {
+      // Tap on already-selected group → sub-select the tapped cell
+      fresh.current.setActiveCellId(p.tappedCellId)
+      return
+    }
+
     if (p.type === 'group-drag' && p.moved) {
       if (p.groupLayers.length) fresh.current.updateLayerWithHistory(p.groupLayers[0].id, {})
+      return
+    }
+
+    if (p.type === 'clear-cell') {
+      fresh.current.setActiveCellId(null)
       return
     }
 
@@ -735,12 +758,13 @@ export default function Canvas({ openPickerRef }) {
                 fill={bgColor} listening={false} />
             ))}
 
-            {/* Inner 1px grey border (visual only, not in export) */}
+            {/* Slide borders — active slide slightly brighter (visual only, not in export) */}
             {slides.map((slide, i) => (
               <Rect key={`ib-${slide.id}`}
                 x={i * ratio.w + 1 / vs} y={1 / vs}
                 width={ratio.w - 2 / vs} height={ratio.h - 2 / vs}
-                stroke="rgba(150,150,150,0.3)" strokeWidth={1 / vs} listening={false} />
+                stroke={i === activeSlideIdx ? 'rgba(255,255,255,0.25)' : 'rgba(150,150,150,0.2)'}
+                strokeWidth={1 / vs} listening={false} />
             ))}
 
             {/* Slide dividers */}
@@ -810,8 +834,19 @@ export default function Canvas({ openPickerRef }) {
             })}
 
             {/* Selection border + resize handles (outside clip) */}
-            {!cropMode && activeLayer && (activeLayer.src || activeLayer.locked) && (() => {
+            {!cropMode && activeLayer && (() => {
               if (activeLayer.locked) {
+                if (activeCellId) {
+                  // Cell edit mode — show a simple dashed border on the sub-selected cell
+                  const cell = layers.find(l => l.id === activeCellId)
+                  if (!cell) return null
+                  return (
+                    <Rect x={cell.x} y={cell.y} width={cell.w} height={cell.h}
+                      stroke={BORDER_COLOR} strokeWidth={2 / vs}
+                      dash={[8 / vs, 4 / vs]} listening={false} />
+                  )
+                }
+                // Group mode — show group overlay with corner handles and seam handles
                 const si = Math.floor(activeLayer.x / ratio.w)
                 const grp = layers.filter(l => l.locked && Math.floor(l.x / ratio.w) === si)
                 const gx = Math.min(...grp.map(l => l.x))
@@ -845,6 +880,7 @@ export default function Canvas({ openPickerRef }) {
                   </Group>
                 )
               }
+              if (!activeLayer.src) return null
               return <SelectionOverlay layer={activeLayer} vs={vs} />
             })()}
           </Group>
