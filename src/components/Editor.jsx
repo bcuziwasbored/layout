@@ -9,12 +9,14 @@ import AddPanel from './panels/AddPanel'
 import SlidesPanel from './panels/SlidesPanel'
 import BackgroundPanel from './panels/BackgroundPanel'
 import RatioPanel from './panels/RatioPanel'
+import CropControls from './panels/CropControls'
 import { IconClose } from './icons'
 
 export default function Editor() {
   const openPickerRef = useRef(null)
   const panel = useStore(s => s.panel)
   const activeLayerId = useStore(s => s.activeLayerId)
+  const cropMode = useStore(s => s.cropMode)
   const setPanel = useStore(s => s.setPanel)
 
   return (
@@ -30,7 +32,9 @@ export default function Editor() {
         </div>
 
         <div>
-          {activeLayerId && !panel ? (
+          {cropMode && activeLayerId ? (
+            <CropControls />
+          ) : activeLayerId && !panel ? (
             <LayerToolbar />
           ) : (
             <>
