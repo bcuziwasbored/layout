@@ -102,29 +102,34 @@ function FilledCell({ layer, vs, isActive, onSelect, onMoveEnd, onPanEnd }) {
   }, [onSelect])
 
   if (layer.locked) {
-    // Template cell: group fixed, image pannable when active
+    // Template cell: group fixed, image pannable when active.
+    // clipFunc is on an inner group so the hit Rect lives OUTSIDE the clip —
+    // Konva's hit canvas clips contents of clipFunc groups, making nodes inside
+    // unreliable for hit detection when the layer is not selected.
     return (
       <Group x={layer.x} y={layer.y}
-        clipFunc={ctx => ctx.rect(0, 0, layer.w, layer.h)}
         opacity={layer.opacity ?? 1}
         onClick={handleSelect} onTap={handleSelect}>
-        {img && (
-          <KImage name="layer" image={img} x={imgX} y={imgY} width={imgW} height={imgH}
-            draggable={isActive}
-            onDragMove={e => {
-              e.cancelBubble = true
-              const x = clamp(e.target.x(), minImgX, 0)
-              const y = clamp(e.target.y(), minImgY, 0)
-              e.target.position({ x, y })
-            }}
-            onDragEnd={e => {
-              e.cancelBubble = true
-              onPanEnd({ imgX: clamp(e.target.x(), minImgX, 0), imgY: clamp(e.target.y(), minImgY, 0) })
-            }}
-          />
-        )}
-        {/* Hit area — name="layer" lets handleStageDown distinguish layer vs background taps */}
-        <Rect name="layer" width={layer.w} height={layer.h} fill="rgba(0,0,0,0.001)"
+        {/* Visual clip — listening=false so only the hit Rect below catches events */}
+        <Group clipFunc={ctx => ctx.rect(0, 0, layer.w, layer.h)} listening={isActive}>
+          {img && (
+            <KImage name="layer" image={img} x={imgX} y={imgY} width={imgW} height={imgH}
+              draggable={isActive}
+              onDragMove={e => {
+                e.cancelBubble = true
+                const x = clamp(e.target.x(), minImgX, 0)
+                const y = clamp(e.target.y(), minImgY, 0)
+                e.target.position({ x, y })
+              }}
+              onDragEnd={e => {
+                e.cancelBubble = true
+                onPanEnd({ imgX: clamp(e.target.x(), minImgX, 0), imgY: clamp(e.target.y(), minImgY, 0) })
+              }}
+            />
+          )}
+        </Group>
+        {/* Hit area outside clipFunc — always reliably hittable */}
+        <Rect name="layer" width={layer.w} height={layer.h} fill="rgba(0,0,0,0.01)"
           listening={!isActive} />
       </Group>
     )
@@ -133,7 +138,6 @@ function FilledCell({ layer, vs, isActive, onSelect, onMoveEnd, onPanEnd }) {
   // Free layer: whole group moves
   return (
     <Group x={layer.x} y={layer.y}
-      clipFunc={ctx => ctx.rect(0, 0, layer.w, layer.h)}
       opacity={layer.opacity ?? 1}
       draggable={isActive}
       onClick={handleSelect} onTap={handleSelect}
@@ -142,9 +146,12 @@ function FilledCell({ layer, vs, isActive, onSelect, onMoveEnd, onPanEnd }) {
         e.cancelBubble = true
         onMoveEnd({ x: e.target.x(), y: e.target.y() })
       }}>
-      {img && <KImage image={img} x={imgX} y={imgY} width={imgW} height={imgH} listening={false} />}
-      {/* Hit area — name="layer" lets handleStageDown distinguish layer vs background taps */}
-      <Rect name="layer" width={layer.w} height={layer.h} fill="rgba(0,0,0,0.001)" />
+      {/* Visual clip — listening=false keeps image visually bounded */}
+      <Group clipFunc={ctx => ctx.rect(0, 0, layer.w, layer.h)} listening={false}>
+        {img && <KImage image={img} x={imgX} y={imgY} width={imgW} height={imgH} />}
+      </Group>
+      {/* Hit area outside clipFunc — reliably hittable */}
+      <Rect name="layer" width={layer.w} height={layer.h} fill="rgba(0,0,0,0.01)" />
     </Group>
   )
 }
