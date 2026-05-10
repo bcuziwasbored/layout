@@ -59,7 +59,7 @@ export default function LayerToolbar() {
           <Btn label="Replace All" onClick={() => openPickerRef?.current?.(null, null, true)} />
           <Btn label="Position" active={elementPanel === 'position'} onClick={() => setElementPanel('position')} />
           <Btn label="Style" active={elementPanel === 'style'} onClick={() => setElementPanel('style')} />
-          <Btn label="Delete" danger onClick={() => deleteGroup(Math.floor(layer.x / ratio.w))} />
+          <Btn label="Delete" danger onClick={() => deleteGroup(layer.groupId)} />
           <button onClick={() => useStore.getState().setActiveLayer(null)} className="text-white/40 px-2"><IconClose size={18} /></button>
         </div>
 

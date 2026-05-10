@@ -131,58 +131,22 @@ function EmptyCell({ layer, onTap }) {
   )
 }
 
-function FilledCell({ layer, vs, isActive, onSelect, onMoveEnd, onPanEnd }) {
+// All interaction (select, drag, cell-edit) is handled at the Stage level via
+// handleStageDown/Move/Up — FilledCell is purely visual.
+function FilledCell({ layer, vs }) {
   const [img] = useImage(layer.src)
   const imgW = img ? img.naturalWidth  * (layer.imgScale ?? 1) : 0
   const imgH = img ? img.naturalHeight * (layer.imgScale ?? 1) : 0
   const imgX = layer.imgX ?? 0
   const imgY = layer.imgY ?? 0
 
-  const minImgX = Math.min(0, layer.w - imgW)
-  const minImgY = Math.min(0, layer.h - imgH)
-
-  const handleSelect = useCallback((e) => {
-    e.cancelBubble = true
-    onSelect()
-  }, [onSelect])
-
-  if (layer.locked) {
-    // Template cell: group fixed, image pannable when active.
-    // clipFunc is on an inner group so the hit Rect lives OUTSIDE the clip —
-    // Konva's hit canvas clips contents of clipFunc groups, making nodes inside
-    // unreliable for hit detection when the layer is not selected.
-    return (
-      <Group x={layer.x} y={layer.y}
-        opacity={layer.opacity ?? 1}
-        onClick={handleSelect} onTap={handleSelect}>
-        {/* Visual clip only — image panning within cell is done via crop mode */}
-        <Group clipFunc={ctx => ctx.rect(0, 0, layer.w, layer.h)} listening={false}>
-          {img && <KImage image={img} x={imgX} y={imgY} width={imgW} height={imgH} />}
-        </Group>
-        {/* Hit area outside clipFunc — always reliably hittable */}
-        <Rect name="layer" width={layer.w} height={layer.h} fill="rgba(0,0,0,0.01)"
-          listening={!isActive} />
-      </Group>
-    )
-  }
-
-  // Free layer: whole group moves
   return (
-    <Group x={layer.x} y={layer.y}
-      opacity={layer.opacity ?? 1}
-      draggable={isActive}
-      onClick={handleSelect} onTap={handleSelect}
-      onDragMove={e => { e.cancelBubble = true }}
-      onDragEnd={e => {
-        e.cancelBubble = true
-        onMoveEnd({ x: e.target.x(), y: e.target.y() })
-      }}>
-      {/* Visual clip — listening=false keeps image visually bounded */}
+    <Group x={layer.x} y={layer.y} opacity={layer.opacity ?? 1}>
       <Group clipFunc={ctx => ctx.rect(0, 0, layer.w, layer.h)} listening={false}>
         {img && <KImage image={img} x={imgX} y={imgY} width={imgW} height={imgH} />}
       </Group>
-      {/* Hit area outside clipFunc — reliably hittable */}
-      <Rect name="layer" width={layer.w} height={layer.h} fill="rgba(0,0,0,0.01)" />
+      {/* Hit area outside clipFunc so coordinate hit-testing in handleStageDown works */}
+      <Rect width={layer.w} height={layer.h} fill="rgba(0,0,0,0.01)" />
     </Group>
   )
 }
@@ -404,9 +368,7 @@ export default function Canvas({ openPickerRef }) {
       const layer = curLayers.find(l => l.id === info.layerId)
       if (layer) {
         if (layer.locked) {
-          // Treat all locked layers on this slide as one group
-          const si = Math.floor(layer.x / curRatio.w)
-          const grp = curLayers.filter(l => l.locked && Math.floor(l.x / curRatio.w) === si)
+          const grp = curLayers.filter(l => l.groupId && l.groupId === layer.groupId)
           const gx = Math.min(...grp.map(l => l.x))
           const gy = Math.min(...grp.map(l => l.y))
           const gw = Math.max(...grp.map(l => l.x + l.w)) - gx
@@ -435,8 +397,7 @@ export default function Canvas({ openPickerRef }) {
     if (info?.type === 'seam' && !isCrop) {
       const layer = curLayers.find(l => l.id === info.layerId)
       if (layer?.locked) {
-        const si = Math.floor(layer.x / curRatio.w)
-        const grp = curLayers.filter(l => l.locked && Math.floor(l.x / curRatio.w) === si)
+        const grp = curLayers.filter(l => l.groupId && l.groupId === layer.groupId)
         panRef.current = { type: 'seam-drag', seamType: info.seamType, seamMid: info.seamMid,
           groupLayers: grp.map(l => ({ ...l })), startX: pt.clientX, startY: pt.clientY, moved: false }
         return
@@ -464,8 +425,7 @@ export default function Canvas({ openPickerRef }) {
 
     if (hitLayer) {
       if (hitLayer.locked) {
-        const si = Math.floor(hitLayer.x / curRatio.w)
-        const grp = curLayers.filter(l => l.locked && Math.floor(l.x / curRatio.w) === si)
+        const grp = curLayers.filter(l => l.groupId && l.groupId === hitLayer.groupId)
         const isGroupActive = grp.some(l => l.id === activeId)
         if (!isGroupActive) {
           // Group not selected — select it
@@ -814,14 +774,7 @@ export default function Canvas({ openPickerRef }) {
                 )
               }
               return layer.src ? (
-                <FilledCell key={layer.id} layer={layer} vs={vs} isActive={isActive}
-                  onSelect={() => {
-                    fresh.current.setActiveSlide(Math.floor(layer.x / fresh.current.ratio.w))
-                    fresh.current.setActiveLayer(layer.id)
-                  }}
-                  onMoveEnd={pos => updateLayerWithHistory(layer.id, pos)}
-                  onPanEnd={pos => updateLayerWithHistory(layer.id, pos)}
-                />
+                <FilledCell key={layer.id} layer={layer} vs={vs} />
               ) : (
                 <EmptyCell key={layer.id} layer={layer}
                   onTap={() => {
@@ -847,8 +800,7 @@ export default function Canvas({ openPickerRef }) {
                   )
                 }
                 // Group mode — show group overlay with corner handles and seam handles
-                const si = Math.floor(activeLayer.x / ratio.w)
-                const grp = layers.filter(l => l.locked && Math.floor(l.x / ratio.w) === si)
+                const grp = layers.filter(l => l.groupId && l.groupId === activeLayer.groupId)
                 const gx = Math.min(...grp.map(l => l.x))
                 const gy = Math.min(...grp.map(l => l.y))
                 const gx2 = Math.max(...grp.map(l => l.x + l.w))

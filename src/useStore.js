@@ -275,11 +275,10 @@ export const useStore = create((set, get) => ({
     }))
   },
 
-  deleteGroup(slideIdx) {
+  deleteGroup(groupId) {
     get()._pushHistory()
-    const { ratio } = get()
     set(s => ({
-      layers: s.layers.filter(l => !(l.locked && Math.floor(l.x / ratio.w) === slideIdx)),
+      layers: s.layers.filter(l => l.groupId !== groupId),
       activeLayerId: null,
       activeCellId: null,
       elementPanel: null,
