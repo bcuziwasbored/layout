@@ -250,7 +250,8 @@ export default function Canvas({ openPickerRef }) {
   // Keep always-fresh values accessible in stable callbacks
   const fresh = useRef({})
   fresh.current = { layers, slides, ratio, activeLayerId, cropMode, activeSlideIdx,
-    setActiveLayer, setActiveSlide, addSlide, updateLayer, updateLayerWithHistory }
+    setActiveLayer, setActiveSlide, addSlide, updateLayer, updateLayerWithHistory,
+    addImageLayer, fillCells }
 
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
   const [view, setView] = useState(null)
