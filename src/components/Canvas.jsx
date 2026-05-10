@@ -105,22 +105,10 @@ function EmptyCell({ layer, vs }) {
   )
 }
 
-function FilledCell({ layer, vs, isSelected }) {
+function FilledCell({ layer, vs }) {
   const [img] = useImage(layer.src)
-  const hr = HANDLE_R_PX / vs
   const imgW = img ? img.naturalWidth  * (layer.imgScale ?? 1) : 0
   const imgH = img ? img.naturalHeight * (layer.imgScale ?? 1) : 0
-
-  const HANDLE_POSITIONS = [
-    ['tl', 0,           0          ],
-    ['t',  layer.w / 2, 0          ],
-    ['tr', layer.w,     0          ],
-    ['r',  layer.w,     layer.h / 2],
-    ['br', layer.w,     layer.h   ],
-    ['b',  layer.w / 2, layer.h   ],
-    ['bl', 0,           layer.h   ],
-    ['l',  0,           layer.h / 2],
-  ]
 
   return (
     <Group name={`layer|${layer.id}`} x={layer.x} y={layer.y}
@@ -130,31 +118,31 @@ function FilledCell({ layer, vs, isSelected }) {
         <KImage image={img} x={layer.imgX ?? 0} y={layer.imgY ?? 0}
           width={imgW} height={imgH} listening={false} />
       )}
-      {isSelected && (
-        <Group clipFunc={null}>
-          <Rect width={layer.w} height={layer.h}
-            stroke={BORDER_COLOR} strokeWidth={2 / vs} listening={false} />
-        </Group>
-      )}
+      {/* Transparent hit area — required because KImage has listening=false,
+          without this the Group has no hittable children and taps fall through */}
+      <Rect width={layer.w} height={layer.h} fill="rgba(0,0,0,0)" />
     </Group>
   )
 }
 
-// Resize handles rendered OUTSIDE the clip group so they're always visible
-function ResizeHandles({ layer, vs }) {
+// Selection border + resize handles rendered OUTSIDE the clip group
+function SelectionOverlay({ layer, vs }) {
   const hr = HANDLE_R_PX / vs
   const handles = [
-    ['tl', layer.x,           layer.y          ],
-    ['t',  layer.x + layer.w / 2, layer.y      ],
-    ['tr', layer.x + layer.w, layer.y          ],
-    ['r',  layer.x + layer.w, layer.y + layer.h / 2],
-    ['br', layer.x + layer.w, layer.y + layer.h],
-    ['b',  layer.x + layer.w / 2, layer.y + layer.h],
-    ['bl', layer.x,           layer.y + layer.h],
-    ['l',  layer.x,           layer.y + layer.h / 2],
+    ['tl', layer.x,                   layer.y                  ],
+    ['t',  layer.x + layer.w / 2,     layer.y                  ],
+    ['tr', layer.x + layer.w,         layer.y                  ],
+    ['r',  layer.x + layer.w,         layer.y + layer.h / 2    ],
+    ['br', layer.x + layer.w,         layer.y + layer.h        ],
+    ['b',  layer.x + layer.w / 2,     layer.y + layer.h        ],
+    ['bl', layer.x,                   layer.y + layer.h        ],
+    ['l',  layer.x,                   layer.y + layer.h / 2    ],
   ]
   return (
     <Group>
+      {/* Border outside clip so full stroke width is visible */}
+      <Rect x={layer.x} y={layer.y} width={layer.w} height={layer.h}
+        stroke={BORDER_COLOR} strokeWidth={2 / vs} listening={false} />
       {handles.map(([handle, hx, hy]) => (
         <Circle key={handle}
           name={`handle|${handle}|${layer.id}`}
@@ -190,6 +178,8 @@ function CropTarget({ layer, vs }) {
         {img && <KImage image={img} x={layer.x + ix} y={layer.y + iy}
           width={imgW} height={imgH} />}
       </Group>
+      {/* Transparent hit area so touches on image area reach this Group */}
+      <Rect x={layer.x} y={layer.y} width={layer.w} height={layer.h} fill="rgba(0,0,0,0)" />
       {/* Dashed crop border */}
       <Rect x={layer.x} y={layer.y} width={layer.w} height={layer.h}
         stroke="white" strokeWidth={1.5 / vs}
@@ -404,10 +394,26 @@ export default function Canvas({ openPickerRef }) {
         imgX: clamp((sl.imgX ?? 0) + dx / vs, Math.min(0, sl.w - imgW), 0),
         imgY: clamp((sl.imgY ?? 0) + dy / vs, Math.min(0, sl.h - imgH), 0),
       })
-    } else if (g.type === 'resize' || g.type === 'crop-resize') {
+    } else if (g.type === 'resize') {
       const sl = g.startLayer
-      const { x, y, w, h } = computeResize(sl, g.handle, dx / vs, dy / vs)
-      if (w > 20 && h > 20) upd(sl.id, { x, y, w, h })
+      const { x: nx, y: ny, w: nw, h: nh } = computeResize(sl, g.handle, dx / vs, dy / vs)
+      if (nw > 20 && nh > 20) {
+        // Scale image proportionally so it continues to fill the new bounds
+        const sW = nw / sl.w, sH = nh / sl.h
+        const cover = Math.max(Math.abs(sW), Math.abs(sH))
+        const newImgScale = (sl.imgScale ?? 1) * cover
+        const imgW = (sl.naturalW ?? nw) * newImgScale
+        const imgH = (sl.naturalH ?? nh) * newImgScale
+        const newImgX = clamp((sl.imgX ?? 0) * sW, Math.min(0, nw - imgW), 0)
+        const newImgY = clamp((sl.imgY ?? 0) * sH, Math.min(0, nh - imgH), 0)
+        upd(sl.id, { x: nx, y: ny, w: nw, h: nh,
+          imgScale: newImgScale, imgX: newImgX, imgY: newImgY })
+      }
+    } else if (g.type === 'crop-resize') {
+      const sl = g.startLayer
+      const { x: nx, y: ny, w: nw, h: nh } = computeResize(sl, g.handle, dx / vs, dy / vs)
+      // Crop resize: only move the boundary, keep image unchanged
+      if (nw > 20 && nh > 20) upd(sl.id, { x: nx, y: ny, w: nw, h: nh })
     }
   }
 
@@ -604,13 +610,13 @@ export default function Canvas({ openPickerRef }) {
               if (cropMode && isActive) return <CropTarget key={layer.id} layer={layer} vs={vs} />
 
               return layer.src
-                ? <FilledCell key={layer.id} layer={layer} vs={vs} isSelected={isActive} />
+                ? <FilledCell key={layer.id} layer={layer} vs={vs} />
                 : <EmptyCell  key={layer.id} layer={layer} vs={vs} />
             })}
 
-            {/* Resize handles rendered outside clip group so always fully visible */}
+            {/* Selection border + resize handles outside clip so always fully visible */}
             {!cropMode && activeLayer?.src && (
-              <ResizeHandles layer={activeLayer} vs={vs} />
+              <SelectionOverlay layer={activeLayer} vs={vs} />
             )}
 
           </Group>
