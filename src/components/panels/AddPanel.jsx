@@ -21,8 +21,8 @@ export default function AddPanel() {
   const openPickerRef = useCanvasPicker()
 
   const openImagePicker = () => {
+    openPickerRef?.current?.()  // must be called synchronously inside the user gesture (iOS Safari requirement)
     setPanel(null)
-    setTimeout(() => openPickerRef?.current?.(), 50)
   }
 
   return (

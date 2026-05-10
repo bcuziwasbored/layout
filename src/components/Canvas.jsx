@@ -109,7 +109,7 @@ function FilledCell({ layer, vs, isActive, onSelect, onMoveEnd, onPanEnd }) {
         opacity={layer.opacity ?? 1}
         onClick={handleSelect} onTap={handleSelect}>
         {img && (
-          <KImage image={img} x={imgX} y={imgY} width={imgW} height={imgH}
+          <KImage name="layer" image={img} x={imgX} y={imgY} width={imgW} height={imgH}
             draggable={isActive}
             onDragMove={e => {
               e.cancelBubble = true
@@ -123,8 +123,8 @@ function FilledCell({ layer, vs, isActive, onSelect, onMoveEnd, onPanEnd }) {
             }}
           />
         )}
-        {/* Hit area */}
-        <Rect width={layer.w} height={layer.h} fill="rgba(0,0,0,0.001)"
+        {/* Hit area — name="layer" lets handleStageDown distinguish layer vs background taps */}
+        <Rect name="layer" width={layer.w} height={layer.h} fill="rgba(0,0,0,0.001)"
           listening={!isActive} />
       </Group>
     )
@@ -143,8 +143,8 @@ function FilledCell({ layer, vs, isActive, onSelect, onMoveEnd, onPanEnd }) {
         onMoveEnd({ x: e.target.x(), y: e.target.y() })
       }}>
       {img && <KImage image={img} x={imgX} y={imgY} width={imgW} height={imgH} listening={false} />}
-      {/* Hit area — must NOT have listening={false} or the Group itself becomes unhittable */}
-      <Rect width={layer.w} height={layer.h} fill="rgba(0,0,0,0.001)" />
+      {/* Hit area — name="layer" lets handleStageDown distinguish layer vs background taps */}
+      <Rect name="layer" width={layer.w} height={layer.h} fill="rgba(0,0,0,0.001)" />
     </Group>
   )
 }
@@ -345,7 +345,6 @@ export default function Canvas({ openPickerRef }) {
     if (ne.touches && ne.touches.length > 1) return
     const pt = ne.touches ? ne.touches[0] : ne
 
-    // Check if a resize/crop handle was hit
     const info = getHandleInfo(e.target)
     const v = viewRef.current
     const { activeLayerId: activeId, layers: curLayers, cropMode: isCrop } = fresh.current
@@ -373,9 +372,17 @@ export default function Canvas({ openPickerRef }) {
       }
     }
 
-    // If a layer is active, don't start a canvas pan — the layer itself is draggable
-    // and we don't want the canvas to pan simultaneously.
-    if (activeId) return
+    // "layer" name on hit Rects/KImages lets us know the touch landed on a layer node
+    const isLayerHit = (e.target?.attrs?.name || '') === 'layer'
+
+    if (activeId) {
+      if (!isLayerHit) {
+        // Background tap while a layer is selected → track as deselect candidate
+        panRef.current = { type: 'deselect', startX: pt.clientX, startY: pt.clientY, moved: false }
+      }
+      // If it IS a layer hit, let Konva's own draggable/onClick handle it — no pan, no deselect
+      return
+    }
 
     panRef.current = { type: 'pan', startX: pt.clientX, startY: pt.clientY,
       viewX: v.x, viewY: v.y, moved: false }
@@ -430,19 +437,13 @@ export default function Canvas({ openPickerRef }) {
       return
     }
 
+    if (p.type === 'deselect' && !p.moved) {
+      fresh.current.setActiveLayer(null)
+      return
+    }
+
     if ((p.type === 'resize' || p.type === 'crop-resize') && p.moved) {
       fresh.current.updateLayerWithHistory(p.startLayer.id, {})
-    }
-  }
-
-  // Stage click/tap — deselect only when hitting the background (no layer intercepted with cancelBubble)
-  const handleStageClick = (e) => {
-    const name = e.target?.attrs?.name || ''
-    // Named nodes (handles, addslide) and layers (which set cancelBubble) won't reach here
-    // Background rects and slide rects have no name → safe to deselect
-    if (!name.startsWith('handle|') && !name.startsWith('crophandle|') && name !== 'addslide') {
-      const { activeLayerId: activeId, setActiveLayer: desel } = fresh.current
-      if (activeId) desel(null)
     }
   }
 
@@ -504,7 +505,6 @@ export default function Canvas({ openPickerRef }) {
         onMouseDown={handleStageDown}  onTouchStart={handleStageDown}
         onMouseMove={handleStageMove}  onTouchMove={handleStageMove}
         onMouseUp={handleStageUp}      onTouchEnd={handleStageUp}
-        onClick={handleStageClick}     onTap={handleStageClick}
       >
         <Layer>
           <Group x={view.x} y={view.y} scaleX={vs} scaleY={vs}>
