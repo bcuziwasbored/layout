@@ -385,6 +385,11 @@ export default function Canvas({ openPickerRef }) {
       return
     }
 
+    // Also skip pan when touching a layer node with nothing selected.
+    // If we start a pan here, any finger movement (common on touchscreens) marks p.moved=true
+    // and Konva cancels the tap event, so the layer never gets selected.
+    if (isLayerHit) return
+
     panRef.current = { type: 'pan', startX: pt.clientX, startY: pt.clientY,
       viewX: v.x, viewY: v.y, moved: false }
   }
