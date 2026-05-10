@@ -395,28 +395,20 @@ export default function Canvas({ openPickerRef }) {
       canvasY >= l.y && canvasY <= l.y + l.h
     )
 
-    console.log('[DOWN] canvasXY:', Math.round(canvasX), Math.round(canvasY),
-      '| layers:', curLayers.length, '| hit:', hitLayer?.id ?? 'none',
-      '| activeId:', activeId ?? 'none')
-
     if (hitLayer) {
       if (hitLayer.id === activeId) {
-        console.log('[DOWN] → same active layer, letting Konva handle drag')
         return
       }
-      console.log('[DOWN] → panRef=select', hitLayer.id)
       panRef.current = { type: 'select', layerId: hitLayer.id,
         startX: pt.clientX, startY: pt.clientY, viewX: v.x, viewY: v.y, moved: false }
       return
     }
 
     if (activeId) {
-      console.log('[DOWN] → panRef=deselect')
       panRef.current = { type: 'deselect', startX: pt.clientX, startY: pt.clientY, moved: false }
       return
     }
 
-    console.log('[DOWN] → panRef=pan')
     panRef.current = { type: 'pan', startX: pt.clientX, startY: pt.clientY,
       viewX: v.x, viewY: v.y, moved: false }
   }
@@ -471,20 +463,13 @@ export default function Canvas({ openPickerRef }) {
     }
 
     if (p.type === 'select' && !p.moved) {
-      console.log('[UP] select →', p.layerId)
-      fresh.current.setActiveLayer(p.layerId)
       const layer = fresh.current.layers.find(l => l.id === p.layerId)
       if (layer) fresh.current.setActiveSlide(Math.floor(layer.x / fresh.current.ratio.w))
-      return
-    }
-
-    if (p.type === 'select' && p.moved) {
-      console.log('[UP] select but moved — treating as pan, no selection')
+      fresh.current.setActiveLayer(p.layerId)  // must come after setActiveSlide (which resets activeLayerId)
       return
     }
 
     if (p.type === 'deselect' && !p.moved) {
-      console.log('[UP] deselect')
       fresh.current.setActiveLayer(null)
       return
     }
@@ -624,8 +609,8 @@ export default function Canvas({ openPickerRef }) {
               return layer.src ? (
                 <FilledCell key={layer.id} layer={layer} vs={vs} isActive={isActive}
                   onSelect={() => {
-                    fresh.current.setActiveLayer(layer.id)
                     fresh.current.setActiveSlide(Math.floor(layer.x / fresh.current.ratio.w))
+                    fresh.current.setActiveLayer(layer.id)
                   }}
                   onMoveEnd={pos => updateLayerWithHistory(layer.id, pos)}
                   onPanEnd={pos => updateLayerWithHistory(layer.id, pos)}
