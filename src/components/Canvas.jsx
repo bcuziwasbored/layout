@@ -43,6 +43,39 @@ function snapPosition(x, y, w, h, lines, vs) {
   return { x: nx, y: ny, gx, gy }
 }
 
+// Returns snapped value if within threshold, otherwise null
+function snapEdge(v, lines, thr) {
+  for (const l of lines) if (Math.abs(v - l) < thr) return l
+  return null
+}
+
+const CELL_GAP = 6  // must match GAP in useStore applyTemplate
+
+// Returns { vertical: [xMid, ...], horizontal: [yMid, ...] } seam midpoints
+function findGroupSeams(groupLayers) {
+  const tol = CELL_GAP + 2
+  const seen = new Set()
+  const vertical = [], horizontal = []
+  for (const a of groupLayers) {
+    for (const b of groupLayers) {
+      if (a === b) continue
+      // Vertical seam: a's right edge near b's left edge
+      const key1 = `v${Math.round(a.x + a.w)}`
+      if (!seen.has(key1) && Math.abs((a.x + a.w) - b.x) <= tol && Math.abs((a.x + a.w) - b.x) > 0) {
+        seen.add(key1)
+        vertical.push((a.x + a.w + b.x) / 2)
+      }
+      // Horizontal seam: a's bottom edge near b's top edge
+      const key2 = `h${Math.round(a.y + a.h)}`
+      if (!seen.has(key2) && Math.abs((a.y + a.h) - b.y) <= tol && Math.abs((a.y + a.h) - b.y) > 0) {
+        seen.add(key2)
+        horizontal.push((a.y + a.h + b.y) / 2)
+      }
+    }
+  }
+  return { vertical, horizontal }
+}
+
 function computeResize(sl, handle, ddx, ddy) {
   const ar = sl.w / sl.h
   const isCorner = handle.length === 2
@@ -312,9 +345,17 @@ export default function Canvas({ openPickerRef }) {
     let node = target
     while (node) {
       const name = node.attrs?.name || ''
-      if (name.startsWith('handle|') || name.startsWith('crophandle|')) {
+      if (name.startsWith('handle|')) {
         const parts = name.split('|')
-        return { type: parts[0] === 'handle' ? 'resize' : 'crop-resize', handle: parts[1], layerId: parts[2] }
+        return { type: 'resize', handle: parts[1], layerId: parts[2] }
+      }
+      if (name.startsWith('crophandle|')) {
+        const parts = name.split('|')
+        return { type: 'crop-resize', handle: parts[1], layerId: parts[2] }
+      }
+      if (name.startsWith('seam|')) {
+        const parts = name.split('|')
+        return { type: 'seam', seamType: parts[1], layerId: parts[2], seamMid: parseFloat(parts[3]) }
       }
       if (name === 'addslide') return { type: 'addslide' }
       node = node.parent
@@ -377,6 +418,17 @@ export default function Canvas({ openPickerRef }) {
       }
     }
 
+    if (info?.type === 'seam' && !isCrop) {
+      const layer = curLayers.find(l => l.id === info.layerId)
+      if (layer?.locked) {
+        const si = Math.floor(layer.x / curRatio.w)
+        const grp = curLayers.filter(l => l.locked && Math.floor(l.x / curRatio.w) === si)
+        panRef.current = { type: 'seam-drag', seamType: info.seamType, seamMid: info.seamMid,
+          groupLayers: grp.map(l => ({ ...l })), startX: pt.clientX, startY: pt.clientY, moved: false }
+        return
+      }
+    }
+
     // In crop mode: touch outside layer bounds exits crop; inside pans the image
     if (isCrop && activeId) {
       const layer = curLayers.find(l => l.id === activeId)
@@ -433,18 +485,36 @@ export default function Canvas({ openPickerRef }) {
       setViewSync(v => ({ ...v, x: p.viewX + dx, y: p.viewY + dy }))
     } else if (p.type === 'resize') {
       const sl = p.startLayer
-      const { x: nx, y: ny, w: nw, h: nh } = computeResize(sl, p.handle, dx / vs, dy / vs)
+      let { x: nx, y: ny, w: nw, h: nh } = computeResize(sl, p.handle, dx / vs, dy / vs)
       if (nw > 20 && nh > 20) {
-        // Always refit image to cover the new dimensions uniformly, centered
+        const si = Math.floor(sl.x / r.w)
+        const thr = SNAP_THRESHOLD_PX / vs
+        const xs = [si * r.w, si * r.w + r.w / 2, (si + 1) * r.w]
+        const ys = [0, r.h / 2, r.h]
+        let gx = null, gy = null
+        if (p.handle === 'r')  { const s = snapEdge(nx + nw, xs, thr); if (s !== null) { nw = s - nx; gx = s } }
+        if (p.handle === 'l')  { const s = snapEdge(nx, xs, thr);      if (s !== null) { nw += nx - s; nx = s; gx = s } }
+        if (p.handle === 'b')  { const s = snapEdge(ny + nh, ys, thr); if (s !== null) { nh = s - ny; gy = s } }
+        if (p.handle === 't')  { const s = snapEdge(ny, ys, thr);      if (s !== null) { nh += ny - s; ny = s; gy = s } }
+        setSnapGuides({ x: gx, y: gy })
         const { imgScale: newImgScale, imgX: newImgX, imgY: newImgY } =
           fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, nw, nh)
         upd(sl.id, { x: nx, y: ny, w: nw, h: nh, imgScale: newImgScale, imgX: newImgX, imgY: newImgY })
-        setSnapGuides({ x: null, y: null })
       }
     } else if (p.type === 'group-resize') {
       const gb = p.startBounds
-      const { x: ngx, y: ngy, w: ngw, h: ngh } = computeResize(gb, p.handle, dx / vs, dy / vs)
+      let { x: ngx, y: ngy, w: ngw, h: ngh } = computeResize(gb, p.handle, dx / vs, dy / vs)
       if (ngw > 20 && ngh > 20) {
+        const si = Math.floor(gb.x / r.w)
+        const thr = SNAP_THRESHOLD_PX / vs
+        const xs = [si * r.w, si * r.w + r.w / 2, (si + 1) * r.w]
+        const ys = [0, r.h / 2, r.h]
+        let gx = null, gy = null
+        if (p.handle === 'r')  { const s = snapEdge(ngx + ngw, xs, thr); if (s !== null) { ngw = s - ngx; gx = s } }
+        if (p.handle === 'l')  { const s = snapEdge(ngx, xs, thr);       if (s !== null) { ngw += ngx - s; ngx = s; gx = s } }
+        if (p.handle === 'b')  { const s = snapEdge(ngy + ngh, ys, thr); if (s !== null) { ngh = s - ngy; gy = s } }
+        if (p.handle === 't')  { const s = snapEdge(ngy, ys, thr);       if (s !== null) { ngh += ngy - s; ngy = s; gy = s } }
+        setSnapGuides({ x: gx, y: gy })
         p.groupLayers.forEach(sl => {
           const nx = ngx + (sl.x - gb.x) / gb.w * ngw
           const ny = ngy + (sl.y - gb.y) / gb.h * ngh
@@ -454,6 +524,28 @@ export default function Canvas({ openPickerRef }) {
           upd(sl.id, { x: nx, y: ny, w: nw, h: nh, imgScale, imgX, imgY })
         })
       }
+    } else if (p.type === 'seam-drag') {
+      const delta = (p.seamType === 'v' ? dx : dy) / vs
+      const halfGap = CELL_GAP / 2
+      p.groupLayers.forEach(sl => {
+        if (p.seamType === 'v') {
+          if (Math.abs(sl.x + sl.w - (p.seamMid - halfGap)) <= 3) {
+            const nw = Math.max(20, sl.w + delta)
+            upd(sl.id, { w: nw, ...fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, nw, sl.h) })
+          } else if (Math.abs(sl.x - (p.seamMid + halfGap)) <= 3) {
+            const nw = Math.max(20, sl.w - delta)
+            upd(sl.id, { x: sl.x + delta, w: nw, ...fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, nw, sl.h) })
+          }
+        } else {
+          if (Math.abs(sl.y + sl.h - (p.seamMid - halfGap)) <= 3) {
+            const nh = Math.max(20, sl.h + delta)
+            upd(sl.id, { h: nh, ...fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, sl.w, nh) })
+          } else if (Math.abs(sl.y - (p.seamMid + halfGap)) <= 3) {
+            const nh = Math.max(20, sl.h - delta)
+            upd(sl.id, { y: sl.y + delta, h: nh, ...fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, sl.w, nh) })
+          }
+        }
+      })
     } else if (p.type === 'crop-pan') {
       const sl = p.startLayer
       const imgW = (sl.naturalW ?? sl.w) * (sl.imgScale ?? 1)
@@ -500,6 +592,11 @@ export default function Canvas({ openPickerRef }) {
     }
 
     if (p.type === 'group-resize' && p.moved) {
+      if (p.groupLayers.length) fresh.current.updateLayerWithHistory(p.groupLayers[0].id, {})
+      return
+    }
+
+    if (p.type === 'seam-drag' && p.moved) {
       if (p.groupLayers.length) fresh.current.updateLayerWithHistory(p.groupLayers[0].id, {})
       return
     }
@@ -657,15 +754,40 @@ export default function Canvas({ openPickerRef }) {
             })}
 
             {/* Selection border + resize handles (outside clip) */}
-            {!cropMode && activeLayer?.src && (() => {
+            {!cropMode && activeLayer && (activeLayer.src || activeLayer.locked) && (() => {
               if (activeLayer.locked) {
                 const si = Math.floor(activeLayer.x / ratio.w)
                 const grp = layers.filter(l => l.locked && Math.floor(l.x / ratio.w) === si)
                 const gx = Math.min(...grp.map(l => l.x))
                 const gy = Math.min(...grp.map(l => l.y))
-                const gw = Math.max(...grp.map(l => l.x + l.w)) - gx
-                const gh = Math.max(...grp.map(l => l.y + l.h)) - gy
-                return <SelectionOverlay layer={{ id: activeLayerId, x: gx, y: gy, w: gw, h: gh }} vs={vs} />
+                const gx2 = Math.max(...grp.map(l => l.x + l.w))
+                const gy2 = Math.max(...grp.map(l => l.y + l.h))
+                const seams = findGroupSeams(grp)
+                return (
+                  <Group>
+                    <SelectionOverlay layer={{ id: activeLayerId, x: gx, y: gy, w: gx2 - gx, h: gy2 - gy }} vs={vs} />
+                    {seams.vertical.map(xMid => (
+                      <Rect key={`sv${Math.round(xMid)}`}
+                        name={`seam|v|${activeLayerId}|${xMid.toFixed(1)}`}
+                        x={xMid - 5 / vs} y={(gy + gy2) / 2 - 18 / vs}
+                        width={10 / vs} height={36 / vs}
+                        cornerRadius={4 / vs}
+                        fill="white" stroke={BORDER_COLOR} strokeWidth={1.5 / vs}
+                        hitStrokeWidth={22 / vs}
+                      />
+                    ))}
+                    {seams.horizontal.map(yMid => (
+                      <Rect key={`sh${Math.round(yMid)}`}
+                        name={`seam|h|${activeLayerId}|${yMid.toFixed(1)}`}
+                        x={(gx + gx2) / 2 - 18 / vs} y={yMid - 5 / vs}
+                        width={36 / vs} height={10 / vs}
+                        cornerRadius={4 / vs}
+                        fill="white" stroke={BORDER_COLOR} strokeWidth={1.5 / vs}
+                        hitStrokeWidth={22 / vs}
+                      />
+                    ))}
+                  </Group>
+                )
               }
               return <SelectionOverlay layer={activeLayer} vs={vs} />
             })()}
