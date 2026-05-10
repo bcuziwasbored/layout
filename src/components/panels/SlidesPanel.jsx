@@ -1,4 +1,5 @@
 import { useStore } from '../../useStore'
+import { IconClose } from '../icons'
 
 export default function SlidesPanel() {
   const slides = useStore(s => s.slides)
@@ -19,7 +20,7 @@ export default function SlidesPanel() {
     <div className="bg-[#111] rounded-t-2xl pb-8">
       <div className="flex items-center justify-between px-5 pt-5 mb-4">
         <span className="font-semibold text-base">Slides</span>
-        <button onClick={() => setPanel(null)} className="text-white/40 text-2xl leading-none">&times;</button>
+        <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
       </div>
 
       <div className="flex gap-3 px-5 overflow-x-auto pb-3">

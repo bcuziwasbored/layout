@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '../useStore'
 import ExportScreen from './ExportScreen'
+import { IconUndo, IconRedo } from './icons'
 
 export default function TopBar() {
   const goHome = useStore(s => s.goHome)
@@ -20,16 +21,16 @@ export default function TopBar() {
           <button
             onClick={undo}
             disabled={!history.length}
-            className={`text-lg ${history.length ? 'text-white/70 active:text-white' : 'text-white/20'}`}
+            className={`${history.length ? 'text-white/70 active:text-white' : 'text-white/20'}`}
           >
-            ↩
+            <IconUndo size={22} />
           </button>
           <button
             onClick={redo}
             disabled={!future.length}
-            className={`text-lg ${future.length ? 'text-white/70 active:text-white' : 'text-white/20'}`}
+            className={`${future.length ? 'text-white/70 active:text-white' : 'text-white/20'}`}
           >
-            ↪
+            <IconRedo size={22} />
           </button>
         </div>
         <button

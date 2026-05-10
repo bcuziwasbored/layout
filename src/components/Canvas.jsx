@@ -443,13 +443,31 @@ export default function Canvas({ openPickerRef }) {
     }
 
     const hitLayer = [...curLayers].reverse().find(l =>
-      l.src &&
+      (l.src || l.locked) &&
       canvasX >= l.x && canvasX <= l.x + l.w &&
       canvasY >= l.y && canvasY <= l.y + l.h
     )
 
     if (hitLayer) {
+      if (hitLayer.locked) {
+        const si = Math.floor(hitLayer.x / curRatio.w)
+        const grp = curLayers.filter(l => l.locked && Math.floor(l.x / curRatio.w) === si)
+        if (hitLayer.id !== activeId) {
+          // Select first, drag will start next gesture
+          panRef.current = { type: 'select', layerId: hitLayer.id,
+            startX: pt.clientX, startY: pt.clientY, viewX: v.x, viewY: v.y, moved: false }
+        } else {
+          // Already selected — drag the group
+          panRef.current = { type: 'group-drag',
+            groupLayers: grp.map(l => ({ ...l })),
+            startX: pt.clientX, startY: pt.clientY, moved: false }
+        }
+        return
+      }
       if (hitLayer.id === activeId) {
+        // Already selected — drag it
+        panRef.current = { type: 'drag', layerId: hitLayer.id,
+          startLayer: { ...hitLayer }, startX: pt.clientX, startY: pt.clientY, moved: false }
         return
       }
       panRef.current = { type: 'select', layerId: hitLayer.id,
@@ -483,6 +501,11 @@ export default function Canvas({ openPickerRef }) {
 
     if (p.type === 'pan' || p.type === 'select') {
       setViewSync(v => ({ ...v, x: p.viewX + dx, y: p.viewY + dy }))
+    } else if (p.type === 'drag') {
+      const sl = p.startLayer
+      upd(sl.id, { x: sl.x + dx / vs, y: sl.y + dy / vs })
+    } else if (p.type === 'group-drag') {
+      p.groupLayers.forEach(sl => upd(sl.id, { x: sl.x + dx / vs, y: sl.y + dy / vs }))
     } else if (p.type === 'resize') {
       const sl = p.startLayer
       let { x: nx, y: ny, w: nw, h: nh } = computeResize(sl, p.handle, dx / vs, dy / vs)
@@ -588,6 +611,16 @@ export default function Canvas({ openPickerRef }) {
 
     if (p.type === 'crop-pan' && p.moved) {
       fresh.current.updateLayerWithHistory(p.startLayer.id, {})
+      return
+    }
+
+    if (p.type === 'drag' && p.moved) {
+      fresh.current.updateLayerWithHistory(p.layerId, {})
+      return
+    }
+
+    if (p.type === 'group-drag' && p.moved) {
+      if (p.groupLayers.length) fresh.current.updateLayerWithHistory(p.groupLayers[0].id, {})
       return
     }
 

@@ -9,6 +9,7 @@ import AddPanel from './panels/AddPanel'
 import SlidesPanel from './panels/SlidesPanel'
 import BackgroundPanel from './panels/BackgroundPanel'
 import RatioPanel from './panels/RatioPanel'
+import { IconClose } from './icons'
 
 export default function Editor() {
   const openPickerRef = useRef(null)
@@ -41,7 +42,7 @@ export default function Editor() {
                 <div className="bg-[#111] rounded-t-2xl p-5 pb-8">
                   <div className="flex items-center justify-between mb-4">
                     <span className="font-semibold">Layers</span>
-                    <button onClick={() => setPanel(null)} className="text-white/40 text-2xl leading-none">&times;</button>
+                    <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
                   </div>
                   <p className="text-white/40 text-sm">Tap a layer on the canvas to select it.</p>
                 </div>

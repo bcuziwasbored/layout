@@ -1,4 +1,5 @@
 import { useStore } from '../../useStore'
+import { IconClose } from '../icons'
 
 const PRESETS = ['#ffffff', '#000000', '#f5f5f0', '#1a1a1a', '#e8e0d8', '#d4c5b0', '#c9d4c5', '#b0c4d4']
 
@@ -11,7 +12,7 @@ export default function BackgroundPanel() {
     <div className="bg-[#111] rounded-t-2xl p-5 pb-8">
       <div className="flex items-center justify-between mb-5">
         <span className="font-semibold text-base">Background</span>
-        <button onClick={() => setPanel(null)} className="text-white/40 text-2xl leading-none">&times;</button>
+        <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
       </div>
 
       <div className="flex gap-3 flex-wrap mb-4">

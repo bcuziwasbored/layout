@@ -1,6 +1,7 @@
 import { useStore } from '../../useStore'
 import { useCanvasPicker } from '../../CanvasContext'
 import { TEMPLATES } from '../../templates'
+import { IconImage, IconGrid, IconBlank, IconClose } from '../icons'
 
 const TemplateThumb = ({ template, onClick }) => (
   <button onClick={onClick} className="flex flex-col items-center gap-2 active:opacity-60 shrink-0">
@@ -29,23 +30,23 @@ export default function AddPanel() {
     <div className="bg-[#111] rounded-t-2xl p-5 pb-8">
       <div className="flex items-center justify-between mb-4">
         <span className="font-semibold text-base">Add</span>
-        <button onClick={() => setPanel(null)} className="text-white/40 text-2xl leading-none">&times;</button>
+        <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
       </div>
 
       <div className="grid grid-cols-3 gap-3 mb-6">
         <button onClick={openImagePicker}
           className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
-          <span className="text-2xl">🖼️</span>
+          <IconImage size={28} />
           <span className="text-xs text-white/70">Image</span>
         </button>
         <button onClick={() => { applyTemplate(TEMPLATES.find(t => t.id === 'grid-4')); setPanel(null) }}
           className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
-          <span className="text-2xl">⊞</span>
+          <IconGrid size={28} />
           <span className="text-xs text-white/70">Grid</span>
         </button>
         <button onClick={() => { applyTemplate(TEMPLATES.find(t => t.id === 'blank')); setPanel(null) }}
           className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
-          <span className="text-2xl">⬜</span>
+          <IconBlank size={28} />
           <span className="text-xs text-white/70">Blank</span>
         </button>
       </div>

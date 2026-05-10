@@ -1,5 +1,6 @@
 import { useStore } from '../../useStore'
 import { useCanvasPicker } from '../../CanvasContext'
+import { IconClose } from '../icons'
 
 export default function LayerToolbar() {
   const activeLayerId = useStore(s => s.activeLayerId)
@@ -35,7 +36,7 @@ export default function LayerToolbar() {
         <Btn label="Crop" active={false} onClick={() => setCropMode(true)} />
         <Btn label="Style" active={elementPanel === 'style'} onClick={() => setElementPanel('style')} />
         <Btn label="Delete" danger onClick={() => deleteLayer(activeLayerId)} />
-        <button onClick={() => useStore.getState().setActiveLayer(null)} className="text-white/40 text-xl px-2">×</button>
+        <button onClick={() => useStore.getState().setActiveLayer(null)} className="text-white/40 px-2"><IconClose size={18} /></button>
       </div>
 
       {elementPanel === 'position' && (

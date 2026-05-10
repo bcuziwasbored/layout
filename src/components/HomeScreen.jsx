@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '../useStore'
 import { RATIOS } from '../templates'
+import { IconClose } from './icons'
 
 export default function HomeScreen() {
   const startProject = useStore(s => s.startProject)
@@ -28,7 +29,7 @@ export default function HomeScreen() {
           >
             <div className="flex items-center justify-between mb-5">
               <span className="text-base font-semibold">New Project</span>
-              <button onClick={() => setPicking(false)} className="text-white/50 text-2xl leading-none">&times;</button>
+              <button onClick={() => setPicking(false)} className="text-white/50"><IconClose size={18} /></button>
             </div>
             <div className="flex gap-3 overflow-x-auto pb-2">
               {RATIOS.map(r => {

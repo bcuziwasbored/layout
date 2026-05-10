@@ -1,5 +1,6 @@
 import { useStore } from '../../useStore'
 import { RATIOS } from '../../templates'
+import { IconClose } from '../icons'
 
 export default function RatioPanel() {
   const ratio = useStore(s => s.ratio)
@@ -10,7 +11,7 @@ export default function RatioPanel() {
     <div className="bg-[#111] rounded-t-2xl p-5 pb-8">
       <div className="flex items-center justify-between mb-5">
         <span className="font-semibold text-base">Ratio</span>
-        <button onClick={() => setPanel(null)} className="text-white/40 text-2xl leading-none">&times;</button>
+        <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
       </div>
 
       <div className="flex gap-4 overflow-x-auto pb-2">
