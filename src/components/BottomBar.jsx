@@ -13,10 +13,7 @@ const Icon = ({ children, label, active, onClick }) => (
 export default function BottomBar() {
   const panel = useStore(s => s.panel)
   const setPanel = useStore(s => s.setPanel)
-  const slides = useStore(s => s.slides)
-  const activeSlideId = useStore(s => s.activeSlideId)
-
-  const slideIndex = slides.findIndex(s => s.id === activeSlideId)
+  const activeSlideIdx = useStore(s => s.activeSlideIdx)
 
   return (
     <div className="flex items-center justify-between px-2 py-2 bg-black border-t border-white/10">
@@ -32,7 +29,7 @@ export default function BottomBar() {
 
       <Icon label="Ratio" active={panel === 'ratio'} onClick={() => setPanel('ratio')}>▭</Icon>
       <Icon label="Slides" active={panel === 'slides'} onClick={() => setPanel('slides')}>
-        <span className="text-sm font-semibold">{slideIndex + 1}</span>
+        <span className="text-sm font-semibold">{activeSlideIdx + 1}</span>
       </Icon>
     </div>
   )

@@ -3,32 +3,43 @@ import { RATIOS } from './templates'
 
 const uid = () => Math.random().toString(36).slice(2)
 
-const makeSlide = () => ({
-  id: uid(),
-  layers: [],
-})
+// Layer x coords are in GLOBAL space: slide N occupies x ∈ [N*ratio.w, (N+1)*ratio.w]
+// A cross-slide image can have x < N*ratio.w and x+w > N*ratio.w
+
+function layersInSlide(layers, idx, ratio) {
+  const start = idx * ratio.w
+  const end = (idx + 1) * ratio.w
+  return layers.filter(l => l.x < end && l.x + l.w > start)
+}
+
+function fitInCell(naturalW, naturalH, cellW, cellH) {
+  const scale = Math.max(cellW / naturalW, cellH / naturalH)
+  const imgW = naturalW * scale
+  const imgH = naturalH * scale
+  return {
+    imgScale: scale,
+    imgX: (cellW - imgW) / 2,
+    imgY: (cellH - imgH) / 2,
+  }
+}
 
 export const useStore = create((set, get) => ({
-  // null = home screen, 'editor' = in editor
   screen: 'home',
-
   ratio: RATIOS[0],
   bgColor: '#ffffff',
-  slides: [makeSlide()],
-  activeSlideId: null,
+  slides: [{ id: uid() }],
+  layers: [],           // global coordinate space
+  activeSlideIdx: 0,
   activeLayerId: null,
-
-  // bottom panel: null | 'layers' | 'background' | 'slides' | 'add' | 'ratio'
   panel: null,
-
-  // element panel: null | 'position' | 'crop' | 'style'
   elementPanel: null,
-
+  cropMode: false,
   history: [],
   future: [],
 
   _snapshot() {
-    return JSON.stringify({ slides: get().slides, bgColor: get().bgColor })
+    const s = get()
+    return JSON.stringify({ slides: s.slides, layers: s.layers, bgColor: s.bgColor })
   },
 
   _pushHistory() {
@@ -37,16 +48,14 @@ export const useStore = create((set, get) => ({
   },
 
   undo() {
-    const { history, future, _snapshot } = get()
+    const { history, _snapshot } = get()
     if (!history.length) return
     const prev = history[history.length - 1]
-    const current = _snapshot()
     const parsed = JSON.parse(prev)
     set(s => ({
       history: s.history.slice(0, -1),
-      future: [current, ...s.future.slice(0, 30)],
-      slides: parsed.slides,
-      bgColor: parsed.bgColor,
+      future: [s._snapshot(), ...s.future.slice(0, 30)],
+      ...parsed,
     }))
   },
 
@@ -54,46 +63,50 @@ export const useStore = create((set, get) => ({
     const { future, _snapshot } = get()
     if (!future.length) return
     const next = future[0]
-    const current = _snapshot()
     const parsed = JSON.parse(next)
     set(s => ({
       future: s.future.slice(1),
-      history: [...s.history.slice(-30), current],
-      slides: parsed.slides,
-      bgColor: parsed.bgColor,
+      history: [...s.history.slice(-30), s._snapshot()],
+      ...parsed,
     }))
   },
 
   startProject(ratio) {
+    const firstSlide = { id: uid() }
     set({
+      screen: 'editor',
       ratio,
       bgColor: '#ffffff',
-      slides: [makeSlide()],
-      activeSlideId: makeSlide().id, // will be overwritten
+      slides: [firstSlide],
+      layers: [],
+      activeSlideIdx: 0,
       activeLayerId: null,
       panel: null,
       elementPanel: null,
+      cropMode: false,
       history: [],
       future: [],
     })
-    // set activeSlideId to the actual first slide
-    set(s => ({ screen: 'editor', activeSlideId: s.slides[0].id }))
   },
 
   setPanel(panel) {
-    set(s => ({ panel: s.panel === panel ? null : panel, elementPanel: null }))
+    set(s => ({ panel: s.panel === panel ? null : panel, elementPanel: null, cropMode: false }))
   },
 
   setElementPanel(ep) {
     set(s => ({ elementPanel: s.elementPanel === ep ? null : ep }))
   },
 
-  setActiveSlide(id) {
-    set({ activeSlideId: id, activeLayerId: null, panel: null, elementPanel: null })
+  setActiveSlide(idx) {
+    set({ activeSlideIdx: idx, activeLayerId: null, panel: null, elementPanel: null, cropMode: false })
   },
 
   setActiveLayer(id) {
-    set({ activeLayerId: id, panel: null, elementPanel: null })
+    set({ activeLayerId: id, panel: null, elementPanel: null, cropMode: false })
+  },
+
+  setCropMode(on) {
+    set({ cropMode: on, panel: null, elementPanel: null })
   },
 
   setBgColor(color) {
@@ -101,112 +114,132 @@ export const useStore = create((set, get) => ({
     set({ bgColor: color })
   },
 
+  setRatio(ratio) {
+    set({ ratio, panel: null })
+  },
+
   addSlide() {
     get()._pushHistory()
-    const slide = makeSlide()
-    set(s => ({ slides: [...s.slides, slide], activeSlideId: slide.id, panel: null }))
+    const slide = { id: uid() }
+    set(s => ({ slides: [...s.slides, slide], activeSlideIdx: s.slides.length, panel: null }))
   },
 
-  duplicateSlide(id) {
+  duplicateSlide(idx) {
     get()._pushHistory()
-    const slide = get().slides.find(s => s.id === id)
-    const copy = { ...slide, id: uid(), layers: slide.layers.map(l => ({ ...l, id: uid() })) }
-    set(s => {
-      const idx = s.slides.findIndex(sl => sl.id === id)
-      const next = [...s.slides]
-      next.splice(idx + 1, 0, copy)
-      return { slides: next, activeSlideId: copy.id }
+    const { ratio, slides, layers } = get()
+    const newSlide = { id: uid() }
+    const newSlideIdx = idx + 1
+    const offsetX = newSlideIdx * ratio.w
+
+    // Shift all layers after idx up by one slide width
+    const shiftedLayers = layers.map(l => {
+      const lSlide = Math.floor(l.x / ratio.w)
+      if (lSlide >= newSlideIdx) return { ...l, x: l.x + ratio.w }
+      return l
     })
+
+    // Copy layers from idx into newSlideIdx
+    const srcStart = idx * ratio.w
+    const copiedLayers = layers
+      .filter(l => Math.floor(l.x / ratio.w) === idx)
+      .map(l => ({ ...l, id: uid(), x: l.x + ratio.w }))
+
+    const newSlides = [...slides]
+    newSlides.splice(newSlideIdx, 0, newSlide)
+
+    set({ slides: newSlides, layers: [...shiftedLayers, ...copiedLayers], activeSlideIdx: newSlideIdx })
   },
 
-  deleteSlide(id) {
+  deleteSlide(idx) {
     get()._pushHistory()
-    set(s => {
-      const next = s.slides.filter(sl => sl.id !== id)
-      if (!next.length) {
-        const fresh = makeSlide()
-        return { slides: [fresh], activeSlideId: fresh.id }
-      }
-      const wasActive = s.activeSlideId === id
-      return {
-        slides: next,
-        activeSlideId: wasActive ? next[0].id : s.activeSlideId,
-      }
-    })
-  },
-
-  moveSlide(fromIdx, toIdx) {
-    get()._pushHistory()
-    set(s => {
-      const next = [...s.slides]
-      const [item] = next.splice(fromIdx, 1)
-      next.splice(toIdx, 0, item)
-      return { slides: next }
+    const { ratio, slides, layers, activeSlideIdx } = get()
+    const newSlides = slides.filter((_, i) => i !== idx)
+    if (!newSlides.length) {
+      const fresh = { id: uid() }
+      set({ slides: [fresh], layers: [], activeSlideIdx: 0 })
+      return
+    }
+    // Remove layers in deleted slide, shift layers after it down
+    const newLayers = layers
+      .filter(l => Math.floor(l.x / ratio.w) !== idx)
+      .map(l => {
+        const lSlide = Math.floor(l.x / ratio.w)
+        if (lSlide > idx) return { ...l, x: l.x - ratio.w }
+        return l
+      })
+    set({
+      slides: newSlides,
+      layers: newLayers,
+      activeSlideIdx: Math.min(activeSlideIdx, newSlides.length - 1),
+      activeLayerId: null,
     })
   },
 
   applyTemplate(template) {
     get()._pushHistory()
-    const { ratio, activeSlideId } = get()
-    const GAP = 6 // px gap between cells in export space
-    const layers = template.cells.map(cell => ({
+    const { ratio, activeSlideIdx, layers } = get()
+    const offsetX = activeSlideIdx * ratio.w
+    const GAP = 6
+
+    // Remove existing layers in this slide
+    const kept = layers.filter(l => Math.floor(l.x / ratio.w) !== activeSlideIdx)
+
+    const newLayers = template.cells.map(cell => ({
       id: uid(),
       type: 'image',
       src: null,
-      x: Math.round(cell.x * ratio.w + (cell.x > 0 ? GAP / 2 : 0)),
+      x: offsetX + Math.round(cell.x * ratio.w + (cell.x > 0 ? GAP / 2 : 0)),
       y: Math.round(cell.y * ratio.h + (cell.y > 0 ? GAP / 2 : 0)),
       w: Math.round(cell.w * ratio.w - (cell.x > 0 ? GAP / 2 : 0) - (cell.x + cell.w < 1 ? GAP / 2 : 0)),
       h: Math.round(cell.h * ratio.h - (cell.y > 0 ? GAP / 2 : 0) - (cell.y + cell.h < 1 ? GAP / 2 : 0)),
-      imgX: 0,
-      imgY: 0,
-      imgScale: 1,
-      rotation: 0,
-      opacity: 1,
+      imgX: 0, imgY: 0, imgScale: 1, opacity: 1,
     }))
-    set(s => ({
-      slides: s.slides.map(sl =>
-        sl.id === activeSlideId ? { ...sl, layers } : sl
-      ),
-      panel: null,
-    }))
+
+    set({ layers: [...kept, ...newLayers], panel: null })
   },
 
-  addImageLayer(src, naturalW, naturalH) {
+  addImageLayer(src, naturalW, naturalH, slideIdx) {
     get()._pushHistory()
-    const { ratio, activeSlideId } = get()
+    const { ratio, activeSlideIdx } = get()
+    const si = slideIdx ?? activeSlideIdx
+    const offsetX = si * ratio.w
+    const { imgScale, imgX, imgY } = fitInCell(naturalW, naturalH, ratio.w, ratio.h)
     const layer = {
-      id: uid(),
-      type: 'image',
-      src,
-      x: ratio.w * 0.1,
-      y: ratio.h * 0.1,
-      w: ratio.w * 0.8,
-      h: ratio.h * 0.8,
-      imgX: 0,
-      imgY: 0,
-      imgScale: 1,
-      rotation: 0,
-      opacity: 1,
-      naturalW,
-      naturalH,
+      id: uid(), type: 'image', src,
+      x: offsetX, y: 0, w: ratio.w, h: ratio.h,
+      imgX, imgY, imgScale, opacity: 1, naturalW, naturalH,
     }
-    set(s => ({
-      slides: s.slides.map(sl =>
-        sl.id === activeSlideId ? { ...sl, layers: [...sl.layers, layer] } : sl
-      ),
-      activeLayerId: layer.id,
-      panel: null,
-    }))
+    set(s => ({ layers: [...s.layers, layer], activeLayerId: layer.id, panel: null }))
+  },
+
+  fillCells(files) {
+    // Fill empty cells in active slide with multiple images
+    get()._pushHistory()
+    const { ratio, activeSlideIdx, layers } = get()
+    const emptyCells = layers
+      .filter(l => !l.src && Math.floor(l.x / ratio.w) === activeSlideIdx)
+      .sort((a, b) => a.x - b.x || a.y - b.y)
+
+    const updates = {}
+    files.forEach((file, i) => {
+      if (i >= emptyCells.length) return
+      const cell = emptyCells[i]
+      const url = URL.createObjectURL(file)
+      // We'll update asynchronously as images load; use a helper
+      const img = new Image()
+      img.onload = () => {
+        const fit = fitInCell(img.naturalWidth, img.naturalHeight, cell.w, cell.h)
+        useStore.getState().updateLayer(cell.id, {
+          src: url, naturalW: img.naturalWidth, naturalH: img.naturalHeight, ...fit,
+        })
+      }
+      img.src = url
+    })
   },
 
   updateLayer(id, props) {
-    const { activeSlideId } = get()
     set(s => ({
-      slides: s.slides.map(sl =>
-        sl.id === activeSlideId
-          ? { ...sl, layers: sl.layers.map(l => l.id === id ? { ...l, ...props } : l) }
-          : sl
-      ),
+      layers: s.layers.map(l => l.id === id ? { ...l, ...props } : l),
     }))
   },
 
@@ -217,58 +250,44 @@ export const useStore = create((set, get) => ({
 
   deleteLayer(id) {
     get()._pushHistory()
-    const { activeSlideId } = get()
     set(s => ({
-      slides: s.slides.map(sl =>
-        sl.id === activeSlideId
-          ? { ...sl, layers: sl.layers.filter(l => l.id !== id) }
-          : sl
-      ),
+      layers: s.layers.filter(l => l.id !== id),
       activeLayerId: null,
       elementPanel: null,
+      cropMode: false,
     }))
   },
 
   duplicateLayer(id) {
     get()._pushHistory()
-    const { activeSlideId } = get()
-    set(s => ({
-      slides: s.slides.map(sl => {
-        if (sl.id !== activeSlideId) return sl
-        const idx = sl.layers.findIndex(l => l.id === id)
-        const copy = { ...sl.layers[idx], id: uid(), x: sl.layers[idx].x + 20, y: sl.layers[idx].y + 20 }
-        const next = [...sl.layers]
-        next.splice(idx + 1, 0, copy)
-        return { ...sl, layers: next }
-      }),
-    }))
+    set(s => {
+      const idx = s.layers.findIndex(l => l.id === id)
+      const copy = { ...s.layers[idx], id: uid(), x: s.layers[idx].x + 20, y: s.layers[idx].y + 20 }
+      const next = [...s.layers]
+      next.splice(idx + 1, 0, copy)
+      return { layers: next }
+    })
   },
 
   reorderLayer(id, direction) {
     get()._pushHistory()
-    const { activeSlideId } = get()
-    set(s => ({
-      slides: s.slides.map(sl => {
-        if (sl.id !== activeSlideId) return sl
-        const layers = [...sl.layers]
-        const idx = layers.findIndex(l => l.id === id)
-        if (direction === 'front') { const [l] = layers.splice(idx, 1); layers.push(l) }
-        else if (direction === 'back') { const [l] = layers.splice(idx, 1); layers.unshift(l) }
-        else if (direction === 'forward' && idx < layers.length - 1) {
-          [layers[idx], layers[idx + 1]] = [layers[idx + 1], layers[idx]]
-        } else if (direction === 'backward' && idx > 0) {
-          [layers[idx], layers[idx - 1]] = [layers[idx - 1], layers[idx]]
-        }
-        return { ...sl, layers }
-      }),
-    }))
-  },
-
-  setRatio(ratio) {
-    set({ ratio, panel: null })
+    set(s => {
+      const layers = [...s.layers]
+      const idx = layers.findIndex(l => l.id === id)
+      if (direction === 'front') { const [l] = layers.splice(idx, 1); layers.push(l) }
+      else if (direction === 'back') { const [l] = layers.splice(idx, 1); layers.unshift(l) }
+      else if (direction === 'forward' && idx < layers.length - 1) {
+        [layers[idx], layers[idx + 1]] = [layers[idx + 1], layers[idx]]
+      } else if (direction === 'backward' && idx > 0) {
+        [layers[idx], layers[idx - 1]] = [layers[idx - 1], layers[idx]]
+      }
+      return { layers }
+    })
   },
 
   goHome() {
-    set({ screen: 'home', panel: null, elementPanel: null })
+    set({ screen: 'home', panel: null, elementPanel: null, cropMode: false })
   },
 }))
+
+export { fitInCell }
