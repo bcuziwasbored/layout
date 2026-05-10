@@ -200,17 +200,6 @@ function CropTarget({ layer, vs, onPanEnd, onResizeEnd }) {
         {img && <KImage image={img} x={layer.x + ix} y={layer.y + iy}
           width={imgW} height={imgH} />}
       </Group>
-      {/* Draggable transparent layer for image panning */}
-      <Rect x={layer.x} y={layer.y} width={layer.w} height={layer.h}
-        fill="rgba(0,0,0,0.001)"
-        draggable
-        onDragMove={e => {
-          e.cancelBubble = true
-          // Move relative to start, not absolute position
-          // We reset position each frame and accumulate delta
-          e.target.position({ x: layer.x, y: layer.y })
-        }}
-      />
       <Rect x={layer.x} y={layer.y} width={layer.w} height={layer.h}
         stroke="white" strokeWidth={1.5 / vs} dash={[6 / vs, 4 / vs]} listening={false} />
       {[['tl', layer.x, layer.y], ['tr', layer.x + layer.w, layer.y],
@@ -380,6 +369,16 @@ export default function Canvas({ openPickerRef }) {
       }
     }
 
+    // In crop mode any non-handle touch pans the image within the crop boundary
+    if (isCrop && activeId) {
+      const layer = curLayers.find(l => l.id === activeId)
+      if (layer) {
+        panRef.current = { type: 'crop-pan', layerId: activeId,
+          startLayer: { ...layer }, startX: pt.clientX, startY: pt.clientY, moved: false }
+      }
+      return
+    }
+
     // Coordinate-based hit test — bypasses Konva hit detection entirely.
     // Konva's hit canvas is unreliable inside clipFunc groups, so we test
     // layer bounding boxes directly in canvas (world) space.
@@ -434,16 +433,22 @@ export default function Canvas({ openPickerRef }) {
       const sl = p.startLayer
       const { x: nx, y: ny, w: nw, h: nh } = computeResize(sl, p.handle, dx / vs, dy / vs)
       if (nw > 20 && nh > 20) {
-        const sW = nw / sl.w, sH = nh / sl.h
-        const cover = Math.max(Math.abs(sW), Math.abs(sH))
-        const newImgScale = (sl.imgScale ?? 1) * cover
-        const imgW = (sl.naturalW ?? nw) * newImgScale
-        const imgH = (sl.naturalH ?? nh) * newImgScale
-        const newImgX = clamp((sl.imgX ?? 0) * sW, Math.min(0, nw - imgW), 0)
-        const newImgY = clamp((sl.imgY ?? 0) * sH, Math.min(0, nh - imgH), 0)
+        // Always refit image to cover the new dimensions uniformly, centered
+        const { imgScale: newImgScale, imgX: newImgX, imgY: newImgY } =
+          fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, nw, nh)
         upd(sl.id, { x: nx, y: ny, w: nw, h: nh, imgScale: newImgScale, imgX: newImgX, imgY: newImgY })
         setSnapGuides({ x: null, y: null })
       }
+    } else if (p.type === 'crop-pan') {
+      const sl = p.startLayer
+      const imgW = (sl.naturalW ?? sl.w) * (sl.imgScale ?? 1)
+      const imgH = (sl.naturalH ?? sl.h) * (sl.imgScale ?? 1)
+      const minImgX = Math.min(0, sl.w - imgW)
+      const minImgY = Math.min(0, sl.h - imgH)
+      upd(sl.id, {
+        imgX: clamp((sl.imgX ?? 0) + dx / vs, minImgX, 0),
+        imgY: clamp((sl.imgY ?? 0) + dy / vs, minImgY, 0),
+      })
     } else if (p.type === 'crop-resize') {
       const sl = p.startLayer
       const { x: nx, y: ny, w: nw, h: nh } = computeResize(sl, p.handle, dx / vs, dy / vs)
@@ -471,6 +476,11 @@ export default function Canvas({ openPickerRef }) {
 
     if (p.type === 'deselect' && !p.moved) {
       fresh.current.setActiveLayer(null)
+      return
+    }
+
+    if (p.type === 'crop-pan' && p.moved) {
+      fresh.current.updateLayerWithHistory(p.startLayer.id, {})
       return
     }
 
