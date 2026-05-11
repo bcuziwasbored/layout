@@ -310,29 +310,72 @@ export default function Canvas({ openPickerRef }) {
       const newDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY)
       const rect = el.getBoundingClientRect()
       const mid = { x: (t1.clientX + t2.clientX) / 2 - rect.left, y: (t1.clientY + t2.clientY) / 2 - rect.top }
+
       if (!pinchRef.current.active) {
         const { activeCellId: cellId, layers: curLayers } = fresh.current
         const cell = cellId ? curLayers.find(l => l.id === cellId) : null
-        pinchRef.current = { active: true, lastDist: newDist, cellScale: cell?.imgScale ?? null }
+        // Decide at gesture start if both fingers land inside the cell
+        let cellPinch = false
+        if (cell) {
+          const v = viewRef.current
+          const toCanvas = (t) => ({
+            x: (t.clientX - rect.left - v.x) / v.scale,
+            y: (t.clientY - rect.top  - v.y) / v.scale,
+          })
+          const p1 = toCanvas(t1), p2 = toCanvas(t2)
+          const inside = (p) => p.x >= cell.x && p.x <= cell.x + cell.w && p.y >= cell.y && p.y <= cell.y + cell.h
+          cellPinch = inside(p1) && inside(p2)
+        }
+        pinchRef.current = {
+          active: true, lastDist: newDist, cellPinch,
+          cellScale: cell?.imgScale ?? null,
+          imgX: cell?.imgX ?? null,
+          imgY: cell?.imgY ?? null,
+        }
         panRef.current = null
         return
       }
+
       const factor = newDist / pinchRef.current.lastDist
       pinchRef.current.lastDist = newDist
 
       const { activeCellId: cellId, layers: curLayers, updateLayer: upd } = fresh.current
-      if (cellId) {
+      if (cellId && pinchRef.current.cellPinch) {
         const cell = curLayers.find(l => l.id === cellId)
         if (cell) {
           const gap = cell.cellGap ?? 0
-          const minScale = Math.max((cell.w - gap) / (cell.naturalW ?? 1), (cell.h - gap) / (cell.naturalH ?? 1))
+          const inset = gap / 2
+          const innerW = cell.w - gap
+          const innerH = cell.h - gap
+          const naturalW = cell.naturalW ?? cell.w
+          const naturalH = cell.naturalH ?? cell.h
+          const minScale = Math.max(innerW / naturalW, innerH / naturalH)
           const cur = pinchRef.current.cellScale ?? cell.imgScale ?? minScale
           const next = clamp(cur * factor, minScale, minScale * 8)
           pinchRef.current.cellScale = next
-          upd(cellId, { imgScale: next })
+
+          // Finger midpoint in cell inner-area coords
+          const v = viewRef.current
+          const midCanvas = { x: (mid.x - v.x) / v.scale, y: (mid.y - v.y) / v.scale }
+          const midCell = { x: midCanvas.x - cell.x - inset, y: midCanvas.y - cell.y - inset }
+
+          // Keep the image point under the midpoint fixed
+          const curImgX = pinchRef.current.imgX ?? cell.imgX ?? 0
+          const curImgY = pinchRef.current.imgY ?? cell.imgY ?? 0
+          const imgPtX = (midCell.x - curImgX) / cur
+          const imgPtY = (midCell.y - curImgY) / cur
+          const minImgX = Math.min(0, innerW - naturalW * next)
+          const minImgY = Math.min(0, innerH - naturalH * next)
+          const newImgX = clamp(midCell.x - imgPtX * next, minImgX, 0)
+          const newImgY = clamp(midCell.y - imgPtY * next, minImgY, 0)
+          pinchRef.current.imgX = newImgX
+          pinchRef.current.imgY = newImgY
+
+          upd(cellId, { imgScale: next, imgX: newImgX, imgY: newImgY })
         }
         return
       }
+
       setViewSync(v => {
         const ns = clamp(v.scale * factor, 0.1, 10)
         return { scale: ns, x: mid.x - (mid.x - v.x) * (ns / v.scale), y: mid.y - (mid.y - v.y) * (ns / v.scale) }
@@ -340,7 +383,7 @@ export default function Canvas({ openPickerRef }) {
     }
     const onEnd = () => {
       const { activeCellId: cellId, updateLayerWithHistory: updH } = fresh.current
-      if (cellId && pinchRef.current.active) updH(cellId, {})
+      if (cellId && pinchRef.current.cellPinch && pinchRef.current.active) updH(cellId, {})
       pinchRef.current = { active: false, lastDist: 0 }
     }
     el.addEventListener('touchmove', onMove, { passive: false })

@@ -53,15 +53,19 @@ export default function LayerToolbar() {
                 value={cell.imgScale ?? minScale}
                 onChange={e => {
                   const newScale = parseFloat(e.target.value)
-                  const imgW = (cell.naturalW ?? cell.w) * newScale
-                  const imgH = (cell.naturalH ?? cell.h) * newScale
-                  const minImgX = Math.min(0, innerW - imgW)
-                  const minImgY = Math.min(0, innerH - imgH)
-                  updateLayer(activeCellId, {
-                    imgScale: newScale,
-                    imgX: Math.max(minImgX, Math.min(0, cell.imgX ?? 0)),
-                    imgY: Math.max(minImgY, Math.min(0, cell.imgY ?? 0)),
-                  })
+                  const curScale = cell.imgScale ?? minScale
+                  const curImgX = cell.imgX ?? 0
+                  const curImgY = cell.imgY ?? 0
+                  // Keep the image point currently at the cell center fixed
+                  const imgPtX = (innerW / 2 - curImgX) / curScale
+                  const imgPtY = (innerH / 2 - curImgY) / curScale
+                  const naturalW = cell.naturalW ?? cell.w
+                  const naturalH = cell.naturalH ?? cell.h
+                  const minImgX = Math.min(0, innerW - naturalW * newScale)
+                  const minImgY = Math.min(0, innerH - naturalH * newScale)
+                  const newImgX = Math.max(minImgX, Math.min(0, innerW / 2 - imgPtX * newScale))
+                  const newImgY = Math.max(minImgY, Math.min(0, innerH / 2 - imgPtY * newScale))
+                  updateLayer(activeCellId, { imgScale: newScale, imgX: newImgX, imgY: newImgY })
                 }}
                 onMouseUp={() => updateLayerWithHistory(activeCellId, {})}
                 onTouchEnd={() => updateLayerWithHistory(activeCellId, {})}
