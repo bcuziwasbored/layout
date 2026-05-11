@@ -1,5 +1,18 @@
 import { useStore, fitInCell } from '../../useStore'
 
+// Minimum imgScale needed so a rotated image fully covers its frame with no empty corners.
+// Formula: for frame (W,H) and image natural size (nW,nH) at angle θ (radians):
+//   s ≥ max( (W|cosθ|+H|sinθ|)/nW, (W|sinθ|+H|cosθ|)/nH )
+function minScaleForRotation(deg, W, H, nW, nH) {
+  const θ = Math.abs(deg % 180) * Math.PI / 180  // symmetry: use [0,90] range
+  const abscos = Math.cos(θ)
+  const abssin = Math.sin(θ)
+  return Math.max(
+    (W * abscos + H * abssin) / nW,
+    (W * abssin + H * abscos) / nH,
+  )
+}
+
 const ASPECT_PRESETS = [
   { label: 'Free', value: null },
   { label: '1:1',  value: 1 },
@@ -23,8 +36,10 @@ export default function CropControls() {
   const layer = layers.find(l => l.id === activeLayerId)
   if (!layer) return null
 
-  const minScale = Math.max(layer.w / (layer.naturalW ?? 1), layer.h / (layer.naturalH ?? 1))
+  const coverScale = Math.max(layer.w / (layer.naturalW ?? 1), layer.h / (layer.naturalH ?? 1))
   const rotation = layer.rotation ?? 0
+  // minScale is the larger of cover-scale and rotation-constrained scale
+  const minScale = Math.max(coverScale, minScaleForRotation(rotation, layer.w, layer.h, layer.naturalW ?? layer.w, layer.naturalH ?? layer.h))
 
   const handleReset = () => {
     const { imgScale, imgX, imgY } = fitInCell(layer.naturalW ?? layer.w, layer.naturalH ?? layer.h, layer.w, layer.h)
@@ -63,7 +78,30 @@ export default function CropControls() {
         <span className="text-xs text-white/50 w-14 shrink-0">Rotate</span>
         <input type="range" min={-180} max={180} step={0.5}
           value={rotation}
-          onChange={e => updateLayer(layer.id, { rotation: parseFloat(e.target.value) })}
+          onChange={e => {
+            const newRot = parseFloat(e.target.value)
+            const nW = layer.naturalW ?? layer.w
+            const nH = layer.naturalH ?? layer.h
+            const rotMin = minScaleForRotation(newRot, layer.w, layer.h, nW, nH)
+            const curScale = layer.imgScale ?? minScale
+            const newScale = Math.max(curScale, rotMin)
+            const newImgW = nW * newScale
+            const newImgH = nH * newScale
+            // If scale was bumped, keep the pan offset relative to centered position
+            let newImgX = layer.imgX ?? 0
+            let newImgY = layer.imgY ?? 0
+            if (newScale !== curScale) {
+              const oldImgW = nW * curScale
+              const oldImgH = nH * curScale
+              const panOffX = newImgX - (layer.w - oldImgW) / 2
+              const panOffY = newImgY - (layer.h - oldImgH) / 2
+              const newCentX = (layer.w - newImgW) / 2
+              const newCentY = (layer.h - newImgH) / 2
+              newImgX = newCentX + panOffX
+              newImgY = newCentY + panOffY
+            }
+            updateLayer(layer.id, { rotation: newRot, imgScale: newScale, imgX: newImgX, imgY: newImgY })
+          }}
           onMouseUp={() => updateLayerWithHistory(layer.id, {})}
           onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
           className="flex-1 accent-blue-500" />
@@ -72,19 +110,28 @@ export default function CropControls() {
         </span>
       </div>
 
-      {/* Scale slider */}
-      <div className="flex items-center gap-3 mb-3">
-        <span className="text-xs text-white/50 w-14 shrink-0">Scale</span>
-        <input type="range" min={minScale} max={minScale * 4} step={0.001}
-          value={layer.imgScale ?? 1}
-          onChange={e => updateLayer(layer.id, { imgScale: parseFloat(e.target.value) })}
-          onMouseUp={() => updateLayerWithHistory(layer.id, {})}
-          onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
-          className="flex-1 accent-blue-500" />
-        <span className="text-xs text-white/40 w-12 text-right shrink-0">
-          {((layer.imgScale ?? 1) / minScale * 100).toFixed(0)}%
-        </span>
-      </div>
+      {/* Scale slider — min tracks rotation constraint */}
+      {(() => {
+        const nW = layer.naturalW ?? layer.w
+        const nH = layer.naturalH ?? layer.h
+        const rotMin = minScaleForRotation(rotation, layer.w, layer.h, nW, nH)
+        const sliderMin = Math.max(minScale, rotMin)
+        const sliderMax = sliderMin * 4
+        return (
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-xs text-white/50 w-14 shrink-0">Scale</span>
+            <input type="range" min={sliderMin} max={sliderMax} step={0.001}
+              value={Math.max(layer.imgScale ?? 1, sliderMin)}
+              onChange={e => updateLayer(layer.id, { imgScale: parseFloat(e.target.value) })}
+              onMouseUp={() => updateLayerWithHistory(layer.id, {})}
+              onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+              className="flex-1 accent-blue-500" />
+            <span className="text-xs text-white/40 w-12 text-right shrink-0">
+              {((Math.max(layer.imgScale ?? 1, sliderMin)) / sliderMin * 100).toFixed(0)}%
+            </span>
+          </div>
+        )
+      })()}
 
       {/* Reset + hint */}
       <div className="flex items-center justify-between">
