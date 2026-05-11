@@ -932,6 +932,23 @@ export default function Canvas({ openPickerRef }) {
               )
             })}
 
+            {/* Outside-slide dimming overlay — covers areas outside all slide bounds.
+                Content within [0, totalW] × [0, ratio.h] will appear in some slide's export;
+                anything outside is darkened. Renders above layers, below selection handles. */}
+            {!cropMode && (() => {
+              const totalW = slides.length * ratio.w
+              const OV = 60 * Math.max(ratio.w, ratio.h)  // large enough to cover any overflow
+              const dim = 'rgba(0,0,0,0.5)'
+              return (
+                <>
+                  <Rect x={-OV}    y={-OV}    width={totalW + OV * 2} height={OV}       fill={dim} listening={false} />
+                  <Rect x={-OV}    y={ratio.h} width={totalW + OV * 2} height={OV}       fill={dim} listening={false} />
+                  <Rect x={-OV}    y={0}       width={OV}              height={ratio.h}  fill={dim} listening={false} />
+                  <Rect x={totalW} y={0}       width={OV}              height={ratio.h}  fill={dim} listening={false} />
+                </>
+              )
+            })()}
+
             {/* Selection border + resize handles (outside clip) */}
             {!cropMode && activeLayer && (() => {
               if (activeLayer.locked) {
