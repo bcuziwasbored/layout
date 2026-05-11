@@ -161,12 +161,17 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
     l.x < sliceEnd && l.x + l.w > sliceStart
   )
 
-  // Pre-load all image layers into a Map
+  // Pre-load all image layers into a Map, waiting for full decode
   const imgMap = new Map()
   await Promise.all(
     relevant.filter(l => l.src).map(layer => new Promise(resolve => {
       const img = new Image()
-      img.onload = () => { imgMap.set(layer.id, img); resolve() }
+      img.onload = () => {
+        // decode() ensures the image is fully decompressed before drawImage —
+        // skipping this causes intermittent blank renders on Safari/mobile.
+        const p = img.decode ? img.decode() : Promise.resolve()
+        p.catch(() => {}).then(() => { imgMap.set(layer.id, img); resolve() })
+      }
       img.onerror = resolve
       img.src = layer.src
     }))
@@ -189,7 +194,11 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
 
     if (layer.src) {
       const img = imgMap.get(layer.id)
-      if (!img) continue
+      if (!img) {
+        // Image failed to load — restore any freeRot transform and skip
+        if (freeRot) ctx.restore()
+        continue
+      }
 
       const gap = layer.cellGap ?? 0
       const inset = gap / 2
@@ -342,10 +351,22 @@ export default function ExportScreen({ onClose }) {
   const [rendered, setRendered] = useState([])
   const [activeIdx, setActiveIdx] = useState(0)
 
+  const [renderKey, setRenderKey] = useState(0)
+
   useEffect(() => {
-    Promise.all(slides.map((slide, i) => renderSlide(i, slides, layers, ratio, slide.bgColor ?? bgColor, bgGradient)))
-      .then(setRendered)
-  }, [])
+    let cancelled = false
+    Promise.all(
+      slides.map((slide, i) =>
+        renderSlide(i, slides, layers, ratio, slide.bgColor ?? bgColor, bgGradient)
+      )
+    )
+      .then(results => { if (!cancelled) setRendered(results) })
+      .catch(err => {
+        console.error('Export render failed:', err)
+        // Leave rendered empty so the user sees "Rendering…" and can retry
+      })
+    return () => { cancelled = true }
+  }, [renderKey])
 
   // Preview size: fit within screen on both axes, maintain aspect ratio
   const maxW = window.innerWidth - 48
@@ -392,7 +413,7 @@ export default function ExportScreen({ onClose }) {
                 {rendered[i] ? (
                   <img src={rendered[i]} className="w-full h-full object-cover" alt="" />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center">
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-3">
                     <span className="text-black/30 text-sm">Rendering…</span>
                   </div>
                 )}
@@ -434,7 +455,14 @@ export default function ExportScreen({ onClose }) {
             </a>
           ))}
           {!rendered.length && (
-            <div className="text-white/30 text-xs py-4">Rendering…</div>
+            <div className="flex items-center gap-3 py-2">
+              <div className="text-white/30 text-xs">Rendering…</div>
+              <button
+                onClick={() => setRenderKey(k => k + 1)}
+                className="text-white/50 text-xs bg-white/10 px-3 py-1 rounded-full active:bg-white/20">
+                Retry
+              </button>
+            </div>
           )}
         </div>
 
