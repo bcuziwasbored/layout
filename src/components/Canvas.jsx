@@ -341,27 +341,45 @@ function FilledCell({ layer, vs }) {
 
 function SelectionOverlay({ layer, vs }) {
   const hr = HANDLE_R_PX / vs
+  const rotOffset = 36 / vs   // stem length above top edge
+
+  // All coords are relative to the layer's top-left (0,0)
   const handles = [
-    ['tl', layer.x,                layer.y               ],
-    ['t',  layer.x + layer.w / 2,  layer.y               ],
-    ['tr', layer.x + layer.w,      layer.y               ],
-    ['r',  layer.x + layer.w,      layer.y + layer.h / 2 ],
-    ['br', layer.x + layer.w,      layer.y + layer.h     ],
-    ['b',  layer.x + layer.w / 2,  layer.y + layer.h     ],
-    ['bl', layer.x,                layer.y + layer.h     ],
-    ['l',  layer.x,                layer.y + layer.h / 2 ],
+    ['tl', 0,            0           ],
+    ['t',  layer.w / 2,  0           ],
+    ['tr', layer.w,      0           ],
+    ['r',  layer.w,      layer.h / 2 ],
+    ['br', layer.w,      layer.h     ],
+    ['b',  layer.w / 2,  layer.h     ],
+    ['bl', 0,            layer.h     ],
+    ['l',  0,            layer.h / 2 ],
   ]
   return (
-    <Group>
-      {/* Border only — no pointer events */}
-      <Rect x={layer.x} y={layer.y} width={layer.w} height={layer.h}
+    // Rotate the whole overlay to match the layer's freeRotation
+    <Group
+      x={layer.x + layer.w / 2} y={layer.y + layer.h / 2}
+      offsetX={layer.w / 2}     offsetY={layer.h / 2}
+      rotation={layer.freeRotation ?? 0}
+    >
+      {/* Border */}
+      <Rect x={0} y={0} width={layer.w} height={layer.h}
         stroke={BORDER_COLOR} strokeWidth={2 / vs} listening={false} />
-      {/* Handles DO need to receive pointer events for resize dragging */}
+      {/* Resize handles */}
       {handles.map(([h, hx, hy]) => (
         <Circle key={h} name={`handle|${h}|${layer.id}`}
           x={hx} y={hy} radius={hr}
           fill="white" stroke={BORDER_COLOR} strokeWidth={1.5 / vs} />
       ))}
+      {/* Rotation stem */}
+      <Line
+        points={[layer.w / 2, 0, layer.w / 2, -rotOffset]}
+        stroke={BORDER_COLOR} strokeWidth={1.5 / vs} listening={false} />
+      {/* Rotation handle — filled with accent colour to distinguish from resize */}
+      <Circle
+        name={`rothandle|${layer.id}`}
+        x={layer.w / 2} y={-rotOffset}
+        radius={hr}
+        fill={BORDER_COLOR} stroke="white" strokeWidth={1.5 / vs} />
     </Group>
   )
 }
@@ -682,6 +700,9 @@ export default function Canvas({ openPickerRef }) {
     let node = target
     while (node) {
       const name = node.attrs?.name || ''
+      if (name.startsWith('rothandle|')) {
+        return { type: 'rothandle', layerId: name.split('|')[1] }
+      }
       if (name.startsWith('handle|')) {
         const parts = name.split('|')
         return { type: 'resize', handle: parts[1], layerId: parts[2] }
@@ -742,6 +763,24 @@ export default function Canvas({ openPickerRef }) {
             startLayer: { ...layer }, startX: pt.clientX, startY: pt.clientY, moved: false }
           useStore.getState()._captureUndo()
         }
+        return
+      }
+    }
+
+    if (info?.type === 'rothandle' && info.layerId === activeId && !isCrop) {
+      const layer = curLayers.find(l => l.id === info.layerId)
+      if (layer) {
+        const cx = layer.x + layer.w / 2
+        const cy = layer.y + layer.h / 2
+        panRef.current = {
+          type: 'rotate',
+          layerId: info.layerId,
+          cx, cy,
+          startAngle: Math.atan2(canvasY - cy, canvasX - cx),
+          startFreeRotation: layer.freeRotation ?? 0,
+          startX: pt.clientX, startY: pt.clientY, moved: false,
+        }
+        useStore.getState()._captureUndo()
         return
       }
     }
@@ -982,6 +1021,23 @@ export default function Canvas({ openPickerRef }) {
       const { cropAspect } = fresh.current
       const { x: nx, y: ny, w: nw, h: nh } = computeResize(sl, p.handle, dx / vs, dy / vs, cropAspect)
       if (nw > 20 && nh > 20) upd(sl.id, { x: nx, y: ny, w: nw, h: nh })
+    } else if (p.type === 'rotate') {
+      const containerRect = containerRef.current?.getBoundingClientRect()
+      const cX = pt.clientX - (containerRect?.left ?? 0)
+      const cY = pt.clientY - (containerRect?.top ?? 0)
+      const v  = viewRef.current
+      const curCanvasX = (cX - v.x) / v.scale
+      const curCanvasY = (cY - v.y) / v.scale
+      const currentAngle = Math.atan2(curCanvasY - p.cy, curCanvasX - p.cx)
+      let deg = p.startFreeRotation + (currentAngle - p.startAngle) * 180 / Math.PI
+      // Snap to every 45° when within 5°
+      let nr = ((deg % 360) + 360) % 360
+      if (nr > 180) nr -= 360
+      const snaps = [0, 45, 90, 135, 180, -45, -90, -135]
+      for (const s of snaps) {
+        if (Math.abs(nr - s) < 5) { deg = s; break }
+      }
+      upd(p.layerId, { freeRotation: Math.round(deg * 10) / 10 })
     }
   }
 
@@ -1053,6 +1109,11 @@ export default function Canvas({ openPickerRef }) {
     }
 
     if ((p.type === 'resize' || p.type === 'crop-resize') && p.moved) {
+      useStore.getState()._commitUndo()
+      return
+    }
+
+    if (p.type === 'rotate' && p.moved) {
       useStore.getState()._commitUndo()
       return
     }
