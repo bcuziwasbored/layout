@@ -193,12 +193,22 @@ export const useStore = create((set, get) => ({
 
   applyTemplate(template) {
     get()._pushHistory()
-    const { ratio, activeSlideIdx, layers } = get()
+    const { ratio, activeSlideIdx, layers, slides } = get()
     const offsetX = activeSlideIdx * ratio.w
-    const GAP = 0
+    const pageSpan = template.pageSpan ?? 1
 
-    // Remove existing layers in this slide
-    const kept = layers.filter(l => Math.floor(l.x / ratio.w) !== activeSlideIdx)
+    // Ensure enough slides exist for this template
+    let newSlides = slides
+    if (slides.length < activeSlideIdx + pageSpan) {
+      newSlides = [...slides]
+      while (newSlides.length < activeSlideIdx + pageSpan) newSlides.push({ id: uid() })
+    }
+
+    // Remove existing layers from ALL affected slide indices
+    const kept = layers.filter(l => {
+      const si = Math.floor(l.x / ratio.w)
+      return si < activeSlideIdx || si >= activeSlideIdx + pageSpan
+    })
 
     const groupId = uid()
     const newLayers = template.cells.map(cell => ({
@@ -207,14 +217,14 @@ export const useStore = create((set, get) => ({
       locked: true,
       groupId,
       src: null,
-      x: offsetX + Math.round(cell.x * ratio.w + (cell.x > 0 ? GAP / 2 : 0)),
-      y: Math.round(cell.y * ratio.h + (cell.y > 0 ? GAP / 2 : 0)),
-      w: Math.round(cell.w * ratio.w - (cell.x > 0 ? GAP / 2 : 0) - (cell.x + cell.w < 1 ? GAP / 2 : 0)),
-      h: Math.round(cell.h * ratio.h - (cell.y > 0 ? GAP / 2 : 0) - (cell.y + cell.h < 1 ? GAP / 2 : 0)),
+      x: Math.round(offsetX + cell.x * ratio.w),
+      y: Math.round(cell.y * ratio.h),
+      w: Math.round(cell.w * ratio.w),
+      h: Math.round(cell.h * ratio.h),
       imgX: 0, imgY: 0, imgScale: 1, opacity: 1, naturalW: null, naturalH: null, cellGap: 0,
     }))
 
-    set({ layers: [...kept, ...newLayers], panel: null })
+    set({ slides: newSlides, layers: [...kept, ...newLayers], panel: null })
   },
 
   addImageLayer(src, naturalW, naturalH, slideIdx) {

@@ -4,22 +4,41 @@ import { useCanvasPicker } from '../../CanvasContext'
 import { TEMPLATES } from '../../templates'
 import { IconImage, IconGrid, IconBlank, IconClose } from '../icons'
 
-const TemplateThumb = ({ template, onClick }) => (
-  <button onClick={onClick} className="flex flex-col items-center gap-1.5 active:opacity-60">
-    <div className="w-full aspect-square bg-white/10 rounded-xl relative overflow-hidden border border-white/15">
-      {template.cells.map((c, i) => (
-        <div key={i} className="absolute bg-white/25 border border-white/20"
-          style={{ left: `${c.x * 100}%`, top: `${c.y * 100}%`, width: `${c.w * 100}%`, height: `${c.h * 100}%` }} />
-      ))}
-    </div>
-    <span className="text-[10px] text-white/45 leading-none">{template.label}</span>
-  </button>
-)
+const TemplateThumb = ({ template, onClick }) => {
+  const ps = template.pageSpan ?? 1
+  return (
+    <button onClick={onClick} className="flex flex-col items-center gap-1.5 active:opacity-60">
+      <div className="w-full aspect-square bg-white/10 rounded-xl relative overflow-hidden border border-white/15">
+        {/* Page divider lines for multi-page templates */}
+        {ps > 1 && Array.from({ length: ps - 1 }, (_, i) => (
+          <div key={`pd${i}`} className="absolute top-0 bottom-0 w-px bg-white/50"
+            style={{ left: `${(i + 1) * 100 / ps}%` }} />
+        ))}
+        {template.cells.map((c, i) => (
+          <div key={i} className="absolute bg-white/25 border border-white/20"
+            style={{
+              left:   `${c.x * 100 / ps}%`,
+              top:    `${c.y * 100}%`,
+              width:  `${c.w * 100 / ps}%`,
+              height: `${c.h * 100}%`,
+            }} />
+        ))}
+        {/* Multi-page badge */}
+        {ps > 1 && (
+          <div className="absolute bottom-1 right-1 bg-black/60 text-white text-[8px] px-1 py-0.5 rounded font-medium leading-none">
+            ×{ps}
+          </div>
+        )}
+      </div>
+      <span className="text-[10px] text-white/45 leading-none">{template.label}</span>
+    </button>
+  )
+}
 
 export default function AddPanel() {
-  const setPanel    = useStore(s => s.setPanel)
+  const setPanel      = useStore(s => s.setPanel)
   const applyTemplate = useStore(s => s.applyTemplate)
-  const addSlide    = useStore(s => s.addSlide)
+  const addSlide      = useStore(s => s.addSlide)
   const openPickerRef = useCanvasPicker()
   const [view, setView] = useState('root')
 
@@ -29,7 +48,8 @@ export default function AddPanel() {
   }
 
   if (view === 'grid') {
-    const gridTemplates = TEMPLATES.filter(t => t.id !== 'blank' && t.id !== 'single')
+    const singlePage = TEMPLATES.filter(t => t.id !== 'blank' && t.id !== 'single' && !t.pageSpan)
+    const multiPage  = TEMPLATES.filter(t => t.pageSpan && t.pageSpan > 1)
     return (
       <div className="bg-[#111] rounded-t-2xl" style={{ maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
         <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
@@ -37,11 +57,22 @@ export default function AddPanel() {
           <span className="font-semibold text-base">Grids</span>
           <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
         </div>
-        <div className="overflow-y-auto px-5 pb-8">
+        <div className="overflow-y-auto px-5 pb-8 space-y-5">
+          {/* Single-page grids */}
           <div className="grid grid-cols-4 gap-3">
-            {gridTemplates.map(t => (
+            {singlePage.map(t => (
               <TemplateThumb key={t.id} template={t} onClick={() => { applyTemplate(t); setPanel(null) }} />
             ))}
+          </div>
+
+          {/* Multi-page grids */}
+          <div>
+            <div className="text-xs text-white/30 uppercase tracking-wider mb-3">Multi-page</div>
+            <div className="grid grid-cols-4 gap-3">
+              {multiPage.map(t => (
+                <TemplateThumb key={t.id} template={t} onClick={() => { applyTemplate(t); setPanel(null) }} />
+              ))}
+            </div>
           </div>
         </div>
       </div>
