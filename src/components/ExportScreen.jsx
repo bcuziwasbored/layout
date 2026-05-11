@@ -155,11 +155,19 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
   const sliceStart = slideIdx * ratio.w
   const sliceEnd = (slideIdx + 1) * ratio.w
 
-  // All relevant layers (images, text, shapes) in z-order
-  const relevant = layers.filter(l =>
-    (l.src || l.type === 'text' || l.type === 'shape') &&
-    l.x < sliceEnd && l.x + l.w > sliceStart
-  )
+  // All relevant layers (images, text, shapes) in z-order.
+  // For rotated layers, check the axis-aligned bounding box of the rotated frame
+  // so content that rotates into a neighbouring slide is included.
+  const relevant = layers.filter(l => {
+    if (!l.src && l.type !== 'text' && l.type !== 'shape') return false
+    const fr = l.freeRotation ?? 0
+    if (!fr) return l.x < sliceEnd && l.x + l.w > sliceStart
+    // Rotated AABB: half-width = (|w·cosθ| + |h·sinθ|) / 2
+    const θ = Math.abs(fr) * Math.PI / 180
+    const cx = l.x + l.w / 2
+    const extHalfW = (Math.abs(l.w * Math.cos(θ)) + Math.abs(l.h * Math.sin(θ))) / 2
+    return cx - extHalfW < sliceEnd && cx + extHalfW > sliceStart
+  })
 
   // Pre-load all image layers into a Map, waiting for full decode
   const imgMap = new Map()
@@ -206,8 +214,15 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
       const bw  = layer.borderWidth ?? 0
       const bc  = layer.borderColor ?? '#000000'
 
-      const clipX = Math.max(layer.x, sliceStart) - sliceStart + inset
-      const clipW = Math.min(layer.x + layer.w, sliceEnd) - Math.max(layer.x, sliceStart) - gap
+      // Rotated layers: clip to the full frame — the canvas viewport clips to
+      // the slide edge automatically, so we don't need to intersect with sliceEnd.
+      // Non-rotated spanning layers: intersect with the slide to prevent bleed.
+      const clipX = freeRot
+        ? (layer.x - sliceStart) + inset
+        : Math.max(layer.x, sliceStart) - sliceStart + inset
+      const clipW = freeRot
+        ? layer.w - gap
+        : Math.min(layer.x + layer.w, sliceEnd) - Math.max(layer.x, sliceStart) - gap
       const clipY = layer.y + inset
       const clipH = layer.h - gap
 
