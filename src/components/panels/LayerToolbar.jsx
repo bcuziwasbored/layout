@@ -92,10 +92,11 @@ function PositionTab({ layer, activeLayerId, ratio, activeSlideIdx, layers, reor
   }
   const fillWidth2x = () => {
     const nW = layer.naturalW ?? layer.w, nH = layer.naturalH ?? layer.h
-    const newW = 2 * ratio.w, newH = nH / nW * newW
+    // Frame spans exactly 2 pages wide × 1 page tall, left-aligned to current page
+    const newW = 2 * ratio.w, newH = ratio.h
     const fit = fitInCell(nW, nH, newW, newH)
     updateLayerWithHistory(activeLayerId, {
-      x: activeSlideIdx * ratio.w, y: (ratio.h - newH) / 2, w: newW, h: newH, ...fit,
+      x: activeSlideIdx * ratio.w, y: 0, w: newW, h: newH, ...fit,
     })
   }
 

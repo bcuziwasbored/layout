@@ -5,14 +5,14 @@ import { TEMPLATES } from '../../templates'
 import { IconImage, IconGrid, IconBlank, IconClose } from '../icons'
 
 const TemplateThumb = ({ template, onClick }) => (
-  <button onClick={onClick} className="flex flex-col items-center gap-2 active:opacity-60 shrink-0">
-    <div className="w-16 h-16 bg-white/10 rounded-xl relative overflow-hidden border border-white/20">
+  <button onClick={onClick} className="flex flex-col items-center gap-1.5 active:opacity-60">
+    <div className="w-full aspect-square bg-white/10 rounded-xl relative overflow-hidden border border-white/15">
       {template.cells.map((c, i) => (
-        <div key={i} className="absolute bg-white/30 border border-white/10"
+        <div key={i} className="absolute bg-white/25 border border-white/20"
           style={{ left: `${c.x * 100}%`, top: `${c.y * 100}%`, width: `${c.w * 100}%`, height: `${c.h * 100}%` }} />
       ))}
     </div>
-    <span className="text-[11px] text-white/50">{template.label}</span>
+    <span className="text-[10px] text-white/45 leading-none">{template.label}</span>
   </button>
 )
 
@@ -29,17 +29,20 @@ export default function AddPanel() {
   }
 
   if (view === 'grid') {
+    const gridTemplates = TEMPLATES.filter(t => t.id !== 'blank' && t.id !== 'single')
     return (
-      <div className="bg-[#111] rounded-t-2xl p-5 pb-8">
-        <div className="flex items-center justify-between mb-5">
+      <div className="bg-[#111] rounded-t-2xl" style={{ maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
           <button onClick={() => setView('root')} className="text-white/50 text-sm active:text-white">‹ Back</button>
-          <span className="font-semibold text-base">Grid</span>
+          <span className="font-semibold text-base">Grids</span>
           <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
         </div>
-        <div className="flex gap-4 overflow-x-auto pb-2">
-          {TEMPLATES.filter(t => t.id !== 'blank').map(t => (
-            <TemplateThumb key={t.id} template={t} onClick={() => { applyTemplate(t); setPanel(null) }} />
-          ))}
+        <div className="overflow-y-auto px-5 pb-8">
+          <div className="grid grid-cols-4 gap-3">
+            {gridTemplates.map(t => (
+              <TemplateThumb key={t.id} template={t} onClick={() => { applyTemplate(t); setPanel(null) }} />
+            ))}
+          </div>
         </div>
       </div>
     )
