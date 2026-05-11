@@ -124,7 +124,23 @@ export default function CropControls() {
             <input type="range" min={sliderMin} max={sliderMax} step={0.001}
               value={Math.max(layer.imgScale ?? 1, sliderMin)}
               onPointerDown={() => useStore.getState()._captureUndo()}
-              onChange={e => updateLayer(layer.id, { imgScale: parseFloat(e.target.value) })}
+              onChange={e => {
+                const newScale = parseFloat(e.target.value)
+                const curScale = layer.imgScale ?? sliderMin
+                // Zoom from the center of the frame:
+                // keep the image-space point that was under the frame center fixed
+                const nW = layer.naturalW ?? layer.w
+                const nH = layer.naturalH ?? layer.h
+                const curImgX = layer.imgX ?? 0
+                const curImgY = layer.imgY ?? 0
+                const framePtX = (layer.w / 2 - curImgX) / curScale
+                const framePtY = (layer.h / 2 - curImgY) / curScale
+                const minImgX = Math.min(0, layer.w  - nW * newScale)
+                const minImgY = Math.min(0, layer.h - nH * newScale)
+                const newImgX = Math.max(minImgX, Math.min(0, layer.w  / 2 - framePtX * newScale))
+                const newImgY = Math.max(minImgY, Math.min(0, layer.h / 2 - framePtY * newScale))
+                updateLayer(layer.id, { imgScale: newScale, imgX: newImgX, imgY: newImgY })
+              }}
               onMouseUp={() => useStore.getState()._commitUndo()}
               onTouchEnd={() => useStore.getState()._commitUndo()}
               className="flex-1 accent-blue-500" />

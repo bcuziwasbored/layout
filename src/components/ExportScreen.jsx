@@ -176,6 +176,17 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
 
   // Render ALL relevant layers in z-order
   for (const layer of relevant) {
+    // Apply whole-layer free rotation around the layer's center
+    const freeRot = layer.freeRotation ?? 0
+    if (freeRot) {
+      ctx.save()
+      const cx = (layer.x - sliceStart) + layer.w / 2
+      const cy = layer.y + layer.h / 2
+      ctx.translate(cx, cy)
+      ctx.rotate(freeRot * Math.PI / 180)
+      ctx.translate(-cx, -cy)
+    }
+
     if (layer.src) {
       const img = imgMap.get(layer.id)
       if (!img) continue
@@ -240,6 +251,8 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
     } else if (layer.type === 'shape') {
       renderShapeLayer(ctx, layer, sliceStart)
     }
+
+    if (freeRot) ctx.restore()
   }
 
   return canvas.toDataURL('image/jpeg', 0.95)

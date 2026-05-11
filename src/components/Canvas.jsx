@@ -186,7 +186,12 @@ function TextCell({ layer }) {
   const fontStyle = [layer.italic && 'italic', layer.bold && 'bold'].filter(Boolean).join(' ') || 'normal'
   const hasText = layer.text && layer.text.trim().length > 0
   return (
-    <Group x={layer.x} y={layer.y} opacity={layer.opacity ?? 1}>
+    <Group
+      x={layer.x + layer.w / 2} y={layer.y + layer.h / 2}
+      offsetX={layer.w / 2} offsetY={layer.h / 2}
+      rotation={layer.freeRotation ?? 0}
+      opacity={layer.opacity ?? 1}
+    >
       {layer.textBg && (
         <Rect width={layer.w} height={layer.h}
           fill={layer.textBg}
@@ -229,7 +234,12 @@ function TextCell({ layer }) {
 function ShapeCell({ layer }) {
   const sw = layer.strokeWidth ?? 0
   return (
-    <Group x={layer.x} y={layer.y} opacity={layer.opacity ?? 1}>
+    <Group
+      x={layer.x + layer.w / 2} y={layer.y + layer.h / 2}
+      offsetX={layer.w / 2} offsetY={layer.h / 2}
+      rotation={layer.freeRotation ?? 0}
+      opacity={layer.opacity ?? 1}
+    >
       {layer.shapeType === 'circle' ? (
         <Ellipse
           x={layer.w / 2} y={layer.h / 2}
@@ -263,9 +273,13 @@ function EmptyCell({ layer, onTap, vs }) {
   const iconR = Math.min(Math.min(innerW, innerH) * 0.12, 30)
   const sw = 2 / vs
   return (
-    <Group x={layer.x} y={layer.y}
+    <Group
+      x={layer.x + layer.w / 2} y={layer.y + layer.h / 2}
+      offsetX={layer.w / 2} offsetY={layer.h / 2}
+      rotation={layer.freeRotation ?? 0}
       onClick={e => { e.cancelBubble = true; onTap() }}
-      onTap={e => { e.cancelBubble = true; onTap() }}>
+      onTap={e => { e.cancelBubble = true; onTap() }}
+    >
       <Rect x={inset} y={inset} width={innerW} height={innerH} fill="#e0e0e0"
         stroke="white" strokeWidth={sw} cornerRadius={cr} />
       <Rect x={layer.w / 2 - iconR} y={layer.h / 2 - iconR} width={iconR * 2} height={iconR * 2}
@@ -298,7 +312,12 @@ function FilledCell({ layer, vs }) {
   const bc = layer.borderColor ?? '#000000'
 
   return (
-    <Group x={layer.x} y={layer.y} opacity={layer.opacity ?? 1}>
+    <Group
+      x={layer.x + layer.w / 2} y={layer.y + layer.h / 2}
+      offsetX={layer.w / 2} offsetY={layer.h / 2}
+      rotation={layer.freeRotation ?? 0}
+      opacity={layer.opacity ?? 1}
+    >
       <Group clipFunc={ctx => applyRoundRectClip(ctx, inset, inset, innerW, innerH, cr)} listening={false}>
         {img && (hasTransform ? (
           // All transforms (rotation + flip) around frame center
