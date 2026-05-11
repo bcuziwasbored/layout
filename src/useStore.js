@@ -73,14 +73,33 @@ export const useStore = create((set, get) => ({
     }))
   },
 
-  startProject(ratio) {
-    const firstSlide = { id: uid() }
+  startProject(ratio, template) {
+    const pageSpan = template?.pageSpan ?? 1
+    const slides = Array.from({ length: Math.max(1, pageSpan) }, () => ({ id: uid() }))
+
+    let layers = []
+    if (template && template.cells.length > 0) {
+      const groupId = uid()
+      layers = template.cells.map(cell => ({
+        id: uid(),
+        type: 'image',
+        locked: true,
+        groupId,
+        src: null,
+        x: Math.round(cell.x * ratio.w),
+        y: Math.round(cell.y * ratio.h),
+        w: Math.round(cell.w * ratio.w),
+        h: Math.round(cell.h * ratio.h),
+        imgX: 0, imgY: 0, imgScale: 1, opacity: 1, naturalW: null, naturalH: null, cellGap: 0,
+      }))
+    }
+
     set({
       screen: 'editor',
       ratio,
       bgColor: '#ffffff',
-      slides: [firstSlide],
-      layers: [],
+      slides,
+      layers,
       activeSlideIdx: 0,
       activeLayerId: null,
       activeCellId: null,
