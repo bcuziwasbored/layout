@@ -240,17 +240,43 @@ async function downloadAll(rendered) {
     return
   }
 
-  // Fallback: download links — staggered to avoid browser popup blocker
-  rendered.forEach((src, i) => {
-    setTimeout(() => {
-      const a = document.createElement('a')
-      a.href = src
-      a.download = `slide-${i + 1}.jpg`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-    }, i * 200)
-  })
+  // Fallback: download links — sequential, waiting for each save dialog to close
+  // before triggering the next one. Works for both auto-download browsers (no dialog
+  // → short timeout) and "ask where to save" browsers (waits for focus to return).
+  const triggerDownload = (src, filename) => {
+    const a = document.createElement('a')
+    a.href = src
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+
+  const waitForDialogClose = () => new Promise(resolve => {
+    let blurred = false
+    const onBlur  = () => { blurred = true }
+    const onFocus = () => {
+      if (!blurred) return
+      cleanup()
+      setTimeout(resolve, 150) // small buffer after dialog closes
+    }
+    const cleanup = () => {
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focus', onFocus)
+      clearTimeout(autoTimer)
+    }
+    // If the window never loses focus (auto-download, no dialog), proceed after 400ms
+    const autoTimer = setTimeout(() => { cleanup(); resolve() }, 400)
+    window.addEventListener('blur', onBlur)
+    window.addEventListener('focus', onFocus)
+  });
+
+  (async () => {
+    for (let i = 0; i < rendered.length; i++) {
+      triggerDownload(rendered[i], `slide-${i + 1}.jpg`)
+      if (i < rendered.length - 1) await waitForDialogClose()
+    }
+  })()
 }
 
 function canUseWebShare(rendered) {
