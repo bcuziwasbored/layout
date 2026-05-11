@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useStore, fitInCell } from '../../useStore'
 import { useCanvasPicker } from '../../CanvasContext'
 import {
@@ -18,6 +18,20 @@ import { FONTS, loadFont } from '../../fonts'
 
 function SectionLabel({ children }) {
   return <div className="text-xs text-white/35 uppercase tracking-wider mb-2 mt-1">{children}</div>
+}
+
+function RecentColors({ onSelect }) {
+  const recentColors = useStore(s => s.recentColors)
+  if (!recentColors.length) return null
+  return (
+    <div className="flex gap-2 flex-wrap mb-3">
+      {recentColors.map(c => (
+        <button key={c} onClick={() => onSelect(c)}
+          className="w-7 h-7 rounded-full border border-white/20 active:scale-90 transition-transform shrink-0"
+          style={{ background: c }} />
+      ))}
+    </div>
+  )
 }
 
 function IconBtn({ icon, label, onClick, active, danger }) {
@@ -324,14 +338,32 @@ function TextEditPanel({ layer }) {
 }
 
 function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
-  const colorRef = useRef()
+  const colorRef  = useRef()
+  const textBgRef = useRef()
   const fontPickerRef = useRef()
+  const addRecentColor = useStore(s => s.addRecentColor)
 
   const setFont = (family) => {
     loadFont(family)
     updateLayer(layer.id, { fontFamily: family })
     updateLayerWithHistory(layer.id, {})
   }
+
+  // Group fonts by category for section headers
+  const fontGroups = useMemo(() => {
+    const categoryOrder = ['sans', 'serif', 'display', 'script']
+    const categoryLabel = { sans: 'SANS', serif: 'SERIF', display: 'DISPLAY', script: 'SCRIPT' }
+    const groups = []
+    let lastCat = null
+    for (const f of FONTS) {
+      if (f.category !== lastCat) {
+        groups.push({ type: 'label', label: categoryLabel[f.category] ?? f.category.toUpperCase() })
+        lastCat = f.category
+      }
+      groups.push({ type: 'font', font: f })
+    }
+    return groups
+  }, [])
 
   // Scroll active font into view
   useEffect(() => {
@@ -345,22 +377,33 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
       {/* Font family — horizontal scroll */}
       <div className="mb-4">
         <div className="text-xs text-white/35 uppercase tracking-wider mb-2">Font</div>
-        <div ref={fontPickerRef} className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollSnapType: 'x mandatory' }}>
-          {FONTS.map(f => (
-            <button
-              key={f.name}
-              data-active={layer.fontFamily === f.name}
-              onClick={() => setFont(f.name)}
-              style={{ fontFamily: f.name, scrollSnapAlign: 'start' }}
-              className={`shrink-0 px-3 py-2 rounded-xl text-sm whitespace-nowrap transition-colors ${
-                layer.fontFamily === f.name
-                  ? 'bg-white text-black font-medium'
-                  : 'bg-white/10 text-white/80 active:bg-white/20'
-              }`}
-            >
-              {f.name}
-            </button>
-          ))}
+        <div ref={fontPickerRef} className="flex gap-2 items-center overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollSnapType: 'x mandatory' }}>
+          {fontGroups.map((item, idx) => {
+            if (item.type === 'label') {
+              return (
+                <span key={`label-${idx}`}
+                  className="text-[9px] text-white/25 uppercase tracking-widest px-1 self-center shrink-0">
+                  {item.label}
+                </span>
+              )
+            }
+            const f = item.font
+            return (
+              <button
+                key={f.name}
+                data-active={layer.fontFamily === f.name}
+                onClick={() => setFont(f.name)}
+                style={{ fontFamily: f.name, scrollSnapAlign: 'start' }}
+                className={`shrink-0 px-3 py-2 rounded-xl text-sm whitespace-nowrap transition-colors ${
+                  layer.fontFamily === f.name
+                    ? 'bg-white text-black font-medium'
+                    : 'bg-white/10 text-white/80 active:bg-white/20'
+                }`}
+              >
+                {f.name}
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -425,6 +468,7 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
       {/* Color */}
       <div className="py-3 border-b border-white/8">
         <div className="text-sm font-semibold text-white mb-2.5">Color</div>
+        <RecentColors onSelect={c => { updateLayer(layer.id, { color: c }); updateLayerWithHistory(layer.id, {}); addRecentColor(c) }} />
         <button onClick={() => colorRef.current?.click()}
           className="flex items-center gap-3 active:opacity-60">
           <div className="w-8 h-8 rounded-full border-2 border-white/20"
@@ -434,8 +478,47 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
         </button>
         <input ref={colorRef} type="color" value={layer.color ?? '#000000'}
           onChange={e => updateLayer(layer.id, { color: e.target.value })}
-          onBlur={() => updateLayerWithHistory(layer.id, {})}
+          onBlur={e => { updateLayerWithHistory(layer.id, {}); addRecentColor(e.target.value) }}
           className="sr-only" />
+      </div>
+
+      {/* Background */}
+      <div className="py-3 border-b border-white/8">
+        <div className="text-sm font-semibold text-white mb-2.5">Background</div>
+        <div className="flex items-center gap-3 mb-2">
+          <button onClick={() => textBgRef.current?.click()}
+            className="w-8 h-8 rounded-full border-2 border-white/20 active:opacity-60 relative overflow-hidden"
+            style={{ background: layer.textBg ?? 'transparent' }}>
+          </button>
+          <span className="text-sm text-white/60">{layer.textBg ? layer.textBg.toUpperCase() : 'None'}</span>
+          <input ref={textBgRef} type="color" value={layer.textBg ?? '#ffffff'}
+            onChange={e => updateLayer(layer.id, { textBg: e.target.value })}
+            onBlur={() => updateLayerWithHistory(layer.id, {})}
+            className="sr-only" />
+          <button onClick={() => textBgRef.current?.click()}
+            className="text-white/30 text-lg ml-auto pr-1">›</button>
+          {layer.textBg && (
+            <button onClick={() => updateLayerWithHistory(layer.id, { textBg: null })}
+              className="text-xs text-white/50 bg-white/10 px-2.5 py-1 rounded-full active:opacity-60">
+              None
+            </button>
+          )}
+        </div>
+        {layer.textBg && (
+          <div className="flex items-center gap-3 mt-2">
+            <input type="range" min={0} max={100} step={1}
+              value={Math.round((layer.textBgOpacity ?? 1) * 100)}
+              onPointerDown={() => useStore.getState()._captureUndo()}
+              onChange={e => updateLayer(layer.id, { textBgOpacity: +e.target.value / 100 })}
+              onMouseUp={() => useStore.getState()._commitUndo()}
+              onTouchEnd={() => useStore.getState()._commitUndo()}
+              className="flex-1 accent-white" />
+            <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[56px] text-right shrink-0">
+              <span className="text-white text-sm tabular-nums">{Math.round((layer.textBgOpacity ?? 1) * 100)}</span>
+              <span className="text-white/40 text-[11px] ml-0.5">%</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Letter spacing */}
@@ -501,6 +584,7 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
 function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElementPanel }) {
   const fillRef   = useRef()
   const strokeRef = useRef()
+  const addRecentColor = useStore(s => s.addRecentColor)
 
   const sw = layer.strokeWidth ?? 0
   const cr = layer.cornerRadius ?? 0
@@ -532,6 +616,7 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
       {/* Fill color */}
       <div className="py-3 border-b border-white/8">
         <div className="text-sm font-semibold text-white mb-2.5">Fill</div>
+        <RecentColors onSelect={c => { updateLayer(layer.id, { fill: c }); updateLayerWithHistory(layer.id, {}); addRecentColor(c) }} />
         <button onClick={() => fillRef.current?.click()}
           className="flex items-center gap-3 active:opacity-60">
           <div className="w-8 h-8 rounded-full border-2 border-white/20"
@@ -541,7 +626,7 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
         </button>
         <input ref={fillRef} type="color" value={layer.fill ?? '#000000'}
           onChange={e => updateLayer(layer.id, { fill: e.target.value })}
-          onBlur={() => updateLayerWithHistory(layer.id, {})}
+          onBlur={e => { updateLayerWithHistory(layer.id, {}); addRecentColor(e.target.value) }}
           className="sr-only" />
       </div>
 

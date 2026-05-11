@@ -3,6 +3,17 @@ import { Stage, Layer, Rect, Circle, Ellipse, Image as KImage, Group, Text, Line
 import { useStore, fitInCell } from '../useStore'
 import useImage from 'use-image'
 
+function linearGradientPoints(angleDeg, w, h) {
+  const rad = (angleDeg * Math.PI) / 180
+  const cos = Math.cos(rad), sin = Math.sin(rad)
+  const len = Math.abs(w * sin) + Math.abs(h * cos)
+  const cx = w / 2, cy = h / 2
+  return {
+    x1: cx - sin * len / 2, y1: cy - cos * len / 2,
+    x2: cx + sin * len / 2, y2: cy + cos * len / 2,
+  }
+}
+
 const BORDER_COLOR = '#3b82f6'
 const HANDLE_R_PX = 14
 const DRAG_THRESHOLD_PX = 12
@@ -176,6 +187,12 @@ function TextCell({ layer }) {
   const hasText = layer.text && layer.text.trim().length > 0
   return (
     <Group x={layer.x} y={layer.y} opacity={layer.opacity ?? 1}>
+      {layer.textBg && (
+        <Rect width={layer.w} height={layer.h}
+          fill={layer.textBg}
+          opacity={layer.textBgOpacity ?? 1}
+          listening={false} />
+      )}
       {hasText ? (
         <Text
           x={0} y={0}
@@ -406,6 +423,7 @@ function CropTarget({ layer, vs }) {
 export default function Canvas({ openPickerRef }) {
   const ratio        = useStore(s => s.ratio)
   const bgColor      = useStore(s => s.bgColor)
+  const bgGradient   = useStore(s => s.bgGradient)
   const slides       = useStore(s => s.slides)
   const layers       = useStore(s => s.layers)
   const activeSlideIdx  = useStore(s => s.activeSlideIdx)
@@ -1093,10 +1111,23 @@ export default function Canvas({ openPickerRef }) {
               fill="rgba(0,0,0,0.001)" />
 
             {/* Slide backgrounds — no tap handler; slide selection is via Slides panel only */}
-            {slides.map((slide, i) => (
-              <Rect key={slide.id} x={i * ratio.w} y={0} width={ratio.w} height={ratio.h}
-                fill={slides[i].bgColor ?? bgColor} listening={false} />
-            ))}
+            {slides.map((slide, i) => {
+              const grad = slide.bgGradient ?? bgGradient
+              if (grad) {
+                const gp = linearGradientPoints(grad.angle, ratio.w, ratio.h)
+                return (
+                  <Rect key={slide.id} x={i * ratio.w} y={0} width={ratio.w} height={ratio.h}
+                    fillLinearGradientStartPoint={{ x: gp.x1, y: gp.y1 }}
+                    fillLinearGradientEndPoint={{ x: gp.x2, y: gp.y2 }}
+                    fillLinearGradientColorStops={[0, grad.stops[0], 1, grad.stops[1]]}
+                    listening={false} />
+                )
+              }
+              return (
+                <Rect key={slide.id} x={i * ratio.w} y={0} width={ratio.w} height={ratio.h}
+                  fill={slide.bgColor ?? bgColor} listening={false} />
+              )
+            })}
 
             {/* Slide borders — active slide slightly brighter (visual only, not in export) */}
             {slides.map((slide, i) => (

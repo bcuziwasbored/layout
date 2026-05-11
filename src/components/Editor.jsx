@@ -26,9 +26,10 @@ export default function Editor() {
   useEffect(() => {
     if (!currentProjectId) return
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(() => {
+    saveTimerRef.current = setTimeout(async () => {
       const state = useStore.getState()
-      saveProject(state.currentProjectId, state.projectName, state)
+      await saveProject(state.currentProjectId, state.projectName, state)
+      useStore.setState({ savedAt: Date.now() })
     }, 2000)
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)

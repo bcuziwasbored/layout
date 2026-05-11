@@ -12,14 +12,26 @@ export const FONTS = [
   { name: 'Raleway',         category: 'sans' },
   { name: 'Oswald',          category: 'sans' },
   { name: 'Space Grotesk',   category: 'sans' },
+  { name: 'Nunito',          category: 'sans' },
+  { name: 'Work Sans',       category: 'sans' },
+  { name: 'Rubik',           category: 'sans' },
+  { name: 'Quicksand',       category: 'sans' },
+  { name: 'Josefin Sans',    category: 'sans' },
   // Serif
-  { name: 'Playfair Display', category: 'serif' },
-  { name: 'Lora',             category: 'serif' },
-  { name: 'EB Garamond',      category: 'serif' },
-  // Display / script
+  { name: 'Playfair Display',    category: 'serif' },
+  { name: 'Lora',                category: 'serif' },
+  { name: 'EB Garamond',         category: 'serif' },
+  { name: 'Merriweather',        category: 'serif' },
+  { name: 'Cormorant Garamond',  category: 'serif' },
+  // Display
   { name: 'Bebas Neue',    category: 'display' },
+  { name: 'Anton',         category: 'display' },
+  { name: 'Abril Fatface', category: 'display' },
+  // Script
   { name: 'Dancing Script', category: 'script' },
   { name: 'Pacifico',       category: 'script' },
+  { name: 'Great Vibes',    category: 'script' },
+  { name: 'Satisfy',        category: 'script' },
 ]
 
 const _loaded = new Set(['Inter', 'Poppins', 'Montserrat'])

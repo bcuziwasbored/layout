@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useStore } from '../useStore'
 import ExportScreen from './ExportScreen'
 import { IconUndo, IconRedo } from './icons'
@@ -13,10 +13,19 @@ export default function TopBar() {
   const projectName = useStore(s => s.projectName)
   const setProjectName = useStore(s => s.setProjectName)
   const currentProjectId = useStore(s => s.currentProjectId)
+  const savedAt = useStore(s => s.savedAt)
   const [exporting, setExporting] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState('')
+  const [showSaved, setShowSaved] = useState(false)
   const nameInputRef = useRef(null)
+
+  useEffect(() => {
+    if (!savedAt) return
+    setShowSaved(true)
+    const t = setTimeout(() => setShowSaved(false), 2000)
+    return () => clearTimeout(t)
+  }, [savedAt])
 
   const handleBackClick = () => {
     if (currentProjectId) {
@@ -59,7 +68,9 @@ export default function TopBar() {
             <IconUndo size={22} />
           </button>
 
-          {editingName ? (
+          {showSaved ? (
+            <span className="text-xs text-white/50 transition-opacity px-1">Saved ✓</span>
+          ) : editingName ? (
             <input
               ref={nameInputRef}
               value={nameInput}

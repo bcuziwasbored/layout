@@ -27,6 +27,7 @@ export const useStore = create((set, get) => ({
   screen: 'home',
   ratio: RATIOS[0],
   bgColor: '#ffffff',
+  bgGradient: null,
   slides: [{ id: uid() }],
   layers: [],           // global coordinate space
   activeSlideIdx: 0,
@@ -42,10 +43,12 @@ export const useStore = create((set, get) => ({
   _undoSnap: null,   // pre-gesture snapshot waiting to be committed
   currentProjectId: null,
   projectName: 'Untitled',
+  recentColors: [],
+  savedAt: 0,
 
   _snapshot() {
     const s = get()
-    return JSON.stringify({ slides: s.slides, layers: s.layers, bgColor: s.bgColor })
+    return JSON.stringify({ slides: s.slides, layers: s.layers, bgColor: s.bgColor, bgGradient: s.bgGradient })
   },
 
   _pushHistory() {
@@ -266,6 +269,32 @@ export const useStore = create((set, get) => ({
   clearSlideBgColor(idx) {
     get()._pushHistory()
     set(s => ({ slides: s.slides.map((sl, i) => i === idx ? { ...sl, bgColor: undefined } : sl) }))
+  },
+
+  setBgGradient(gradient) {
+    get()._pushHistory()
+    set({ bgGradient: gradient })
+  },
+
+  clearBgGradient() {
+    get()._pushHistory()
+    set({ bgGradient: null })
+  },
+
+  setSlideBgGradient(idx, gradient) {
+    get()._pushHistory()
+    set(s => ({ slides: s.slides.map((sl, i) => i === idx ? { ...sl, bgGradient: gradient } : sl) }))
+  },
+
+  clearSlideBgGradient(idx) {
+    get()._pushHistory()
+    set(s => ({ slides: s.slides.map((sl, i) => { const next = { ...sl }; delete next.bgGradient; return i === idx ? next : sl }) }))
+  },
+
+  addRecentColor(color) {
+    set(s => ({
+      recentColors: [color, ...s.recentColors.filter(c => c !== color)].slice(0, 8)
+    }))
   },
 
   setRatio(ratio) {

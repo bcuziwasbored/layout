@@ -1,6 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../useStore'
 
+function linearGradientPoints(angleDeg, w, h) {
+  const rad = (angleDeg * Math.PI) / 180
+  const cos = Math.cos(rad), sin = Math.sin(rad)
+  const len = Math.abs(w * sin) + Math.abs(h * cos)
+  const cx = w / 2, cy = h / 2
+  return {
+    x1: cx - sin * len / 2, y1: cy - cos * len / 2,
+    x2: cx + sin * len / 2, y2: cy + cos * len / 2,
+  }
+}
+
 // ─── Text rendering helper ─────────────────────────────────────────────────────
 
 function renderTextLayer(ctx, layer, sliceStart, sliceEnd) {
@@ -10,6 +21,15 @@ function renderTextLayer(ctx, layer, sliceStart, sliceEnd) {
   const y = layer.y
   const w = layer.w
   const h = layer.h
+
+  // Text background
+  if (layer.textBg) {
+    ctx.save()
+    ctx.globalAlpha = (layer.textBgOpacity ?? 1) * (layer.opacity ?? 1)
+    ctx.fillStyle = layer.textBg
+    ctx.fillRect(x, y, w, h)
+    ctx.restore()
+  }
 
   ctx.save()
   ctx.beginPath()
@@ -114,13 +134,22 @@ function renderShapeLayer(ctx, layer, sliceStart) {
 
 // ─── Slide renderer ────────────────────────────────────────────────────────────
 
-async function renderSlide(slideIdx, slides, layers, ratio, bgColor) {
+async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGradient) {
   const canvas = document.createElement('canvas')
   canvas.width = ratio.w
   canvas.height = ratio.h
   const ctx = canvas.getContext('2d')
 
-  ctx.fillStyle = bgColor
+  const grad = slides[slideIdx]?.bgGradient ?? globalBgGradient
+  if (grad) {
+    const { x1, y1, x2, y2 } = linearGradientPoints(grad.angle, ratio.w, ratio.h)
+    const g = ctx.createLinearGradient(x1, y1, x2, y2)
+    g.addColorStop(0, grad.stops[0])
+    g.addColorStop(1, grad.stops[1])
+    ctx.fillStyle = g
+  } else {
+    ctx.fillStyle = bgColor
+  }
   ctx.fillRect(0, 0, ratio.w, ratio.h)
 
   const sliceStart = slideIdx * ratio.w
@@ -291,16 +320,17 @@ function canUseWebShare(rendered) {
 }
 
 export default function ExportScreen({ onClose }) {
-  const slides  = useStore(s => s.slides)
-  const layers  = useStore(s => s.layers)
-  const ratio   = useStore(s => s.ratio)
-  const bgColor = useStore(s => s.bgColor)
+  const slides      = useStore(s => s.slides)
+  const layers      = useStore(s => s.layers)
+  const ratio       = useStore(s => s.ratio)
+  const bgColor     = useStore(s => s.bgColor)
+  const bgGradient  = useStore(s => s.bgGradient)
 
   const [rendered, setRendered] = useState([])
   const [activeIdx, setActiveIdx] = useState(0)
 
   useEffect(() => {
-    Promise.all(slides.map((slide, i) => renderSlide(i, slides, layers, ratio, slide.bgColor ?? bgColor)))
+    Promise.all(slides.map((slide, i) => renderSlide(i, slides, layers, ratio, slide.bgColor ?? bgColor, bgGradient)))
       .then(setRendered)
   }, [])
 
