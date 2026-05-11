@@ -107,10 +107,12 @@ export default function LayersPanel() {
   const displayLayers = [...slideLayers].reverse()
 
   // ─── Drag-to-reorder ────────────────────────────────────────────────────────
-  const [dragIdx, setDragIdx]   = useState(null)   // display index being dragged
-  const [overIdx, setOverIdx]   = useState(null)   // display index hovered over
-  const rowRefs  = useRef([])
-  const dragging = useRef(false)
+  // Use refs for drag/over indices so the pointerup closure always sees fresh values
+  const [dragIdx, setDragIdx] = useState(null)
+  const [overIdx, setOverIdx] = useState(null)
+  const dragIdxRef = useRef(null)
+  const overIdxRef = useRef(null)
+  const rowRefs    = useRef([])
 
   function getDisplayIndex(clientY) {
     for (let i = 0; i < rowRefs.current.length; i++) {
@@ -125,19 +127,26 @@ export default function LayersPanel() {
   function onDragPointerDown(e, displayI) {
     e.preventDefault()
     e.stopPropagation()
-    dragging.current = true
+    dragIdxRef.current = displayI
+    overIdxRef.current = displayI
     setDragIdx(displayI)
     setOverIdx(displayI)
 
     function onMove(ev) {
-      const clientY = ev.touches ? ev.touches[0].clientY : ev.clientY
-      setOverIdx(getDisplayIndex(clientY))
+      const clientY = ev.clientY ?? ev.touches?.[0]?.clientY
+      if (clientY == null) return
+      const next = getDisplayIndex(clientY)
+      overIdxRef.current = next
+      setOverIdx(next)
     }
     function onUp() {
-      if (overIdx !== null && overIdx !== dragIdx) {
-        commitReorder(dragIdx, overIdx)
+      const from = dragIdxRef.current
+      const to   = overIdxRef.current
+      if (from !== null && to !== null && from !== to) {
+        commitReorder(from, to)
       }
-      dragging.current = false
+      dragIdxRef.current = null
+      overIdxRef.current = null
       setDragIdx(null)
       setOverIdx(null)
       window.removeEventListener('pointermove', onMove)
