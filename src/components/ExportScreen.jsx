@@ -216,6 +216,15 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor) {
   return canvas.toDataURL('image/jpeg', 0.95)
 }
 
+function downloadAll(rendered) {
+  rendered.forEach((src, i) => {
+    const a = document.createElement('a')
+    a.href = src
+    a.download = `slide-${i + 1}.jpg`
+    a.click()
+  })
+}
+
 export default function ExportScreen({ onClose }) {
   const slides  = useStore(s => s.slides)
   const layers  = useStore(s => s.layers)
@@ -294,12 +303,17 @@ export default function ExportScreen({ onClose }) {
         )}
       </div>
 
-      {/* Instructions + thumbnails to long-press save */}
-      <div className="shrink-0 px-5 pb-8">
-        <p className="text-center text-white/40 text-xs mb-3">Long-press an image to save to Photos</p>
-        <div className="flex gap-2 overflow-x-auto pb-1">
+      {/* Thumbnails + download button */}
+      <div className="shrink-0 px-5" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
+        {/* Thumbnail strip */}
+        <div className="flex gap-2 overflow-x-auto pb-3">
           {rendered.map((src, i) => (
-            <div key={i} className="relative shrink-0">
+            <a
+              key={i}
+              href={src}
+              download={`slide-${i + 1}.jpg`}
+              className="relative shrink-0 active:opacity-60"
+            >
               <img
                 src={src}
                 className="rounded-lg object-cover"
@@ -309,12 +323,22 @@ export default function ExportScreen({ onClose }) {
               <div className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded-full font-medium">
                 {i + 1}
               </div>
-            </div>
+            </a>
           ))}
           {!rendered.length && (
             <div className="text-white/30 text-xs py-4">Rendering…</div>
           )}
         </div>
+
+        {/* Download all button */}
+        <button
+          onClick={() => downloadAll(rendered)}
+          disabled={rendered.length === 0}
+          className="w-full py-3.5 rounded-2xl font-semibold text-base transition-opacity active:opacity-70 disabled:opacity-30"
+          style={{ background: 'white', color: 'black' }}
+        >
+          {rendered.length === 0 ? 'Rendering…' : `Download ${rendered.length === 1 ? 'Image' : `All ${rendered.length} Images`}`}
+        </button>
       </div>
     </div>
   )
