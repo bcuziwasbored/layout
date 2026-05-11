@@ -240,12 +240,16 @@ async function downloadAll(rendered) {
     return
   }
 
-  // Fallback: download links
+  // Fallback: download links — staggered to avoid browser popup blocker
   rendered.forEach((src, i) => {
-    const a = document.createElement('a')
-    a.href = src
-    a.download = `slide-${i + 1}.jpg`
-    a.click()
+    setTimeout(() => {
+      const a = document.createElement('a')
+      a.href = src
+      a.download = `slide-${i + 1}.jpg`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    }, i * 200)
   })
 }
 
