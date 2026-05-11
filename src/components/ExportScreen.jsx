@@ -15,29 +15,50 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor) {
   const sliceEnd = (slideIdx + 1) * ratio.w
   const relevant = layers.filter(l => l.src && l.x < sliceEnd && l.x + l.w > sliceStart)
 
+  // Helper: draw a rounded-rect path on a 2D canvas context
+  function roundRectPath(ctx, x, y, w, h, r) {
+    const cr = Math.min(r, w / 2, h / 2)
+    if (cr <= 0) { ctx.rect(x, y, w, h); return }
+    if (ctx.roundRect) { ctx.roundRect(x, y, w, h, cr); return }
+    ctx.moveTo(x + cr, y)
+    ctx.lineTo(x + w - cr, y); ctx.arcTo(x + w, y, x + w, y + cr, cr)
+    ctx.lineTo(x + w, y + h - cr); ctx.arcTo(x + w, y + h, x + w - cr, y + h, cr)
+    ctx.lineTo(x + cr, y + h); ctx.arcTo(x, y + h, x, y + h - cr, cr)
+    ctx.lineTo(x, y + cr); ctx.arcTo(x, y, x + cr, y, cr)
+    ctx.closePath()
+  }
+
   await Promise.all(relevant.map(layer => new Promise(resolve => {
     const img = new Image()
     img.onload = () => {
+      const gap = layer.cellGap ?? 0
+      const inset = gap / 2
+      const cr  = layer.cornerRadius ?? 0
+      const bw  = layer.borderWidth ?? 0
+      const bc  = layer.borderColor ?? '#000000'
+
+      // Clip rect accounts for inset, constrained to this slide's x range
+      const clipX = Math.max(layer.x, sliceStart) - sliceStart + inset
+      const clipW = Math.min(layer.x + layer.w, sliceEnd) - Math.max(layer.x, sliceStart) - gap
+      const clipY = layer.y + inset
+      const clipH = layer.h - gap
+
       ctx.save()
-      // Clip to this slide's portion of the layer
-      const clipX = Math.max(layer.x, sliceStart) - sliceStart
-      const clipW = Math.min(layer.x + layer.w, sliceEnd) - Math.max(layer.x, sliceStart)
-      const clipY = layer.y
-      const clipH = layer.h
       ctx.beginPath()
-      ctx.rect(clipX, clipY, clipW, clipH)
+      roundRectPath(ctx, clipX, clipY, clipW, clipH, cr)
       ctx.clip()
       ctx.globalAlpha = layer.opacity ?? 1
-      // Image position: layer.x is in global space, so subtract sliceStart to get slide-local
-      const drawX = (layer.x - sliceStart) + (layer.imgX ?? 0)
-      const drawY = layer.y + (layer.imgY ?? 0)
-      const drawW = img.naturalWidth * (layer.imgScale ?? 1)
+
+      // Image position: imgX/imgY are relative to the inner (inset) frame
+      const drawX = (layer.x - sliceStart) + (layer.imgX ?? 0) + inset
+      const drawY = layer.y + (layer.imgY ?? 0) + inset
+      const drawW = img.naturalWidth  * (layer.imgScale ?? 1)
       const drawH = img.naturalHeight * (layer.imgScale ?? 1)
       const rotation = layer.rotation ?? 0
       const flipH = layer.flipH ?? false
       const flipV = layer.flipV ?? false
       if (rotation || flipH || flipV) {
-        // Apply all transforms around frame center (slide-local coords)
+        // Transforms around inner-frame center
         const frameCX = (layer.x - sliceStart) + layer.w / 2
         const frameCY = layer.y + layer.h / 2
         ctx.translate(frameCX, frameCY)
@@ -49,6 +70,19 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor) {
         ctx.drawImage(img, drawX, drawY, drawW, drawH)
       }
       ctx.restore()
+
+      // Border drawn on top, outside the clip
+      if (bw > 0) {
+        ctx.save()
+        ctx.strokeStyle = bc
+        ctx.lineWidth = bw
+        ctx.globalAlpha = layer.opacity ?? 1
+        ctx.beginPath()
+        roundRectPath(ctx, clipX, clipY, clipW, clipH, cr)
+        ctx.stroke()
+        ctx.restore()
+      }
+
       resolve()
     }
     img.onerror = resolve

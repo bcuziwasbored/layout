@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useStore, fitInCell } from '../../useStore'
 import { useCanvasPicker } from '../../CanvasContext'
 import {
@@ -175,46 +175,102 @@ function PositionTab({ layer, activeLayerId, ratio, activeSlideIdx, layers, reor
   )
 }
 
-// ─── Advanced tab ──────────────────────────────────────────────────────────────
+// ─── Style tab ────────────────────────────────────────────────────────────────
 
-function AdvancedTab({ layer, activeLayerId, layers, updateLayer, updateLayerWithHistory, isGroup }) {
+function StyleSliderRow({ label, value, min, max, step, display, unit, onChange, onDone }) {
   return (
-    <div className="px-4 pb-6 pt-2 space-y-3">
-      <div className="flex items-center gap-3 mt-1">
-        <span className="text-xs text-white/50 w-16">Opacity</span>
-        <input type="range" min={0} max={1} step={0.01}
-          value={layer.opacity ?? 1}
-          onChange={e => updateLayer(activeLayerId, { opacity: parseFloat(e.target.value) })}
-          onMouseUp={() => updateLayerWithHistory(activeLayerId, {})}
-          onTouchEnd={() => updateLayerWithHistory(activeLayerId, {})}
-          className="flex-1 accent-blue-500" />
-        <span className="text-xs text-white/40 w-10 text-right">{Math.round((layer.opacity ?? 1) * 100)}%</span>
-      </div>
-
-      {isGroup && (
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-white/50 w-16">Border</span>
-          <input type="range" min={0} max={40} step={1}
-            value={layer.cellGap ?? 0}
-            onChange={e => {
-              const gap = parseInt(e.target.value)
-              const grp = layers.filter(l => l.groupId === layer.groupId)
-              grp.forEach(l => {
-                const innerW = l.w - gap, innerH = l.h - gap
-                if (innerW <= 10 || innerH <= 10) return
-                if (l.src) {
-                  updateLayer(l.id, { cellGap: gap, ...fitInCell(l.naturalW ?? l.w, l.naturalH ?? l.h, innerW, innerH) })
-                } else {
-                  updateLayer(l.id, { cellGap: gap })
-                }
-              })
-            }}
-            onMouseUp={() => updateLayerWithHistory(activeLayerId, {})}
-            onTouchEnd={() => updateLayerWithHistory(activeLayerId, {})}
-            className="flex-1 accent-blue-500" />
-          <span className="text-xs text-white/40 w-10 text-right">{layer.cellGap ?? 0}px</span>
+    <div className="py-4 border-b border-white/8 last:border-0">
+      <div className="text-sm font-semibold text-white mb-2.5">{label}</div>
+      <div className="flex items-center gap-3">
+        <input type="range" min={min} max={max} step={step} value={value}
+          onChange={e => onChange(parseFloat(e.target.value))}
+          onMouseUp={onDone} onTouchEnd={onDone}
+          className="flex-1 accent-white" />
+        <div className="bg-white/10 rounded-lg px-2.5 py-1.5 flex items-baseline gap-1 min-w-[64px] justify-end shrink-0">
+          <span className="text-white text-sm tabular-nums">{display ?? value}</span>
+          {unit && <span className="text-white/40 text-[11px]">{unit}</span>}
         </div>
-      )}
+      </div>
+    </div>
+  )
+}
+
+function StyleTab({ layer, activeLayerId, layers, updateLayer, updateLayerWithHistory, isGroup }) {
+  const colorRef = useRef()
+
+  const gap = layer.cellGap ?? 0
+  const cr  = layer.cornerRadius ?? 0
+  const bw  = layer.borderWidth ?? 0
+  const bc  = layer.borderColor ?? '#000000'
+
+  // Propagate a style prop to all cells in a group, or just to this layer
+  const applyProp = (prop, value) => {
+    if (isGroup) {
+      layers.filter(l => l.groupId === layer.groupId).forEach(l => updateLayer(l.id, { [prop]: value }))
+    } else {
+      updateLayer(activeLayerId, { [prop]: value })
+    }
+  }
+
+  const setGap = (v) => {
+    if (isGroup) {
+      const grp = layers.filter(l => l.groupId === layer.groupId)
+      grp.forEach(l => {
+        const innerW = l.w - v, innerH = l.h - v
+        if (innerW <= 10 || innerH <= 10) return
+        if (l.src) updateLayer(l.id, { cellGap: v, ...fitInCell(l.naturalW ?? l.w, l.naturalH ?? l.h, innerW, innerH) })
+        else updateLayer(l.id, { cellGap: v })
+      })
+    } else {
+      updateLayer(activeLayerId, { cellGap: v })
+    }
+  }
+
+  return (
+    <div className="px-5 pb-6 pt-1 overflow-y-auto" style={{ maxHeight: '62vh' }}>
+      <StyleSliderRow
+        label={isGroup ? 'Spacing' : 'Inset'}
+        value={gap} min={0} max={80} step={1} display={gap} unit="px"
+        onChange={setGap}
+        onDone={() => updateLayerWithHistory(activeLayerId, {})} />
+
+      <StyleSliderRow
+        label="Opacity"
+        value={Math.round((layer.opacity ?? 1) * 100)}
+        min={0} max={100} step={1}
+        display={Math.round((layer.opacity ?? 1) * 100)} unit="%"
+        onChange={v => updateLayer(activeLayerId, { opacity: v / 100 })}
+        onDone={() => updateLayerWithHistory(activeLayerId, {})} />
+
+      <StyleSliderRow
+        label="Corner Radius"
+        value={cr} min={0} max={240} step={1} display={cr} unit="px"
+        onChange={v => applyProp('cornerRadius', v)}
+        onDone={() => updateLayerWithHistory(activeLayerId, {})} />
+
+      <StyleSliderRow
+        label="Border Thickness"
+        value={bw} min={0} max={30} step={1} display={bw} unit="px"
+        onChange={v => applyProp('borderWidth', v)}
+        onDone={() => updateLayerWithHistory(activeLayerId, {})} />
+
+      {/* Border Color */}
+      <div className="py-4">
+        <div className="text-sm font-semibold text-white mb-3">Border Color</div>
+        <button onClick={() => colorRef.current?.click()}
+          className="flex items-center justify-between w-full active:opacity-60">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full border-2 border-white/20 shadow-sm"
+              style={{ background: bc }} />
+            <span className="text-sm text-white/60">{bc.toUpperCase()}</span>
+          </div>
+          <span className="text-white/30 text-lg pr-1">›</span>
+        </button>
+        <input ref={colorRef} type="color" value={bc}
+          onChange={e => applyProp('borderColor', e.target.value)}
+          onBlur={() => updateLayerWithHistory(activeLayerId, {})}
+          className="sr-only" />
+      </div>
     </div>
   )
 }
@@ -234,10 +290,10 @@ function PositionPanel({ layer, activeLayerId, ratio, activeSlideIdx, layers, re
             className={`flex-1 py-1.5 rounded-[10px] text-sm font-medium transition-colors ${
               tab === 'position' ? 'bg-white/15 text-white' : 'text-white/45'
             }`}>Position</button>
-          <button onClick={() => setTab('advanced')}
+          <button onClick={() => setTab('style')}
             className={`flex-1 py-1.5 rounded-[10px] text-sm font-medium transition-colors ${
-              tab === 'advanced' ? 'bg-white/15 text-white' : 'text-white/45'
-            }`}>Advanced</button>
+              tab === 'style' ? 'bg-white/15 text-white' : 'text-white/45'
+            }`}>Style</button>
         </div>
         <button onClick={() => setElementPanel(null)} className="text-white/40 pl-1">
           <IconClose size={18} />
@@ -251,7 +307,7 @@ function PositionPanel({ layer, activeLayerId, ratio, activeSlideIdx, layers, re
           reorderLayer={reorderLayer} updateLayer={updateLayer}
           updateLayerWithHistory={updateLayerWithHistory} isGroup={isGroup} />
       ) : (
-        <AdvancedTab
+        <StyleTab
           layer={layer} activeLayerId={activeLayerId} layers={layers}
           updateLayer={updateLayer} updateLayerWithHistory={updateLayerWithHistory}
           isGroup={isGroup} />

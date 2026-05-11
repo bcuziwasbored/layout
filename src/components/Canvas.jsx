@@ -121,11 +121,30 @@ function computeResize(sl, handle, ddx, ddy, aspectOverride) {
 
 // ─── Layer visuals ─────────────────────────────────────────────────────────────
 
+// Clip path helper: rounded rect if cornerRadius > 0, plain rect otherwise.
+// Called inside Konva clipFunc (ctx is already in node-local space).
+function applyRoundRectClip(ctx, x, y, w, h, r) {
+  const cr = Math.min(r, w / 2, h / 2)
+  if (cr > 0 && ctx.roundRect) {
+    ctx.roundRect(x, y, w, h, cr)
+  } else if (cr > 0) {
+    ctx.moveTo(x + cr, y)
+    ctx.lineTo(x + w - cr, y); ctx.arcTo(x + w, y, x + w, y + cr, cr)
+    ctx.lineTo(x + w, y + h - cr); ctx.arcTo(x + w, y + h, x + w - cr, y + h, cr)
+    ctx.lineTo(x + cr, y + h); ctx.arcTo(x, y + h, x, y + h - cr, cr)
+    ctx.lineTo(x, y + cr); ctx.arcTo(x, y, x + cr, y, cr)
+    ctx.closePath()
+  } else {
+    ctx.rect(x, y, w, h)
+  }
+}
+
 function EmptyCell({ layer, onTap, vs }) {
   const gap = layer.cellGap ?? 0
   const inset = gap / 2
   const innerW = layer.w - gap
   const innerH = layer.h - gap
+  const cr = layer.cornerRadius ?? 0
   const iconR = Math.min(Math.min(innerW, innerH) * 0.12, 30)
   const sw = 2 / vs
   return (
@@ -133,7 +152,7 @@ function EmptyCell({ layer, onTap, vs }) {
       onClick={e => { e.cancelBubble = true; onTap() }}
       onTap={e => { e.cancelBubble = true; onTap() }}>
       <Rect x={inset} y={inset} width={innerW} height={innerH} fill="#e0e0e0"
-        stroke="white" strokeWidth={sw} />
+        stroke="white" strokeWidth={sw} cornerRadius={cr} />
       <Rect x={layer.w / 2 - iconR} y={layer.h / 2 - iconR} width={iconR * 2} height={iconR * 2}
         cornerRadius={iconR} fill="rgba(0,0,0,0.18)" listening={false} />
       <Text text="+" fill="rgba(0,0,0,0.45)"
@@ -149,6 +168,8 @@ function FilledCell({ layer, vs }) {
   const [img] = useImage(layer.src)
   const gap = layer.cellGap ?? 0
   const inset = gap / 2
+  const innerW = layer.w - gap
+  const innerH = layer.h - gap
   const imgW = img ? img.naturalWidth  * (layer.imgScale ?? 1) : 0
   const imgH = img ? img.naturalHeight * (layer.imgScale ?? 1) : 0
   const imgX = (layer.imgX ?? 0) + inset
@@ -157,10 +178,13 @@ function FilledCell({ layer, vs }) {
   const scaleX  = layer.flipH ? -1 : 1
   const scaleY  = layer.flipV ? -1 : 1
   const hasTransform = rotation || layer.flipH || layer.flipV
+  const cr = layer.cornerRadius ?? 0
+  const bw = layer.borderWidth ?? 0
+  const bc = layer.borderColor ?? '#000000'
 
   return (
     <Group x={layer.x} y={layer.y} opacity={layer.opacity ?? 1}>
-      <Group clipFunc={ctx => ctx.rect(inset, inset, layer.w - gap, layer.h - gap)} listening={false}>
+      <Group clipFunc={ctx => applyRoundRectClip(ctx, inset, inset, innerW, innerH, cr)} listening={false}>
         {img && (hasTransform ? (
           // All transforms (rotation + flip) around frame center
           <Group x={layer.w / 2} y={layer.h / 2} rotation={rotation} scaleX={scaleX} scaleY={scaleY}>
@@ -170,6 +194,11 @@ function FilledCell({ layer, vs }) {
           <KImage image={img} x={imgX} y={imgY} width={imgW} height={imgH} />
         ))}
       </Group>
+      {/* Border overlay (outside clip so full stroke is visible) */}
+      {bw > 0 && (
+        <Rect x={inset} y={inset} width={innerW} height={innerH}
+          cornerRadius={cr} stroke={bc} strokeWidth={bw} listening={false} />
+      )}
       {/* Hit area outside clipFunc so coordinate hit-testing in handleStageDown works */}
       <Rect width={layer.w} height={layer.h} fill="rgba(0,0,0,0.01)" />
     </Group>
