@@ -40,6 +40,8 @@ export const useStore = create((set, get) => ({
   history: [],
   future: [],
   _undoSnap: null,   // pre-gesture snapshot waiting to be committed
+  currentProjectId: null,
+  projectName: 'Untitled',
 
   _snapshot() {
     const s = get()
@@ -115,6 +117,9 @@ export const useStore = create((set, get) => ({
       }))
     }
 
+    const projectId = Math.random().toString(36).slice(2)
+    const projectName = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
     set({
       screen: 'editor',
       ratio,
@@ -131,7 +136,36 @@ export const useStore = create((set, get) => ({
       cropAspect: null,
       history: [],
       future: [],
+      currentProjectId: projectId,
+      projectName,
     })
+  },
+
+  openProject(savedState) {
+    set({
+      screen: 'editor',
+      ratio: savedState.ratio,
+      bgColor: savedState.bgColor,
+      slides: savedState.slides,
+      layers: savedState.layers,
+      activeSlideIdx: 0,
+      activeLayerId: null,
+      activeCellId: null,
+      textEditId: null,
+      panel: null,
+      elementPanel: null,
+      cropMode: false,
+      cropAspect: null,
+      history: [],
+      future: [],
+      _undoSnap: null,
+      currentProjectId: savedState.projectId,
+      projectName: savedState.projectName,
+    })
+  },
+
+  setProjectName(name) {
+    set({ projectName: name })
   },
 
   setPanel(panel) {

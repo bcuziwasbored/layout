@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useStore } from '../useStore'
 import { RATIOS, TEMPLATES } from '../templates'
 import { IconClose } from './icons'
+import { listProjects, loadProject, deleteProject } from '../projectStorage'
 
 // Thumbnail that renders a template preview at the page's actual aspect ratio
 function TemplateTile({ template, ratio, onClick }) {
@@ -50,11 +51,58 @@ function TemplateTile({ template, ratio, onClick }) {
   )
 }
 
+function formatRelativeTime(timestamp) {
+  const now = Date.now()
+  const diff = now - timestamp
+  const hours = diff / (1000 * 60 * 60)
+  if (hours < 24) {
+    const h = Math.floor(hours)
+    if (h < 1) {
+      const m = Math.floor(diff / (1000 * 60))
+      if (m < 1) return 'just now'
+      return `${m}m ago`
+    }
+    return `${h}h ago`
+  }
+  return new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function TrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M9 6V4h6v2" />
+    </svg>
+  )
+}
+
 export default function HomeScreen() {
   const startProject = useStore(s => s.startProject)
+  const openProject = useStore(s => s.openProject)
   // step: null | 'ratio' | 'template'
   const [step, setStep] = useState(null)
   const [selectedRatio, setSelectedRatio] = useState(null)
+  const [projects, setProjects] = useState([])
+  const [projectsLoading, setProjectsLoading] = useState(true)
+
+  useEffect(() => {
+    listProjects()
+      .then(setProjects)
+      .finally(() => setProjectsLoading(false))
+  }, [])
+
+  const handleOpenProject = async (id) => {
+    const savedState = await loadProject(id)
+    if (savedState) openProject(savedState)
+  }
+
+  const handleDeleteProject = async (e, id) => {
+    e.stopPropagation()
+    await deleteProject(id)
+    setProjects(prev => prev.filter(p => p.id !== id))
+  }
 
   const handleRatio = (r) => {
     setSelectedRatio(r)
@@ -76,18 +124,71 @@ export default function HomeScreen() {
   const multiPageTemplates  = TEMPLATES.filter(t => t.pageSpan && t.pageSpan > 1)
 
   return (
-    <div className="flex flex-col items-center justify-center h-full bg-black text-white gap-8 px-6">
-      <div className="text-center">
-        <div className="text-4xl font-semibold tracking-tight mb-2">Layout</div>
-        <div className="text-sm text-white/40">Instagram carousel & collage editor</div>
-      </div>
+    <div className="flex flex-col h-full bg-black text-white overflow-y-auto">
+      <div className="flex flex-col items-center px-6 pt-16 pb-8 gap-6">
+        <div className="text-center">
+          <div className="text-4xl font-semibold tracking-tight mb-2">Layout</div>
+          <div className="text-sm text-white/40">Instagram carousel & collage editor</div>
+        </div>
 
-      <button
-        onClick={() => setStep('ratio')}
-        className="bg-white text-black font-semibold text-base px-8 py-3 rounded-full active:scale-95 transition-transform"
-      >
-        New Project
-      </button>
+        {/* Saved projects */}
+        {projectsLoading ? (
+          <div className="w-full grid grid-cols-2 gap-3">
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} className="rounded-2xl bg-white/6 animate-pulse" style={{ aspectRatio: '1/1.1' }} />
+            ))}
+          </div>
+        ) : projects.length > 0 ? (
+          <div className="w-full">
+            <div className="text-xs text-white/30 uppercase tracking-wider mb-3">Recent Projects</div>
+            <div className="grid grid-cols-2 gap-3">
+              {projects.map(project => (
+                <button
+                  key={project.id}
+                  onClick={() => handleOpenProject(project.id)}
+                  className="relative text-left rounded-2xl overflow-hidden bg-white/6 active:opacity-70 transition-opacity"
+                >
+                  {/* Thumbnail */}
+                  <div
+                    className="w-full"
+                    style={{
+                      aspectRatio: project.ratio ? `${project.ratio.w} / ${project.ratio.h}` : '1/1',
+                      background: '#1a1a1a',
+                    }}
+                  >
+                    {project.thumbnail ? (
+                      <img src={project.thumbnail} className="w-full h-full object-cover" alt="" />
+                    ) : (
+                      <div className="w-full h-full bg-white/10" />
+                    )}
+                  </div>
+
+                  {/* Info */}
+                  <div className="px-2.5 py-2">
+                    <div className="text-xs font-medium text-white truncate">{project.name}</div>
+                    <div className="text-[11px] text-white/40 mt-0.5">{formatRelativeTime(project.updatedAt)}</div>
+                  </div>
+
+                  {/* Delete button */}
+                  <button
+                    onClick={(e) => handleDeleteProject(e, project.id)}
+                    className="absolute top-2 right-2 bg-black/60 text-white/70 rounded-full p-1.5 active:text-white"
+                  >
+                    <TrashIcon />
+                  </button>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <button
+          onClick={() => setStep('ratio')}
+          className="w-full bg-white text-black font-semibold text-base py-3.5 rounded-2xl active:scale-95 transition-transform"
+        >
+          New Project
+        </button>
+      </div>
 
       {/* ── Step 1: Ratio picker ─────────────────────────────────── */}
       {step === 'ratio' && (

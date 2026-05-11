@@ -1,6 +1,7 @@
-import { useRef } from 'react'
+import { useRef, useEffect } from 'react'
 import { useStore } from '../useStore'
 import { CanvasContext } from '../CanvasContext'
+import { saveProject } from '../projectStorage'
 import TopBar from './TopBar'
 import Canvas from './Canvas'
 import BottomBar from './BottomBar'
@@ -18,6 +19,21 @@ export default function Editor() {
   const activeLayerId = useStore(s => s.activeLayerId)
   const cropMode = useStore(s => s.cropMode)
   const setPanel = useStore(s => s.setPanel)
+  const history = useStore(s => s.history)
+  const currentProjectId = useStore(s => s.currentProjectId)
+  const saveTimerRef = useRef(null)
+
+  useEffect(() => {
+    if (!currentProjectId) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      const state = useStore.getState()
+      saveProject(state.currentProjectId, state.projectName, state)
+    }, 2000)
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    }
+  }, [history, currentProjectId])
 
   return (
     <CanvasContext.Provider value={openPickerRef}>

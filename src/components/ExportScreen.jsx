@@ -216,13 +216,48 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor) {
   return canvas.toDataURL('image/jpeg', 0.95)
 }
 
-function downloadAll(rendered) {
+function dataURLtoBlob(dataURL) {
+  const [header, data] = dataURL.split(',')
+  const mime = header.match(/:(.*?);/)[1]
+  const binary = atob(data)
+  const buf = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) buf[i] = binary.charCodeAt(i)
+  return new Blob([buf], { type: mime })
+}
+
+async function downloadAll(rendered) {
+  const files = rendered.map((src, i) => {
+    const blob = dataURLtoBlob(src)
+    return new File([blob], `slide-${i + 1}.jpg`, { type: 'image/jpeg' })
+  })
+
+  if (navigator.canShare && navigator.canShare({ files })) {
+    try {
+      await navigator.share({ files })
+    } catch (err) {
+      // User cancelled or share failed — silently ignore
+    }
+    return
+  }
+
+  // Fallback: download links
   rendered.forEach((src, i) => {
     const a = document.createElement('a')
     a.href = src
     a.download = `slide-${i + 1}.jpg`
     a.click()
   })
+}
+
+function canUseWebShare(rendered) {
+  if (!rendered.length) return false
+  if (!navigator.canShare) return false
+  try {
+    const testFile = new File([new Blob([''])], 'test.jpg', { type: 'image/jpeg' })
+    return navigator.canShare({ files: [testFile] })
+  } catch {
+    return false
+  }
 }
 
 export default function ExportScreen({ onClose }) {
@@ -330,14 +365,18 @@ export default function ExportScreen({ onClose }) {
           )}
         </div>
 
-        {/* Download all button */}
+        {/* Download/Share all button */}
         <button
           onClick={() => downloadAll(rendered)}
           disabled={rendered.length === 0}
           className="w-full py-3.5 rounded-2xl font-semibold text-base transition-opacity active:opacity-70 disabled:opacity-30"
           style={{ background: 'white', color: 'black' }}
         >
-          {rendered.length === 0 ? 'Rendering…' : `Download ${rendered.length === 1 ? 'Image' : `All ${rendered.length} Images`}`}
+          {rendered.length === 0
+            ? 'Rendering…'
+            : canUseWebShare(rendered)
+              ? 'Share'
+              : `Download ${rendered.length === 1 ? 'Image' : `All ${rendered.length} Images`}`}
         </button>
       </div>
     </div>
