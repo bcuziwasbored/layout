@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
+import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { Stage, Layer, Rect, Circle, Image as KImage, Group, Text, Line } from 'react-konva'
 import { useStore, fitInCell } from '../useStore'
 import useImage from 'use-image'
@@ -88,8 +88,8 @@ function findGroupSeams(groupLayers) {
   return { vertical: [...vMap.values()], horizontal: [...hMap.values()] }
 }
 
-function computeResize(sl, handle, ddx, ddy) {
-  const ar = sl.w / sl.h
+function computeResize(sl, handle, ddx, ddy, aspectOverride) {
+  const ar = aspectOverride ?? (sl.w / sl.h)
   const isCorner = handle.length === 2
   let x = sl.x, y = sl.y, w = sl.w, h = sl.h
   if (isCorner) {
@@ -104,6 +104,12 @@ function computeResize(sl, handle, ddx, ddy) {
       if (handle.includes('l')) x = sl.x + sl.w - w
       if (handle.includes('t')) y = sl.y + sl.h - h
     }
+  } else if (aspectOverride) {
+    // With aspect constraint: edge handles adjust both dims to maintain ratio
+    if (handle === 'r') { w = Math.max(20, sl.w + ddx); h = w / ar; y = sl.y + (sl.h - h) / 2 }
+    if (handle === 'l') { w = Math.max(20, sl.w - ddx); x = sl.x + sl.w - w; h = w / ar; y = sl.y + (sl.h - h) / 2 }
+    if (handle === 'b') { h = Math.max(20, sl.h + ddy); w = h * ar; x = sl.x + (sl.w - w) / 2 }
+    if (handle === 't') { h = Math.max(20, sl.h - ddy); y = sl.y + sl.h - h; w = h * ar; x = sl.x + (sl.w - w) / 2 }
   } else {
     if (handle === 'r') w = Math.max(20, sl.w + ddx)
     if (handle === 'l') { w = Math.max(20, sl.w - ddx); x = sl.x + sl.w - w }
@@ -147,11 +153,19 @@ function FilledCell({ layer, vs }) {
   const imgH = img ? img.naturalHeight * (layer.imgScale ?? 1) : 0
   const imgX = (layer.imgX ?? 0) + inset
   const imgY = (layer.imgY ?? 0) + inset
+  const rotation = layer.rotation ?? 0
 
   return (
     <Group x={layer.x} y={layer.y} opacity={layer.opacity ?? 1}>
       <Group clipFunc={ctx => ctx.rect(inset, inset, layer.w - gap, layer.h - gap)} listening={false}>
-        {img && <KImage image={img} x={imgX} y={imgY} width={imgW} height={imgH} />}
+        {img && (rotation ? (
+          // Rotate around frame center
+          <Group x={layer.w / 2} y={layer.h / 2} rotation={rotation}>
+            <KImage image={img} x={imgX - layer.w / 2} y={imgY - layer.h / 2} width={imgW} height={imgH} />
+          </Group>
+        ) : (
+          <KImage image={img} x={imgX} y={imgY} width={imgW} height={imgH} />
+        ))}
       </Group>
       {/* Hit area outside clipFunc so coordinate hit-testing in handleStageDown works */}
       <Rect width={layer.w} height={layer.h} fill="rgba(0,0,0,0.01)" />
@@ -186,33 +200,68 @@ function SelectionOverlay({ layer, vs }) {
   )
 }
 
-function CropTarget({ layer, vs, onPanEnd, onResizeEnd }) {
+function CropTarget({ layer, vs }) {
   const [img] = useImage(layer.src)
   const hr = HANDLE_R_PX / vs
   const imgW = img ? img.naturalWidth  * (layer.imgScale ?? 1) : 0
   const imgH = img ? img.naturalHeight * (layer.imgScale ?? 1) : 0
   const ix = layer.imgX ?? 0, iy = layer.imgY ?? 0
-  const minImgX = Math.min(0, layer.w - imgW)
-  const minImgY = Math.min(0, layer.h - imgH)
+  const rotation = layer.rotation ?? 0
+
+  // Render image with rotation around frame center (global coords)
+  const renderImg = (opacity) => {
+    if (!img) return null
+    if (rotation) return (
+      <Group x={layer.x + layer.w / 2} y={layer.y + layer.h / 2} rotation={rotation} opacity={opacity} listening={false}>
+        <KImage image={img} x={ix - layer.w / 2} y={iy - layer.h / 2} width={imgW} height={imgH} />
+      </Group>
+    )
+    return <KImage image={img} x={layer.x + ix} y={layer.y + iy} width={imgW} height={imgH} opacity={opacity} listening={false} />
+  }
+
+  const cx = layer.x + layer.w / 2
+  const cy = layer.y + layer.h / 2
+  const handles = [
+    ['tl', layer.x,        layer.y],
+    ['tr', layer.x + layer.w, layer.y],
+    ['bl', layer.x,        layer.y + layer.h],
+    ['br', layer.x + layer.w, layer.y + layer.h],
+    ['t',  cx,             layer.y],
+    ['b',  cx,             layer.y + layer.h],
+    ['l',  layer.x,        cy],
+    ['r',  layer.x + layer.w, cy],
+  ]
 
   return (
     <Group>
-      {img && <KImage image={img} x={layer.x + ix} y={layer.y + iy}
-        width={imgW} height={imgH} opacity={0.25} listening={false} />}
+      {/* Ghost image outside clip */}
+      {renderImg(0.25)}
+      {/* Clipped image */}
       <Group clipFunc={ctx => ctx.rect(layer.x, layer.y, layer.w, layer.h)} listening={false}>
-        {img && <KImage image={img} x={layer.x + ix} y={layer.y + iy}
-          width={imgW} height={imgH} />}
+        {renderImg(1)}
       </Group>
+      {/* Dashed border */}
       <Rect x={layer.x} y={layer.y} width={layer.w} height={layer.h}
         stroke="white" strokeWidth={1.5 / vs} dash={[6 / vs, 4 / vs]} listening={false} />
-      {[['tl', layer.x, layer.y], ['tr', layer.x + layer.w, layer.y],
-        ['bl', layer.x, layer.y + layer.h], ['br', layer.x + layer.w, layer.y + layer.h]
-      ].map(([h, hx, hy]) => (
-        <Circle key={h} name={`crophandle|${h}|${layer.id}`}
-          x={hx} y={hy} radius={hr}
-          fill="white" stroke="rgba(0,0,0,0.3)" strokeWidth={1 / vs}
-        />
+      {/* Rule-of-thirds grid */}
+      {[1/3, 2/3].map(t => (
+        <React.Fragment key={t}>
+          <Line points={[layer.x + layer.w*t, layer.y, layer.x + layer.w*t, layer.y + layer.h]}
+            stroke="rgba(255,255,255,0.25)" strokeWidth={0.75/vs} listening={false} />
+          <Line points={[layer.x, layer.y + layer.h*t, layer.x + layer.w, layer.y + layer.h*t]}
+            stroke="rgba(255,255,255,0.25)" strokeWidth={0.75/vs} listening={false} />
+        </React.Fragment>
       ))}
+      {/* Handles: corners are full circles, edges are smaller */}
+      {handles.map(([h, hx, hy]) => {
+        const isCorner = h.length === 2
+        const r = isCorner ? hr : hr * 0.65
+        return (
+          <Circle key={h} name={`crophandle|${h}|${layer.id}`}
+            x={hx} y={hy} radius={r}
+            fill="white" stroke="rgba(0,0,0,0.3)" strokeWidth={1 / vs} />
+        )
+      })}
     </Group>
   )
 }
@@ -228,6 +277,7 @@ export default function Canvas({ openPickerRef }) {
   const activeLayerId   = useStore(s => s.activeLayerId)
   const activeCellId    = useStore(s => s.activeCellId)
   const cropMode        = useStore(s => s.cropMode)
+  const cropAspect      = useStore(s => s.cropAspect)
   const setActiveLayer  = useStore(s => s.setActiveLayer)
   const setActiveCellId = useStore(s => s.setActiveCellId)
   const setCropMode     = useStore(s => s.setCropMode)
@@ -250,7 +300,7 @@ export default function Canvas({ openPickerRef }) {
 
   // Keep always-fresh values accessible in stable callbacks
   const fresh = useRef({})
-  fresh.current = { layers, slides, ratio, activeLayerId, activeCellId, cropMode, activeSlideIdx,
+  fresh.current = { layers, slides, ratio, activeLayerId, activeCellId, cropMode, cropAspect, activeSlideIdx,
     setActiveLayer, setActiveCellId, setCropMode, addSlide, updateLayer, updateLayerWithHistory,
     addImageLayer, fillCells }
 
@@ -649,15 +699,21 @@ export default function Canvas({ openPickerRef }) {
       const innerH = sl.h - gap
       const imgW = (sl.naturalW ?? sl.w) * (sl.imgScale ?? 1)
       const imgH = (sl.naturalH ?? sl.h) * (sl.imgScale ?? 1)
-      const minImgX = Math.min(0, innerW - imgW)
-      const minImgY = Math.min(0, innerH - imgH)
+      const rotation = sl.rotation ?? 0
+      // When rotated, the image diagonal can fill the cell at wider range — relax bounds
+      const extra = rotation ? Math.max(imgW, imgH) : 0
+      const minImgX = Math.min(0, innerW - imgW) - extra
+      const maxImgX = extra
+      const minImgY = Math.min(0, innerH - imgH) - extra
+      const maxImgY = extra
       upd(sl.id, {
-        imgX: clamp((sl.imgX ?? 0) + dx / vs, minImgX, 0),
-        imgY: clamp((sl.imgY ?? 0) + dy / vs, minImgY, 0),
+        imgX: clamp((sl.imgX ?? 0) + dx / vs, minImgX, maxImgX),
+        imgY: clamp((sl.imgY ?? 0) + dy / vs, minImgY, maxImgY),
       })
     } else if (p.type === 'crop-resize') {
       const sl = p.startLayer
-      const { x: nx, y: ny, w: nw, h: nh } = computeResize(sl, p.handle, dx / vs, dy / vs)
+      const { cropAspect } = fresh.current
+      const { x: nx, y: ny, w: nw, h: nh } = computeResize(sl, p.handle, dx / vs, dy / vs, cropAspect)
       if (nw > 20 && nh > 20) upd(sl.id, { x: nx, y: ny, w: nw, h: nh })
     }
   }

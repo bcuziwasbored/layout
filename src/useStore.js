@@ -35,6 +35,7 @@ export const useStore = create((set, get) => ({
   panel: null,
   elementPanel: null,
   cropMode: false,
+  cropAspect: null,   // null = free, number = w/h ratio for constrained crop
   history: [],
   future: [],
 
@@ -86,6 +87,7 @@ export const useStore = create((set, get) => ({
       panel: null,
       elementPanel: null,
       cropMode: false,
+      cropAspect: null,
       history: [],
       future: [],
     })
@@ -116,7 +118,11 @@ export const useStore = create((set, get) => ({
   },
 
   setCropMode(on) {
-    set({ cropMode: on, panel: null, elementPanel: null })
+    set({ cropMode: on, cropAspect: null, panel: null, elementPanel: null })
+  },
+
+  setCropAspect(aspect) {
+    set({ cropAspect: aspect })
   },
 
   setBgColor(color) {
