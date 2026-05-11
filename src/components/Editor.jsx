@@ -11,7 +11,7 @@ import SlidesPanel from './panels/SlidesPanel'
 import BackgroundPanel from './panels/BackgroundPanel'
 import RatioPanel from './panels/RatioPanel'
 import CropControls from './panels/CropControls'
-import { IconClose } from './icons'
+import LayersPanel from './panels/LayersPanel'
 
 export default function Editor() {
   const openPickerRef = useRef(null)
@@ -59,15 +59,7 @@ export default function Editor() {
               {panel === 'slides' && <SlidesPanel />}
               {panel === 'background' && <BackgroundPanel />}
               {panel === 'ratio' && <RatioPanel />}
-              {panel === 'layers' && (
-                <div className="bg-[#111] rounded-t-2xl p-5 pb-8">
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="font-semibold">Layers</span>
-                    <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
-                  </div>
-                  <p className="text-white/40 text-sm">Tap a layer on the canvas to select it.</p>
-                </div>
-              )}
+              {panel === 'layers' && <LayersPanel />}
               <BottomBar />
             </>
           )}
