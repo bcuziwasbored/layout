@@ -187,6 +187,7 @@ function StyleSliderRow({ label, value, min, max, step, display, unit, onChange,
       <div className="text-sm font-semibold text-white mb-2.5">{label}</div>
       <div className="flex items-center gap-3">
         <input type="range" min={min} max={max} step={step} value={value}
+          onPointerDown={() => useStore.getState()._captureUndo()}
           onChange={e => onChange(parseFloat(e.target.value))}
           onMouseUp={onDone} onTouchEnd={onDone}
           className="flex-1 accent-white" />
@@ -236,7 +237,7 @@ function StyleTab({ layer, activeLayerId, layers, updateLayer, updateLayerWithHi
         label={isGroup ? 'Spacing' : 'Inset'}
         value={gap} min={0} max={80} step={1} display={gap} unit="px"
         onChange={setGap}
-        onDone={() => updateLayerWithHistory(activeLayerId, {})} />
+        onDone={() => useStore.getState()._commitUndo()} />
 
       <StyleSliderRow
         label="Opacity"
@@ -244,19 +245,19 @@ function StyleTab({ layer, activeLayerId, layers, updateLayer, updateLayerWithHi
         min={0} max={100} step={1}
         display={Math.round((layer.opacity ?? 1) * 100)} unit="%"
         onChange={v => updateLayer(activeLayerId, { opacity: v / 100 })}
-        onDone={() => updateLayerWithHistory(activeLayerId, {})} />
+        onDone={() => useStore.getState()._commitUndo()} />
 
       <StyleSliderRow
         label="Corner Radius"
         value={cr} min={0} max={240} step={1} display={cr} unit="px"
         onChange={v => applyProp('cornerRadius', v)}
-        onDone={() => updateLayerWithHistory(activeLayerId, {})} />
+        onDone={() => useStore.getState()._commitUndo()} />
 
       <StyleSliderRow
         label="Border Thickness"
         value={bw} min={0} max={30} step={1} display={bw} unit="px"
         onChange={v => applyProp('borderWidth', v)}
-        onDone={() => updateLayerWithHistory(activeLayerId, {})} />
+        onDone={() => useStore.getState()._commitUndo()} />
 
       {/* Border Color */}
       <div className="py-4">
@@ -370,8 +371,9 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
           <input type="range" min={12} max={400} step={1}
             value={layer.fontSize ?? 72}
             onChange={e => updateLayer(layer.id, { fontSize: +e.target.value })}
-            onMouseUp={() => updateLayerWithHistory(layer.id, {})}
-            onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+            onPointerDown={() => useStore.getState()._captureUndo()}
+            onMouseUp={() => useStore.getState()._commitUndo()}
+            onTouchEnd={() => useStore.getState()._commitUndo()}
             className="flex-1 accent-white" />
           <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[56px] text-right shrink-0">
             <span className="text-white text-sm tabular-nums">{layer.fontSize ?? 72}</span>
@@ -443,8 +445,9 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
           <input type="range" min={-20} max={200} step={1}
             value={layer.letterSpacing ?? 0}
             onChange={e => updateLayer(layer.id, { letterSpacing: +e.target.value })}
-            onMouseUp={() => updateLayerWithHistory(layer.id, {})}
-            onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+            onPointerDown={() => useStore.getState()._captureUndo()}
+            onMouseUp={() => useStore.getState()._commitUndo()}
+            onTouchEnd={() => useStore.getState()._commitUndo()}
             className="flex-1 accent-white" />
           <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[56px] text-right shrink-0">
             <span className="text-white text-sm tabular-nums">{layer.letterSpacing ?? 0}</span>
@@ -460,8 +463,9 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
           <input type="range" min={0.8} max={3.0} step={0.05}
             value={layer.lineHeight ?? 1.2}
             onChange={e => updateLayer(layer.id, { lineHeight: +parseFloat(e.target.value).toFixed(2) })}
-            onMouseUp={() => updateLayerWithHistory(layer.id, {})}
-            onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+            onPointerDown={() => useStore.getState()._captureUndo()}
+            onMouseUp={() => useStore.getState()._commitUndo()}
+            onTouchEnd={() => useStore.getState()._commitUndo()}
             className="flex-1 accent-white" />
           <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[56px] text-right shrink-0">
             <span className="text-white text-sm tabular-nums">{(layer.lineHeight ?? 1.2).toFixed(2)}</span>
@@ -477,8 +481,9 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
           <input type="range" min={0} max={100} step={1}
             value={Math.round((layer.opacity ?? 1) * 100)}
             onChange={e => updateLayer(layer.id, { opacity: +e.target.value / 100 })}
-            onMouseUp={() => updateLayerWithHistory(layer.id, {})}
-            onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+            onPointerDown={() => useStore.getState()._captureUndo()}
+            onMouseUp={() => useStore.getState()._commitUndo()}
+            onTouchEnd={() => useStore.getState()._commitUndo()}
             className="flex-1 accent-white" />
           <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[56px] text-right shrink-0">
             <span className="text-white text-sm tabular-nums">{Math.round((layer.opacity ?? 1) * 100)}</span>
@@ -564,8 +569,9 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
         <div className="flex items-center gap-3">
           <input type="range" min={0} max={30} step={1} value={sw}
             onChange={e => updateLayer(layer.id, { strokeWidth: +e.target.value })}
-            onMouseUp={() => updateLayerWithHistory(layer.id, {})}
-            onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+            onPointerDown={() => useStore.getState()._captureUndo()}
+            onMouseUp={() => useStore.getState()._commitUndo()}
+            onTouchEnd={() => useStore.getState()._commitUndo()}
             className="flex-1 accent-white" />
           <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[64px] text-right shrink-0">
             <span className="text-white text-sm tabular-nums">{sw}</span>
@@ -599,8 +605,9 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
           <input type="range" min={0} max={100} step={1}
             value={Math.round((layer.opacity ?? 1) * 100)}
             onChange={e => updateLayer(layer.id, { opacity: +e.target.value / 100 })}
-            onMouseUp={() => updateLayerWithHistory(layer.id, {})}
-            onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+            onPointerDown={() => useStore.getState()._captureUndo()}
+            onMouseUp={() => useStore.getState()._commitUndo()}
+            onTouchEnd={() => useStore.getState()._commitUndo()}
             className="flex-1 accent-white" />
           <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[56px] text-right shrink-0">
             <span className="text-white text-sm tabular-nums">{Math.round((layer.opacity ?? 1) * 100)}</span>
@@ -772,8 +779,9 @@ export default function LayerToolbar() {
                   const newImgY = Math.max(minImgY, Math.min(0, innerH / 2 - imgPtY * newScale))
                   updateLayer(activeCellId, { imgScale: newScale, imgX: newImgX, imgY: newImgY })
                 }}
-                onMouseUp={() => updateLayerWithHistory(activeCellId, {})}
-                onTouchEnd={() => updateLayerWithHistory(activeCellId, {})}
+                onPointerDown={() => useStore.getState()._captureUndo()}
+                onMouseUp={() => useStore.getState()._commitUndo()}
+                onTouchEnd={() => useStore.getState()._commitUndo()}
                 className="flex-1 accent-blue-500" />
               <span className="text-xs text-white/40 w-12 text-right shrink-0">
                 {Math.round((cell.imgScale ?? minScale) / minScale * 100)}%

@@ -161,6 +161,8 @@ function useAdjustedImage(src, brightness, contrast, saturation) {
     if (!b && !c && !s) { setAdjusted(img); return }
     const canvas = document.createElement('canvas')
     canvas.width = img.naturalWidth; canvas.height = img.naturalHeight
+    // Stamp naturalWidth/naturalHeight so FilledCell's dimension math works the same as with HTMLImageElement
+    canvas.naturalWidth = img.naturalWidth; canvas.naturalHeight = img.naturalHeight
     const ctx = canvas.getContext('2d')
     ctx.filter = `brightness(${1 + b/100}) contrast(${1 + c/100}) saturate(${1 + s/100})`
     ctx.drawImage(img, 0, 0)
@@ -575,6 +577,7 @@ export default function Canvas({ openPickerRef }) {
           imgX: cell?.imgX ?? null,
           imgY: cell?.imgY ?? null,
         }
+        if (cellPinch) useStore.getState()._captureUndo()
         panRef.current = null
         return
       }
@@ -625,8 +628,9 @@ export default function Canvas({ openPickerRef }) {
       })
     }
     const onEnd = () => {
-      const { activeCellId: cellId, updateLayerWithHistory: updH } = fresh.current
-      if (cellId && pinchRef.current.cellPinch && pinchRef.current.active) updH(cellId, {})
+      if (pinchRef.current.cellPinch && pinchRef.current.active) {
+        useStore.getState()._commitUndo()
+      }
       pinchRef.current = { active: false, lastDist: 0 }
     }
     el.addEventListener('touchmove', onMove, { passive: false })
@@ -695,9 +699,11 @@ export default function Canvas({ openPickerRef }) {
             groupLayers: grp.map(l => ({ ...l })),
             startBounds: { x: gx, y: gy, w: gw, h: gh },
             startX: pt.clientX, startY: pt.clientY, moved: false }
+          useStore.getState()._captureUndo()
         } else {
           panRef.current = { type: 'resize', handle: info.handle, layerId: info.layerId,
             startLayer: { ...layer }, startX: pt.clientX, startY: pt.clientY, moved: false }
+          useStore.getState()._captureUndo()
         }
         return
       }
@@ -708,6 +714,7 @@ export default function Canvas({ openPickerRef }) {
       if (layer) {
         panRef.current = { type: 'crop-resize', handle: info.handle, layerId: activeId,
           startLayer: { ...layer }, startX: pt.clientX, startY: pt.clientY, moved: false }
+        useStore.getState()._captureUndo()
         return
       }
     }
@@ -718,6 +725,7 @@ export default function Canvas({ openPickerRef }) {
         const grp = curLayers.filter(l => l.groupId && l.groupId === layer.groupId)
         panRef.current = { type: 'seam-drag', seamType: info.seamType, seamMid: info.seamMid,
           groupLayers: grp.map(l => ({ ...l })), startX: pt.clientX, startY: pt.clientY, moved: false }
+        useStore.getState()._captureUndo()
         return
       }
     }
@@ -732,6 +740,7 @@ export default function Canvas({ openPickerRef }) {
       }
       panRef.current = { type: 'crop-pan', layerId: activeId,
         startLayer: { ...layer }, startX: pt.clientX, startY: pt.clientY, moved: false }
+      useStore.getState()._captureUndo()
       return
     }
 
@@ -746,7 +755,7 @@ export default function Canvas({ openPickerRef }) {
         const grp = curLayers.filter(l => l.groupId && l.groupId === hitLayer.groupId)
         const isGroupActive = grp.some(l => l.id === activeId)
         if (!isGroupActive) {
-          // Group not selected — select it
+          // Group not selected — select it (no undo capture, no layer change)
           panRef.current = { type: 'select', layerId: hitLayer.id,
             startX: pt.clientX, startY: pt.clientY, viewX: v.x, viewY: v.y, moved: false }
         } else if (!curCellId) {
@@ -754,6 +763,7 @@ export default function Canvas({ openPickerRef }) {
           panRef.current = { type: 'group-drag',
             groupLayers: grp.map(l => ({ ...l })), tappedCellId: hitLayer.id,
             startX: pt.clientX, startY: pt.clientY, moved: false }
+          useStore.getState()._captureUndo()
         } else {
           // A cell is sub-selected — pan its image or clear sub-selection
           const cell = curLayers.find(l => l.id === curCellId)
@@ -761,6 +771,7 @@ export default function Canvas({ openPickerRef }) {
               canvasY >= cell.y && canvasY <= cell.y + cell.h) {
             panRef.current = { type: 'crop-pan', layerId: curCellId,
               startLayer: { ...cell }, startX: pt.clientX, startY: pt.clientY, moved: false }
+            useStore.getState()._captureUndo()
           } else {
             panRef.current = { type: 'clear-cell', moved: false }
           }
@@ -771,6 +782,7 @@ export default function Canvas({ openPickerRef }) {
         // Already selected — drag it
         panRef.current = { type: 'drag', layerId: hitLayer.id,
           startLayer: { ...hitLayer }, startX: pt.clientX, startY: pt.clientY, moved: false }
+        useStore.getState()._captureUndo()
         return
       }
       panRef.current = { type: 'select', layerId: hitLayer.id,
@@ -959,7 +971,7 @@ export default function Canvas({ openPickerRef }) {
     }
 
     if (p.type === 'crop-pan' && p.moved) {
-      fresh.current.updateLayerWithHistory(p.startLayer.id, {})
+      useStore.getState()._commitUndo()
       return
     }
 
@@ -973,7 +985,7 @@ export default function Canvas({ openPickerRef }) {
     }
 
     if (p.type === 'drag' && p.moved) {
-      fresh.current.updateLayerWithHistory(p.layerId, {})
+      useStore.getState()._commitUndo()
       return
     }
 
@@ -984,7 +996,7 @@ export default function Canvas({ openPickerRef }) {
     }
 
     if (p.type === 'group-drag' && p.moved) {
-      if (p.groupLayers.length) fresh.current.updateLayerWithHistory(p.groupLayers[0].id, {})
+      useStore.getState()._commitUndo()
       return
     }
 
@@ -994,18 +1006,22 @@ export default function Canvas({ openPickerRef }) {
     }
 
     if (p.type === 'group-resize' && p.moved) {
-      if (p.groupLayers.length) fresh.current.updateLayerWithHistory(p.groupLayers[0].id, {})
+      useStore.getState()._commitUndo()
       return
     }
 
     if (p.type === 'seam-drag' && p.moved) {
-      if (p.groupLayers.length) fresh.current.updateLayerWithHistory(p.groupLayers[0].id, {})
+      useStore.getState()._commitUndo()
       return
     }
 
     if ((p.type === 'resize' || p.type === 'crop-resize') && p.moved) {
-      fresh.current.updateLayerWithHistory(p.startLayer.id, {})
+      useStore.getState()._commitUndo()
+      return
     }
+
+    // Gesture ended without movement (or unrecognized type) — discard any captured snapshot
+    useStore.getState()._discardUndo()
   }
 
   // ── File picker ──

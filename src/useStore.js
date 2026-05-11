@@ -39,6 +39,7 @@ export const useStore = create((set, get) => ({
   cropAspect: null,   // null = free, number = w/h ratio for constrained crop
   history: [],
   future: [],
+  _undoSnap: null,   // pre-gesture snapshot waiting to be committed
 
   _snapshot() {
     const s = get()
@@ -48,6 +49,23 @@ export const useStore = create((set, get) => ({
   _pushHistory() {
     const snap = get()._snapshot()
     set(s => ({ history: [...s.history.slice(-30), snap], future: [] }))
+  },
+
+  // Capture the current state BEFORE a gesture/slider begins
+  _captureUndo() {
+    set({ _undoSnap: get()._snapshot() })
+  },
+
+  // Commit the captured pre-gesture snapshot to history
+  _commitUndo() {
+    const snap = get()._undoSnap
+    if (!snap) return
+    set(s => ({ history: [...s.history.slice(-30), snap], future: [], _undoSnap: null }))
+  },
+
+  // Discard a captured snapshot (gesture cancelled or didn't actually move)
+  _discardUndo() {
+    set({ _undoSnap: null })
   },
 
   undo() {

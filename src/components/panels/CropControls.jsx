@@ -54,7 +54,7 @@ export default function CropControls() {
         <button onClick={() => setCropMode(false)}
           className="text-white/50 text-sm active:text-white">Cancel</button>
         <span className="text-xs text-white/40 uppercase tracking-wider">Crop</span>
-        <button onClick={() => { updateLayerWithHistory(layer.id, {}); setCropMode(false) }}
+        <button onClick={() => setCropMode(false)}
           className="text-white text-sm font-semibold active:opacity-60">Done</button>
       </div>
 
@@ -78,6 +78,7 @@ export default function CropControls() {
         <span className="text-xs text-white/50 w-14 shrink-0">Rotate</span>
         <input type="range" min={-180} max={180} step={0.5}
           value={rotation}
+          onPointerDown={() => useStore.getState()._captureUndo()}
           onChange={e => {
             const newRot = parseFloat(e.target.value)
             const nW = layer.naturalW ?? layer.w
@@ -102,8 +103,8 @@ export default function CropControls() {
             }
             updateLayer(layer.id, { rotation: newRot, imgScale: newScale, imgX: newImgX, imgY: newImgY })
           }}
-          onMouseUp={() => updateLayerWithHistory(layer.id, {})}
-          onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+          onMouseUp={() => useStore.getState()._commitUndo()}
+          onTouchEnd={() => useStore.getState()._commitUndo()}
           className="flex-1 accent-blue-500" />
         <span className="text-xs text-white/40 w-12 text-right shrink-0">
           {rotation > 0 ? '+' : ''}{rotation.toFixed(1)}°
@@ -122,9 +123,10 @@ export default function CropControls() {
             <span className="text-xs text-white/50 w-14 shrink-0">Scale</span>
             <input type="range" min={sliderMin} max={sliderMax} step={0.001}
               value={Math.max(layer.imgScale ?? 1, sliderMin)}
+              onPointerDown={() => useStore.getState()._captureUndo()}
               onChange={e => updateLayer(layer.id, { imgScale: parseFloat(e.target.value) })}
-              onMouseUp={() => updateLayerWithHistory(layer.id, {})}
-              onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+              onMouseUp={() => useStore.getState()._commitUndo()}
+              onTouchEnd={() => useStore.getState()._commitUndo()}
               className="flex-1 accent-blue-500" />
             <span className="text-xs text-white/40 w-12 text-right shrink-0">
               {((Math.max(layer.imgScale ?? 1, sliderMin)) / sliderMin * 100).toFixed(0)}%
