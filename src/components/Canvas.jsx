@@ -10,7 +10,8 @@ const SNAP_THRESHOLD_PX = 8
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
 
-function getSnapLines(layers, excludeId, ratio, slideCount) {
+function getSnapLines(layers, excludeIds, ratio, slideCount) {
+  const excl = new Set(Array.isArray(excludeIds) ? excludeIds : [excludeIds])
   const xs = [], ys = []
   for (let i = 0; i < slideCount; i++) {
     const sx = i * ratio.w
@@ -18,29 +19,41 @@ function getSnapLines(layers, excludeId, ratio, slideCount) {
     ys.push(0, ratio.h, ratio.h / 2)
   }
   for (const l of layers) {
-    if (l.id === excludeId) continue
+    if (excl.has(l.id)) continue
     xs.push(l.x, l.x + l.w, l.x + l.w / 2)
     ys.push(l.y, l.y + l.h, l.y + l.h / 2)
   }
   return { xs, ys }
 }
 
+// Returns snapped x/y and all active guide lines (xs/ys arrays).
+// Checks all 3 candidate edges of the moving rect against all snap lines.
 function snapPosition(x, y, w, h, lines, vs) {
   const thr = SNAP_THRESHOLD_PX / vs
-  let nx = x, ny = y, gx = null, gy = null
+  let nx = x, ny = y
+  const gxs = [], gys = []
+
+  // Find the closest snap on x axis among all 3 candidate edges
+  let bestDX = thr, bestGX = null, bestOffset = 0
   for (const lx of lines.xs) {
-    for (const cx of [x, x + w, x + w / 2]) {
-      if (Math.abs(cx - lx) < thr) { nx = lx - (cx - x); gx = lx; break }
+    for (const cx of [x, x + w / 2, x + w]) {
+      const d = Math.abs(cx - lx)
+      if (d < bestDX) { bestDX = d; bestGX = lx; bestOffset = cx - x }
     }
-    if (gx !== null) break
   }
+  if (bestGX !== null) { nx = bestGX - bestOffset; gxs.push(bestGX) }
+
+  // Find the closest snap on y axis
+  let bestDY = thr, bestGY = null, bestOffsetY = 0
   for (const ly of lines.ys) {
-    for (const cy of [y, y + h, y + h / 2]) {
-      if (Math.abs(cy - ly) < thr) { ny = ly - (cy - y); gy = ly; break }
+    for (const cy of [y, y + h / 2, y + h]) {
+      const d = Math.abs(cy - ly)
+      if (d < bestDY) { bestDY = d; bestGY = ly; bestOffsetY = cy - y }
     }
-    if (gy !== null) break
   }
-  return { x: nx, y: ny, gx, gy }
+  if (bestGY !== null) { ny = bestGY - bestOffsetY; gys.push(bestGY) }
+
+  return { x: nx, y: ny, gxs, gys }
 }
 
 // Returns snapped value if within threshold, otherwise null
@@ -343,7 +356,8 @@ export default function Canvas({ openPickerRef }) {
 
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
   const [view, setView] = useState(null)
-  const [snapGuides, setSnapGuides] = useState({ x: null, y: null })
+  // snapGuides: { xs: number[], ys: number[] } — all active guide positions this frame
+  const [snapGuides, setSnapGuides] = useState({ xs: [], ys: [] })
 
   const setViewSync = useCallback((updater) => {
     setView(prev => {
@@ -650,23 +664,45 @@ export default function Canvas({ openPickerRef }) {
       setViewSync(v => ({ ...v, x: p.viewX + dx, y: p.viewY + dy }))
     } else if (p.type === 'drag') {
       const sl = p.startLayer
-      upd(sl.id, { x: sl.x + dx / vs, y: sl.y + dy / vs })
+      const rawX = sl.x + dx / vs, rawY = sl.y + dy / vs
+      const lines = getSnapLines(curLayers, sl.id, r, curSlides.length)
+      const { x: nx, y: ny, gxs, gys } = snapPosition(rawX, rawY, sl.w, sl.h, lines, vs)
+      setSnapGuides({ xs: gxs, ys: gys })
+      upd(sl.id, { x: nx, y: ny })
     } else if (p.type === 'group-drag') {
-      p.groupLayers.forEach(sl => upd(sl.id, { x: sl.x + dx / vs, y: sl.y + dy / vs }))
+      const grpStart = p.groupLayers
+      const gx0 = Math.min(...grpStart.map(l => l.x))
+      const gy0 = Math.min(...grpStart.map(l => l.y))
+      const gw  = Math.max(...grpStart.map(l => l.x + l.w)) - gx0
+      const gh  = Math.max(...grpStart.map(l => l.y + l.h)) - gy0
+      const rawX = gx0 + dx / vs, rawY = gy0 + dy / vs
+      const excludeIds = grpStart.map(l => l.id)
+      const lines = getSnapLines(curLayers, excludeIds, r, curSlides.length)
+      const { x: snapX, y: snapY, gxs, gys } = snapPosition(rawX, rawY, gw, gh, lines, vs)
+      setSnapGuides({ xs: gxs, ys: gys })
+      const dSnapX = snapX - gx0, dSnapY = snapY - gy0
+      grpStart.forEach(sl => upd(sl.id, { x: sl.x + dSnapX, y: sl.y + dSnapY }))
     } else if (p.type === 'resize') {
       const sl = p.startLayer
       let { x: nx, y: ny, w: nw, h: nh } = computeResize(sl, p.handle, dx / vs, dy / vs)
       if (nw > 20 && nh > 20) {
-        const si = Math.floor(sl.x / r.w)
+        const lines = getSnapLines(curLayers, sl.id, r, curSlides.length)
         const thr = SNAP_THRESHOLD_PX / vs
-        const xs = [si * r.w, si * r.w + r.w / 2, (si + 1) * r.w]
-        const ys = [0, r.h / 2, r.h]
-        let gx = null, gy = null
-        if (p.handle === 'r')  { const s = snapEdge(nx + nw, xs, thr); if (s !== null) { nw = s - nx; gx = s } }
-        if (p.handle === 'l')  { const s = snapEdge(nx, xs, thr);      if (s !== null) { nw += nx - s; nx = s; gx = s } }
-        if (p.handle === 'b')  { const s = snapEdge(ny + nh, ys, thr); if (s !== null) { nh = s - ny; gy = s } }
-        if (p.handle === 't')  { const s = snapEdge(ny, ys, thr);      if (s !== null) { nh += ny - s; ny = s; gy = s } }
-        setSnapGuides({ x: gx, y: gy })
+        let sgx = null, sgy = null
+        if (p.handle === 'r')  { const s = snapEdge(nx + nw, lines.xs, thr); if (s !== null) { nw = s - nx; sgx = s } }
+        if (p.handle === 'l')  { const s = snapEdge(nx, lines.xs, thr);      if (s !== null) { nw += nx - s; nx = s; sgx = s } }
+        if (p.handle === 'b')  { const s = snapEdge(ny + nh, lines.ys, thr); if (s !== null) { nh = s - ny; sgy = s } }
+        if (p.handle === 't')  { const s = snapEdge(ny, lines.ys, thr);      if (s !== null) { nh += ny - s; ny = s; sgy = s } }
+        // corners: snap each moving edge independently
+        if (p.handle === 'tr' || p.handle === 'br' || p.handle === 'tl' || p.handle === 'bl') {
+          const snapX = p.handle.includes('r')
+            ? snapEdge(nx + nw, lines.xs, thr) : snapEdge(nx, lines.xs, thr)
+          const snapY = p.handle.includes('b')
+            ? snapEdge(ny + nh, lines.ys, thr) : snapEdge(ny, lines.ys, thr)
+          if (snapX !== null) { if (p.handle.includes('r')) nw = snapX - nx; else { nw += nx - snapX; nx = snapX }; sgx = snapX }
+          if (snapY !== null) { if (p.handle.includes('b')) nh = snapY - ny; else { nh += ny - snapY; ny = snapY }; sgy = snapY }
+        }
+        setSnapGuides({ xs: sgx !== null ? [sgx] : [], ys: sgy !== null ? [sgy] : [] })
         const { imgScale: newImgScale, imgX: newImgX, imgY: newImgY } =
           fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, nw, nh)
         upd(sl.id, { x: nx, y: ny, w: nw, h: nh, imgScale: newImgScale, imgX: newImgX, imgY: newImgY })
@@ -675,16 +711,15 @@ export default function Canvas({ openPickerRef }) {
       const gb = p.startBounds
       let { x: ngx, y: ngy, w: ngw, h: ngh } = computeResize(gb, p.handle, dx / vs, dy / vs)
       if (ngw > 20 && ngh > 20) {
-        const si = Math.floor(gb.x / r.w)
+        const excludeIds = p.groupLayers.map(l => l.id)
+        const lines = getSnapLines(curLayers, excludeIds, r, curSlides.length)
         const thr = SNAP_THRESHOLD_PX / vs
-        const xs = [si * r.w, si * r.w + r.w / 2, (si + 1) * r.w]
-        const ys = [0, r.h / 2, r.h]
-        let gx = null, gy = null
-        if (p.handle === 'r')  { const s = snapEdge(ngx + ngw, xs, thr); if (s !== null) { ngw = s - ngx; gx = s } }
-        if (p.handle === 'l')  { const s = snapEdge(ngx, xs, thr);       if (s !== null) { ngw += ngx - s; ngx = s; gx = s } }
-        if (p.handle === 'b')  { const s = snapEdge(ngy + ngh, ys, thr); if (s !== null) { ngh = s - ngy; gy = s } }
-        if (p.handle === 't')  { const s = snapEdge(ngy, ys, thr);       if (s !== null) { ngh += ngy - s; ngy = s; gy = s } }
-        setSnapGuides({ x: gx, y: gy })
+        let sgx = null, sgy = null
+        if (p.handle === 'r')  { const s = snapEdge(ngx + ngw, lines.xs, thr); if (s !== null) { ngw = s - ngx; sgx = s } }
+        if (p.handle === 'l')  { const s = snapEdge(ngx, lines.xs, thr);       if (s !== null) { ngw += ngx - s; ngx = s; sgx = s } }
+        if (p.handle === 'b')  { const s = snapEdge(ngy + ngh, lines.ys, thr); if (s !== null) { ngh = s - ngy; sgy = s } }
+        if (p.handle === 't')  { const s = snapEdge(ngy, lines.ys, thr);       if (s !== null) { ngh += ngy - s; ngy = s; sgy = s } }
+        setSnapGuides({ xs: sgx !== null ? [sgx] : [], ys: sgy !== null ? [sgy] : [] })
         p.groupLayers.forEach(sl => {
           const nx = ngx + (sl.x - gb.x) / gb.w * ngw
           const ny = ngy + (sl.y - gb.y) / gb.h * ngh
@@ -759,7 +794,7 @@ export default function Canvas({ openPickerRef }) {
     const p = panRef.current
     if (!p) return
     panRef.current = null
-    setSnapGuides({ x: null, y: null })
+    setSnapGuides({ xs: [], ys: [] })
 
     if (p.type === 'addslide' && !p.moved) {
       fresh.current.addSlide()
@@ -921,14 +956,16 @@ export default function Canvas({ openPickerRef }) {
             </Group>
 
             {/* Snap guides */}
-            {snapGuides.x !== null && (
-              <Line points={[snapGuides.x, -ratio.h, snapGuides.x, ratio.h * 2]}
-                stroke="#ffff00" strokeWidth={1 / vs} listening={false} />
-            )}
-            {snapGuides.y !== null && (
-              <Line points={[-ratio.w, snapGuides.y, ratio.w * (slides.length + 1), snapGuides.y]}
-                stroke="#ffff00" strokeWidth={1 / vs} listening={false} />
-            )}
+            {snapGuides.xs.map(gx => (
+              <Line key={`gx${gx}`}
+                points={[gx, -ratio.h * 0.5, gx, ratio.h * 1.5]}
+                stroke="#3b82f6" strokeWidth={1 / vs} dash={[6 / vs, 3 / vs]} listening={false} />
+            ))}
+            {snapGuides.ys.map(gy => (
+              <Line key={`gy${gy}`}
+                points={[-ratio.w * 0.5, gy, ratio.w * (slides.length + 0.5), gy]}
+                stroke="#3b82f6" strokeWidth={1 / vs} dash={[6 / vs, 3 / vs]} listening={false} />
+            ))}
 
             {/* Crop overlay */}
             {cropMode && (
