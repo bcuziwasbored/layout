@@ -34,12 +34,16 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor) {
       const drawW = img.naturalWidth * (layer.imgScale ?? 1)
       const drawH = img.naturalHeight * (layer.imgScale ?? 1)
       const rotation = layer.rotation ?? 0
-      if (rotation) {
-        // Rotate around frame center (slide-local coords)
+      const flipH = layer.flipH ?? false
+      const flipV = layer.flipV ?? false
+      if (rotation || flipH || flipV) {
+        // Apply all transforms around frame center (slide-local coords)
         const frameCX = (layer.x - sliceStart) + layer.w / 2
         const frameCY = layer.y + layer.h / 2
         ctx.translate(frameCX, frameCY)
-        ctx.rotate(rotation * Math.PI / 180)
+        if (flipH) ctx.scale(-1, 1)
+        if (flipV) ctx.scale(1, -1)
+        if (rotation) ctx.rotate(rotation * Math.PI / 180)
         ctx.drawImage(img, drawX - frameCX, drawY - frameCY, drawW, drawH)
       } else {
         ctx.drawImage(img, drawX, drawY, drawW, drawH)

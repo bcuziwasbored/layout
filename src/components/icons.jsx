@@ -90,3 +90,149 @@ export function IconClose({ size = 20 }) {
     </svg>
   )
 }
+
+// ─── Position panel icons ──────────────────────────────────────────────────────
+
+export function IconFront({ size = 26 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 26 26" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="8" y="10" width="12" height="12" rx="1.5" opacity="0.4" />
+      <rect x="4" y="14" width="12" height="12" rx="1.5" opacity="0.25" />
+      <rect x="6" y="4" width="14" height="14" rx="1.5" fill="currentColor" fillOpacity="0.15" />
+      <path d="M13 10V4M10 7l3-3 3 3" />
+    </svg>
+  )
+}
+
+export function IconForward({ size = 26 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 26 26" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="8" y="12" width="12" height="12" rx="1.5" opacity="0.35" />
+      <rect x="4" y="8" width="14" height="14" rx="1.5" fill="currentColor" fillOpacity="0.15" />
+      <path d="M11 5V2M8.5 4.5L11 2l2.5 2.5" />
+    </svg>
+  )
+}
+
+export function IconBackward({ size = 26 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 26 26" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="6" width="14" height="14" rx="1.5" opacity="0.35" />
+      <rect x="8" y="10" width="14" height="14" rx="1.5" fill="currentColor" fillOpacity="0.15" />
+      <path d="M15 21v3M12.5 21.5L15 24l2.5-2.5" />
+    </svg>
+  )
+}
+
+export function IconBack({ size = 26 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 26 26" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="6" y="4" width="14" height="14" rx="1.5" opacity="0.25" />
+      <rect x="10" y="8" width="12" height="12" rx="1.5" opacity="0.4" />
+      <rect x="4" y="10" width="14" height="14" rx="1.5" fill="currentColor" fillOpacity="0.15" />
+      <path d="M13 18v6M10 21l3 3 3-3" />
+    </svg>
+  )
+}
+
+export function IconAlignLeft({ size = 28 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <line x1="5" y1="4" x2="5" y2="24" />
+      <rect x="7" y="9" width="14" height="10" rx="2" />
+    </svg>
+  )
+}
+
+export function IconAlignCenterH({ size = 28 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <line x1="14" y1="4" x2="14" y2="24" />
+      <rect x="7" y="9" width="14" height="10" rx="2" />
+    </svg>
+  )
+}
+
+export function IconAlignRight({ size = 28 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <line x1="23" y1="4" x2="23" y2="24" />
+      <rect x="7" y="9" width="14" height="10" rx="2" />
+    </svg>
+  )
+}
+
+export function IconAlignTop({ size = 28 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <line x1="4" y1="5" x2="24" y2="5" />
+      <rect x="9" y="7" width="10" height="14" rx="2" />
+    </svg>
+  )
+}
+
+export function IconAlignCenterV({ size = 28 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <line x1="4" y1="14" x2="24" y2="14" />
+      <rect x="9" y="7" width="10" height="14" rx="2" />
+    </svg>
+  )
+}
+
+export function IconAlignBottom({ size = 28 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <line x1="4" y1="23" x2="24" y2="23" />
+      <rect x="9" y="7" width="10" height="14" rx="2" />
+    </svg>
+  )
+}
+
+export function IconFillHeight({ size = 28 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="8" y="4" width="12" height="20" rx="2" />
+      <path d="M13 7.5v-3M15 6l-2-1.5L11 6M13 20.5v3M11 22l2 1.5L15 22" />
+    </svg>
+  )
+}
+
+export function IconFillWidth({ size = 28 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="8" width="20" height="12" rx="2" />
+      <path d="M7.5 13h-3M6 11l-1.5 2L6 15M20.5 13h3M22 15l1.5-2L22 11" />
+    </svg>
+  )
+}
+
+export function IconFillWidth2x({ size = 28 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="8" width="11" height="12" rx="2" />
+      <rect x="15" y="8" width="11" height="12" rx="2" />
+      <path d="M13 14h2" strokeDasharray="1.5 1" />
+    </svg>
+  )
+}
+
+export function IconFlipH({ size = 28 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="14" y1="5" x2="14" y2="23" />
+      <path d="M14 9l-7 5 7 5" fill="currentColor" fillOpacity="0.15" />
+      <path d="M14 9l7 5-7 5" fill="currentColor" fillOpacity="0.08" />
+    </svg>
+  )
+}
+
+export function IconFlipV({ size = 28 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="5" y1="14" x2="23" y2="14" />
+      <path d="M9 14l5-7 5 7" fill="currentColor" fillOpacity="0.15" />
+      <path d="M9 14l5 7 5-7" fill="currentColor" fillOpacity="0.08" />
+    </svg>
+  )
+}

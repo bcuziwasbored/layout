@@ -154,13 +154,16 @@ function FilledCell({ layer, vs }) {
   const imgX = (layer.imgX ?? 0) + inset
   const imgY = (layer.imgY ?? 0) + inset
   const rotation = layer.rotation ?? 0
+  const scaleX  = layer.flipH ? -1 : 1
+  const scaleY  = layer.flipV ? -1 : 1
+  const hasTransform = rotation || layer.flipH || layer.flipV
 
   return (
     <Group x={layer.x} y={layer.y} opacity={layer.opacity ?? 1}>
       <Group clipFunc={ctx => ctx.rect(inset, inset, layer.w - gap, layer.h - gap)} listening={false}>
-        {img && (rotation ? (
-          // Rotate around frame center
-          <Group x={layer.w / 2} y={layer.h / 2} rotation={rotation}>
+        {img && (hasTransform ? (
+          // All transforms (rotation + flip) around frame center
+          <Group x={layer.w / 2} y={layer.h / 2} rotation={rotation} scaleX={scaleX} scaleY={scaleY}>
             <KImage image={img} x={imgX - layer.w / 2} y={imgY - layer.h / 2} width={imgW} height={imgH} />
           </Group>
         ) : (
@@ -208,11 +211,16 @@ function CropTarget({ layer, vs }) {
   const ix = layer.imgX ?? 0, iy = layer.imgY ?? 0
   const rotation = layer.rotation ?? 0
 
-  // Render image with rotation around frame center (global coords)
+  const scaleX = layer.flipH ? -1 : 1
+  const scaleY = layer.flipV ? -1 : 1
+  const hasTransform = rotation || layer.flipH || layer.flipV
+
+  // Render image with rotation/flip around frame center (global coords)
   const renderImg = (opacity) => {
     if (!img) return null
-    if (rotation) return (
-      <Group x={layer.x + layer.w / 2} y={layer.y + layer.h / 2} rotation={rotation} opacity={opacity} listening={false}>
+    if (hasTransform) return (
+      <Group x={layer.x + layer.w / 2} y={layer.y + layer.h / 2}
+        rotation={rotation} scaleX={scaleX} scaleY={scaleY} opacity={opacity} listening={false}>
         <KImage image={img} x={ix - layer.w / 2} y={iy - layer.h / 2} width={imgW} height={imgH} />
       </Group>
     )
