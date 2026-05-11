@@ -58,9 +58,12 @@ export default function ExportScreen({ onClose }) {
       .then(setRendered)
   }, [])
 
-  // Preview size: fit to screen, maintain ratio
-  const PREVIEW_H = Math.min(460, window.innerHeight * 0.6)
-  const PREVIEW_W = Math.round(PREVIEW_H * (ratio.w / ratio.h))
+  // Preview size: fit within screen on both axes, maintain aspect ratio
+  const maxW = window.innerWidth - 48
+  const maxH = Math.min(460, window.innerHeight * 0.55)
+  const scale = Math.min(maxW / ratio.w, maxH / ratio.h)
+  const PREVIEW_W = Math.round(ratio.w * scale)
+  const PREVIEW_H = Math.round(ratio.h * scale)
 
   return (
     <div className="fixed inset-0 bg-black flex flex-col z-50">

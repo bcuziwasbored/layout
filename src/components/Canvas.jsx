@@ -49,7 +49,7 @@ function snapEdge(v, lines, thr) {
   return null
 }
 
-const CELL_GAP = 6  // must match GAP in useStore applyTemplate
+const CELL_GAP = 0  // must match GAP in useStore applyTemplate
 
 // Returns { vertical: [{xMid, y1, y2},...], horizontal: [{yMid, x1, x2},...] }
 // y1/y2 and x1/x2 are the actual shared edge span, used to center the handle.
@@ -115,17 +115,23 @@ function computeResize(sl, handle, ddx, ddy) {
 
 // ─── Layer visuals ─────────────────────────────────────────────────────────────
 
-function EmptyCell({ layer, onTap }) {
-  const r = Math.min(layer.w, layer.h) * 0.12
+function EmptyCell({ layer, onTap, vs }) {
+  const gap = layer.cellGap ?? 0
+  const inset = gap / 2
+  const innerW = layer.w - gap
+  const innerH = layer.h - gap
+  const iconR = Math.min(Math.min(innerW, innerH) * 0.12, 30)
+  const sw = 2 / vs
   return (
     <Group x={layer.x} y={layer.y}
       onClick={e => { e.cancelBubble = true; onTap() }}
       onTap={e => { e.cancelBubble = true; onTap() }}>
-      <Rect width={layer.w} height={layer.h} fill="#e0e0e0" />
-      <Rect x={layer.w / 2 - r} y={layer.h / 2 - r} width={r * 2} height={r * 2}
-        cornerRadius={r} fill="rgba(0,0,0,0.18)" listening={false} />
+      <Rect x={inset} y={inset} width={innerW} height={innerH} fill="#e0e0e0"
+        stroke="white" strokeWidth={sw} />
+      <Rect x={layer.w / 2 - iconR} y={layer.h / 2 - iconR} width={iconR * 2} height={iconR * 2}
+        cornerRadius={iconR} fill="rgba(0,0,0,0.18)" listening={false} />
       <Text text="+" fill="rgba(0,0,0,0.45)"
-        fontSize={r * 1.4} x={layer.w / 2 - r * 0.4} y={layer.h / 2 - r * 0.75}
+        fontSize={iconR * 1.4} x={layer.w / 2 - iconR * 0.4} y={layer.h / 2 - iconR * 0.75}
         listening={false} />
     </Group>
   )
@@ -135,14 +141,16 @@ function EmptyCell({ layer, onTap }) {
 // handleStageDown/Move/Up — FilledCell is purely visual.
 function FilledCell({ layer, vs }) {
   const [img] = useImage(layer.src)
+  const gap = layer.cellGap ?? 0
+  const inset = gap / 2
   const imgW = img ? img.naturalWidth  * (layer.imgScale ?? 1) : 0
   const imgH = img ? img.naturalHeight * (layer.imgScale ?? 1) : 0
-  const imgX = layer.imgX ?? 0
-  const imgY = layer.imgY ?? 0
+  const imgX = (layer.imgX ?? 0) + inset
+  const imgY = (layer.imgY ?? 0) + inset
 
   return (
     <Group x={layer.x} y={layer.y} opacity={layer.opacity ?? 1}>
-      <Group clipFunc={ctx => ctx.rect(0, 0, layer.w, layer.h)} listening={false}>
+      <Group clipFunc={ctx => ctx.rect(inset, inset, layer.w - gap, layer.h - gap)} listening={false}>
         {img && <KImage image={img} x={imgX} y={imgY} width={imgW} height={imgH} />}
       </Group>
       {/* Hit area outside clipFunc so coordinate hit-testing in handleStageDown works */}
@@ -302,15 +310,39 @@ export default function Canvas({ openPickerRef }) {
       const newDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY)
       const rect = el.getBoundingClientRect()
       const mid = { x: (t1.clientX + t2.clientX) / 2 - rect.left, y: (t1.clientY + t2.clientY) / 2 - rect.top }
-      if (!pinchRef.current.active) { pinchRef.current = { active: true, lastDist: newDist }; panRef.current = null; return }
+      if (!pinchRef.current.active) {
+        const { activeCellId: cellId, layers: curLayers } = fresh.current
+        const cell = cellId ? curLayers.find(l => l.id === cellId) : null
+        pinchRef.current = { active: true, lastDist: newDist, cellScale: cell?.imgScale ?? null }
+        panRef.current = null
+        return
+      }
       const factor = newDist / pinchRef.current.lastDist
       pinchRef.current.lastDist = newDist
+
+      const { activeCellId: cellId, layers: curLayers, updateLayer: upd } = fresh.current
+      if (cellId) {
+        const cell = curLayers.find(l => l.id === cellId)
+        if (cell) {
+          const gap = cell.cellGap ?? 0
+          const minScale = Math.max((cell.w - gap) / (cell.naturalW ?? 1), (cell.h - gap) / (cell.naturalH ?? 1))
+          const cur = pinchRef.current.cellScale ?? cell.imgScale ?? minScale
+          const next = clamp(cur * factor, minScale, minScale * 8)
+          pinchRef.current.cellScale = next
+          upd(cellId, { imgScale: next })
+        }
+        return
+      }
       setViewSync(v => {
         const ns = clamp(v.scale * factor, 0.1, 10)
         return { scale: ns, x: mid.x - (mid.x - v.x) * (ns / v.scale), y: mid.y - (mid.y - v.y) * (ns / v.scale) }
       })
     }
-    const onEnd = () => { pinchRef.current = { active: false, lastDist: 0 } }
+    const onEnd = () => {
+      const { activeCellId: cellId, updateLayerWithHistory: updH } = fresh.current
+      if (cellId && pinchRef.current.active) updH(cellId, {})
+      pinchRef.current = { active: false, lastDist: 0 }
+    }
     el.addEventListener('touchmove', onMove, { passive: false })
     el.addEventListener('touchend', onEnd)
     return () => { el.removeEventListener('touchmove', onMove); el.removeEventListener('touchend', onEnd) }
@@ -461,7 +493,7 @@ export default function Canvas({ openPickerRef }) {
     }
 
     if (activeId) {
-      panRef.current = { type: 'deselect', startX: pt.clientX, startY: pt.clientY, moved: false }
+      panRef.current = { type: 'deselect', startX: pt.clientX, startY: pt.clientY, viewX: v.x, viewY: v.y, moved: false }
       return
     }
 
@@ -484,7 +516,7 @@ export default function Canvas({ openPickerRef }) {
     const vs = viewRef.current.scale
     const { ratio: r, layers: curLayers, slides: curSlides, updateLayer: upd } = fresh.current
 
-    if (p.type === 'pan' || p.type === 'select') {
+    if (p.type === 'pan' || p.type === 'select' || p.type === 'deselect') {
       setViewSync(v => ({ ...v, x: p.viewX + dx, y: p.viewY + dy }))
     } else if (p.type === 'drag') {
       const sl = p.startLayer
@@ -528,7 +560,8 @@ export default function Canvas({ openPickerRef }) {
           const ny = ngy + (sl.y - gb.y) / gb.h * ngh
           const nw = sl.w / gb.w * ngw
           const nh = sl.h / gb.h * ngh
-          const { imgScale, imgX, imgY } = fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, nw, nh)
+          const gap = sl.cellGap ?? 0
+          const { imgScale, imgX, imgY } = fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, nw - gap, nh - gap)
           upd(sl.id, { x: nx, y: ny, w: nw, h: nh, imgScale, imgX, imgY })
         })
       }
@@ -547,30 +580,34 @@ export default function Canvas({ openPickerRef }) {
         }
       }
       p.groupLayers.forEach(sl => {
+        const gap = sl.cellGap ?? 0
         if (p.seamType === 'v') {
           if (Math.abs(sl.x + sl.w - (p.seamMid - halfGap)) <= 3) {
             const nw = sl.w + delta
-            upd(sl.id, { w: nw, ...fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, nw, sl.h) })
+            upd(sl.id, { w: nw, ...fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, nw - gap, sl.h - gap) })
           } else if (Math.abs(sl.x - (p.seamMid + halfGap)) <= 3) {
             const nw = sl.w - delta
-            upd(sl.id, { x: sl.x + delta, w: nw, ...fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, nw, sl.h) })
+            upd(sl.id, { x: sl.x + delta, w: nw, ...fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, nw - gap, sl.h - gap) })
           }
         } else {
           if (Math.abs(sl.y + sl.h - (p.seamMid - halfGap)) <= 3) {
             const nh = sl.h + delta
-            upd(sl.id, { h: nh, ...fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, sl.w, nh) })
+            upd(sl.id, { h: nh, ...fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, sl.w - gap, nh - gap) })
           } else if (Math.abs(sl.y - (p.seamMid + halfGap)) <= 3) {
             const nh = sl.h - delta
-            upd(sl.id, { y: sl.y + delta, h: nh, ...fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, sl.w, nh) })
+            upd(sl.id, { y: sl.y + delta, h: nh, ...fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, sl.w - gap, nh - gap) })
           }
         }
       })
     } else if (p.type === 'crop-pan') {
       const sl = p.startLayer
+      const gap = sl.cellGap ?? 0
+      const innerW = sl.w - gap
+      const innerH = sl.h - gap
       const imgW = (sl.naturalW ?? sl.w) * (sl.imgScale ?? 1)
       const imgH = (sl.naturalH ?? sl.h) * (sl.imgScale ?? 1)
-      const minImgX = Math.min(0, sl.w - imgW)
-      const minImgY = Math.min(0, sl.h - imgH)
+      const minImgX = Math.min(0, innerW - imgW)
+      const minImgY = Math.min(0, innerH - imgH)
       upd(sl.id, {
         imgX: clamp((sl.imgX ?? 0) + dx / vs, minImgX, 0),
         imgY: clamp((sl.imgY ?? 0) + dy / vs, minImgY, 0),
@@ -677,7 +714,8 @@ export default function Canvas({ openPickerRef }) {
         if (pendingLayerId.current) {
           const layer = curLayers.find(l => l.id === pendingLayerId.current)
           if (layer) {
-            const fit = fitInCell(img.naturalWidth, img.naturalHeight, layer.w, layer.h)
+            const gap = layer.cellGap ?? 0
+            const fit = fitInCell(img.naturalWidth, img.naturalHeight, layer.w - gap, layer.h - gap)
             upd(pendingLayerId.current, { src: url, naturalW: img.naturalWidth, naturalH: img.naturalHeight, ...fit })
           }
           pendingLayerId.current = null
@@ -727,11 +765,12 @@ export default function Canvas({ openPickerRef }) {
                 strokeWidth={1 / vs} listening={false} />
             ))}
 
-            {/* Slide dividers */}
+            {/* Slide dividers — dashed guide lines, editor-only (not in export) */}
             {slides.slice(1).map((_, i) => (
               <Line key={i}
                 points={[(i + 1) * ratio.w, 0, (i + 1) * ratio.w, ratio.h]}
-                stroke="#555" strokeWidth={1 / vs} listening={false} />
+                stroke="rgba(160,160,160,0.7)" strokeWidth={1.5 / vs}
+                dash={[8 / vs, 5 / vs]} listening={false} />
             ))}
 
             {/* + Add slide button */}
@@ -776,7 +815,7 @@ export default function Canvas({ openPickerRef }) {
               return layer.src ? (
                 <FilledCell key={layer.id} layer={layer} vs={vs} />
               ) : (
-                <EmptyCell key={layer.id} layer={layer}
+                <EmptyCell key={layer.id} layer={layer} vs={vs}
                   onTap={() => {
                     const si = Math.floor(layer.x / ratio.w)
                     const emptyInSlide = layers.filter(l => !l.src && Math.floor(l.x / ratio.w) === si)

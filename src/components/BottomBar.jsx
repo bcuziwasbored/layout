@@ -1,11 +1,12 @@
 import { useStore } from '../useStore'
+import { IconBackground, IconLayers, IconRatio, IconSlides } from './icons'
 
-const Icon = ({ children, label, active, onClick }) => (
+const Icon = ({ icon: Ico, label, active, onClick }) => (
   <button
     onClick={onClick}
-    className={`flex flex-col items-center gap-1 px-3 py-1 rounded-xl transition-colors active:opacity-60 ${active ? 'text-white' : 'text-white/40'}`}
+    className={`flex flex-col items-center gap-1 py-1 rounded-xl transition-colors active:opacity-60 ${active ? 'text-white' : 'text-white/40'}`}
   >
-    <span className="text-xl leading-none">{children}</span>
+    <Ico size={22} />
     <span className="text-[10px] tracking-wide">{label}</span>
   </button>
 )
@@ -18,10 +19,10 @@ export default function BottomBar() {
   return (
     <div className="flex items-center bg-black border-t border-white/10">
       <div className="flex-1 flex justify-center py-2">
-        <Icon label="Background" active={panel === 'background'} onClick={() => setPanel('background')}>◉</Icon>
+        <Icon icon={IconBackground} label="Background" active={panel === 'background'} onClick={() => setPanel('background')} />
       </div>
       <div className="flex-1 flex justify-center py-2">
-        <Icon label="Layers" active={panel === 'layers'} onClick={() => setPanel('layers')}>⊞</Icon>
+        <Icon icon={IconLayers} label="Layers" active={panel === 'layers'} onClick={() => setPanel('layers')} />
       </div>
       <div className="flex-1 flex justify-center py-2">
         <button
@@ -32,12 +33,19 @@ export default function BottomBar() {
         </button>
       </div>
       <div className="flex-1 flex justify-center py-2">
-        <Icon label="Ratio" active={panel === 'ratio'} onClick={() => setPanel('ratio')}>▭</Icon>
+        <Icon icon={IconRatio} label="Ratio" active={panel === 'ratio'} onClick={() => setPanel('ratio')} />
       </div>
       <div className="flex-1 flex justify-center py-2">
-        <Icon label="Slides" active={panel === 'slides'} onClick={() => setPanel('slides')}>
-          <span className="text-sm font-semibold">{activeSlideIdx + 1}</span>
-        </Icon>
+        <button
+          onClick={() => setPanel('slides')}
+          className={`flex flex-col items-center gap-1 py-1 rounded-xl transition-colors active:opacity-60 relative ${panel === 'slides' ? 'text-white' : 'text-white/40'}`}
+        >
+          <div className="relative">
+            <IconSlides size={22} />
+            <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold mt-1">{activeSlideIdx + 1}</span>
+          </div>
+          <span className="text-[10px] tracking-wide">Slides</span>
+        </button>
       </div>
     </div>
   )

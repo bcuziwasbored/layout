@@ -108,10 +108,7 @@ export const useStore = create((set, get) => ({
       set({ activeLayerId: null, activeCellId: null, panel: null, elementPanel: null, cropMode: false })
       return
     }
-    const { layers, ratio } = get()
-    const layer = layers.find(l => l.id === id)
-    const slideIdx = layer ? Math.floor(layer.x / ratio.w) : get().activeSlideIdx
-    set({ activeLayerId: id, activeCellId: null, activeSlideIdx: slideIdx, panel: null, elementPanel: null, cropMode: false })
+    set({ activeLayerId: id, activeCellId: null, panel: null, elementPanel: null, cropMode: false })
   },
 
   setActiveCellId(id) {
@@ -192,7 +189,7 @@ export const useStore = create((set, get) => ({
     get()._pushHistory()
     const { ratio, activeSlideIdx, layers } = get()
     const offsetX = activeSlideIdx * ratio.w
-    const GAP = 6
+    const GAP = 0
 
     // Remove existing layers in this slide
     const kept = layers.filter(l => Math.floor(l.x / ratio.w) !== activeSlideIdx)
@@ -208,7 +205,7 @@ export const useStore = create((set, get) => ({
       y: Math.round(cell.y * ratio.h + (cell.y > 0 ? GAP / 2 : 0)),
       w: Math.round(cell.w * ratio.w - (cell.x > 0 ? GAP / 2 : 0) - (cell.x + cell.w < 1 ? GAP / 2 : 0)),
       h: Math.round(cell.h * ratio.h - (cell.y > 0 ? GAP / 2 : 0) - (cell.y + cell.h < 1 ? GAP / 2 : 0)),
-      imgX: 0, imgY: 0, imgScale: 1, opacity: 1, naturalW: null, naturalH: null,
+      imgX: 0, imgY: 0, imgScale: 1, opacity: 1, naturalW: null, naturalH: null, cellGap: 0,
     }))
 
     set({ layers: [...kept, ...newLayers], panel: null })
@@ -244,7 +241,8 @@ export const useStore = create((set, get) => ({
       // We'll update asynchronously as images load; use a helper
       const img = new Image()
       img.onload = () => {
-        const fit = fitInCell(img.naturalWidth, img.naturalHeight, cell.w, cell.h)
+        const gap = cell.cellGap ?? 0
+        const fit = fitInCell(img.naturalWidth, img.naturalHeight, cell.w - gap, cell.h - gap)
         useStore.getState().updateLayer(cell.id, {
           src: url, naturalW: img.naturalWidth, naturalH: img.naturalHeight, ...fit,
         })
