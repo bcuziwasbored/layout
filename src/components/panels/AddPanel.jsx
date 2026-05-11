@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../../useStore'
 import { useCanvasPicker } from '../../CanvasContext'
 import { TEMPLATES } from '../../templates'
-import { IconImage, IconGrid, IconBlank, IconClose } from '../icons'
+import { IconImage, IconGrid, IconBlank, IconText, IconClose } from '../icons'
 
 const TemplateThumb = ({ template, onClick }) => {
   const ps = template.pageSpan ?? 1
@@ -39,6 +39,7 @@ export default function AddPanel() {
   const setPanel      = useStore(s => s.setPanel)
   const applyTemplate = useStore(s => s.applyTemplate)
   const addSlide      = useStore(s => s.addSlide)
+  const addTextLayer  = useStore(s => s.addTextLayer)
   const openPickerRef = useCanvasPicker()
   const [view, setView] = useState('root')
 
@@ -85,21 +86,26 @@ export default function AddPanel() {
         <span className="font-semibold text-base">Add</span>
         <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
       </div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-4 gap-3">
         <button onClick={openImagePicker}
           className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
-          <IconImage size={28} />
-          <span className="text-xs text-white/70">Image</span>
+          <IconImage size={26} />
+          <span className="text-[11px] text-white/70">Image</span>
+        </button>
+        <button onClick={() => { addTextLayer(); setPanel(null) }}
+          className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
+          <IconText size={26} />
+          <span className="text-[11px] text-white/70">Text</span>
         </button>
         <button onClick={() => setView('grid')}
           className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
-          <IconGrid size={28} />
-          <span className="text-xs text-white/70">Grid</span>
+          <IconGrid size={26} />
+          <span className="text-[11px] text-white/70">Grid</span>
         </button>
         <button onClick={() => { addSlide(); setPanel(null) }}
           className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
-          <IconBlank size={28} />
-          <span className="text-xs text-white/70">Page</span>
+          <IconBlank size={26} />
+          <span className="text-[11px] text-white/70">Page</span>
         </button>
       </div>
     </div>

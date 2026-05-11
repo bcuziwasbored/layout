@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useStore, fitInCell } from '../../useStore'
 import { useCanvasPicker } from '../../CanvasContext'
 import {
@@ -8,7 +8,10 @@ import {
   IconAlignTop, IconAlignCenterV, IconAlignBottom,
   IconFillHeight, IconFillWidth, IconFillWidth2x,
   IconFlipH, IconFlipV,
+  IconBold, IconItalic,
+  IconTextAlignLeft, IconTextAlignCenter, IconTextAlignRight,
 } from '../icons'
+import { FONTS, loadFont } from '../../fonts'
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
@@ -30,7 +33,7 @@ function IconBtn({ icon, label, onClick, active, danger }) {
 
 // ─── Position tab ──────────────────────────────────────────────────────────────
 
-function PositionTab({ layer, activeLayerId, ratio, activeSlideIdx, layers, reorderLayer, updateLayerWithHistory, updateLayer, isGroup }) {
+function PositionTab({ layer, activeLayerId, ratio, activeSlideIdx, layers, reorderLayer, updateLayerWithHistory, updateLayer, isGroup, isText }) {
   const NUDGE = 1
 
   // Shared align actions
@@ -148,8 +151,8 @@ function PositionTab({ layer, activeLayerId, ratio, activeSlideIdx, layers, reor
       </div>
       <div className="border-t border-white/8 my-1" />
 
-      {/* Fill — regular layers only */}
-      {!isGroup && (
+      {/* Fill — regular image layers only */}
+      {!isGroup && !isText && (
         <>
           <SectionLabel>Fill</SectionLabel>
           <div className="grid grid-cols-3 gap-1 mb-1">
@@ -275,37 +278,255 @@ function StyleTab({ layer, activeLayerId, layers, updateLayer, updateLayerWithHi
   )
 }
 
+// ─── Text panels ──────────────────────────────────────────────────────────────
+
+function TextEditPanel({ layer }) {
+  const setTextEditId          = useStore(s => s.setTextEditId)
+  const updateLayer            = useStore(s => s.updateLayer)
+  const updateLayerWithHistory = useStore(s => s.updateLayerWithHistory)
+  const [draft, setDraft] = useState(layer.text ?? '')
+
+  // Keep draft in sync if layer changes externally
+  useEffect(() => { setDraft(layer.text ?? '') }, [layer.id])
+
+  const done = () => {
+    updateLayerWithHistory(layer.id, { text: draft })
+    setTextEditId(null)
+  }
+
+  return (
+    <div className="border-t border-white/10">
+      <div className="flex items-center justify-between px-4 pt-3 pb-2">
+        <span className="text-[11px] text-white/35 uppercase tracking-wider">Edit Text</span>
+        <button onClick={done}
+          className="text-white text-sm font-semibold active:opacity-60 bg-white/10 px-3 py-1 rounded-full">
+          Done
+        </button>
+      </div>
+      <textarea
+        autoFocus
+        value={draft}
+        onChange={e => {
+          setDraft(e.target.value)
+          updateLayer(layer.id, { text: e.target.value })
+        }}
+        placeholder="Type something…"
+        className="w-full bg-white/5 text-white text-base leading-relaxed px-4 pb-4 resize-none outline-none placeholder-white/25"
+        style={{
+          minHeight: 88,
+          fontFamily: layer.fontFamily ?? 'Inter',
+        }}
+      />
+    </div>
+  )
+}
+
+function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
+  const colorRef = useRef()
+  const fontPickerRef = useRef()
+
+  const setFont = (family) => {
+    loadFont(family)
+    updateLayer(layer.id, { fontFamily: family })
+    updateLayerWithHistory(layer.id, {})
+  }
+
+  // Scroll active font into view
+  useEffect(() => {
+    const el = fontPickerRef.current?.querySelector('[data-active="true"]')
+    el?.scrollIntoView({ inline: 'center', behavior: 'smooth', block: 'nearest' })
+  }, [layer.fontFamily])
+
+  return (
+    <div className="px-4 pb-6 pt-2 overflow-y-auto" style={{ maxHeight: '62vh' }}>
+
+      {/* Font family — horizontal scroll */}
+      <div className="mb-4">
+        <div className="text-xs text-white/35 uppercase tracking-wider mb-2">Font</div>
+        <div ref={fontPickerRef} className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollSnapType: 'x mandatory' }}>
+          {FONTS.map(f => (
+            <button
+              key={f.name}
+              data-active={layer.fontFamily === f.name}
+              onClick={() => setFont(f.name)}
+              style={{ fontFamily: f.name, scrollSnapAlign: 'start' }}
+              className={`shrink-0 px-3 py-2 rounded-xl text-sm whitespace-nowrap transition-colors ${
+                layer.fontFamily === f.name
+                  ? 'bg-white text-black font-medium'
+                  : 'bg-white/10 text-white/80 active:bg-white/20'
+              }`}
+            >
+              {f.name}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Size */}
+      <div className="py-3 border-b border-white/8">
+        <div className="text-sm font-semibold text-white mb-2.5">Size</div>
+        <div className="flex items-center gap-3">
+          <input type="range" min={12} max={400} step={1}
+            value={layer.fontSize ?? 72}
+            onChange={e => updateLayer(layer.id, { fontSize: +e.target.value })}
+            onMouseUp={() => updateLayerWithHistory(layer.id, {})}
+            onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+            className="flex-1 accent-white" />
+          <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[56px] text-right shrink-0">
+            <span className="text-white text-sm tabular-nums">{layer.fontSize ?? 72}</span>
+            <span className="text-white/40 text-[11px] ml-0.5">px</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Style row: Bold · Italic · Align */}
+      <div className="py-3 border-b border-white/8">
+        <div className="text-sm font-semibold text-white mb-2.5">Style</div>
+        <div className="flex items-center gap-2">
+          {/* Bold */}
+          <button
+            onClick={() => updateLayerWithHistory(layer.id, { bold: !layer.bold })}
+            className={`flex items-center justify-center w-10 h-10 rounded-xl transition-colors ${
+              layer.bold ? 'bg-white text-black' : 'bg-white/10 text-white/70 active:bg-white/20'
+            }`}>
+            <IconBold size={18} />
+          </button>
+          {/* Italic */}
+          <button
+            onClick={() => updateLayerWithHistory(layer.id, { italic: !layer.italic })}
+            className={`flex items-center justify-center w-10 h-10 rounded-xl transition-colors ${
+              layer.italic ? 'bg-white text-black' : 'bg-white/10 text-white/70 active:bg-white/20'
+            }`}>
+            <IconItalic size={18} />
+          </button>
+          <div className="w-px h-6 bg-white/15 mx-1" />
+          {/* Align */}
+          {[
+            { val: 'left',   icon: <IconTextAlignLeft size={20} /> },
+            { val: 'center', icon: <IconTextAlignCenter size={20} /> },
+            { val: 'right',  icon: <IconTextAlignRight size={20} /> },
+          ].map(({ val, icon }) => (
+            <button key={val}
+              onClick={() => updateLayerWithHistory(layer.id, { align: val })}
+              className={`flex items-center justify-center w-10 h-10 rounded-xl transition-colors ${
+                (layer.align ?? 'center') === val
+                  ? 'bg-white text-black'
+                  : 'bg-white/10 text-white/70 active:bg-white/20'
+              }`}>
+              {icon}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Color */}
+      <div className="py-3 border-b border-white/8">
+        <div className="text-sm font-semibold text-white mb-2.5">Color</div>
+        <button onClick={() => colorRef.current?.click()}
+          className="flex items-center gap-3 active:opacity-60">
+          <div className="w-8 h-8 rounded-full border-2 border-white/20"
+            style={{ background: layer.color ?? '#000000' }} />
+          <span className="text-sm text-white/60">{(layer.color ?? '#000000').toUpperCase()}</span>
+          <span className="text-white/30 text-lg ml-auto pr-1">›</span>
+        </button>
+        <input ref={colorRef} type="color" value={layer.color ?? '#000000'}
+          onChange={e => updateLayer(layer.id, { color: e.target.value })}
+          onBlur={() => updateLayerWithHistory(layer.id, {})}
+          className="sr-only" />
+      </div>
+
+      {/* Letter spacing */}
+      <div className="py-3 border-b border-white/8">
+        <div className="text-sm font-semibold text-white mb-2.5">Letter Spacing</div>
+        <div className="flex items-center gap-3">
+          <input type="range" min={-20} max={200} step={1}
+            value={layer.letterSpacing ?? 0}
+            onChange={e => updateLayer(layer.id, { letterSpacing: +e.target.value })}
+            onMouseUp={() => updateLayerWithHistory(layer.id, {})}
+            onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+            className="flex-1 accent-white" />
+          <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[56px] text-right shrink-0">
+            <span className="text-white text-sm tabular-nums">{layer.letterSpacing ?? 0}</span>
+            <span className="text-white/40 text-[11px] ml-0.5">px</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Line height */}
+      <div className="py-3 border-b border-white/8">
+        <div className="text-sm font-semibold text-white mb-2.5">Line Height</div>
+        <div className="flex items-center gap-3">
+          <input type="range" min={0.8} max={3.0} step={0.05}
+            value={layer.lineHeight ?? 1.2}
+            onChange={e => updateLayer(layer.id, { lineHeight: +parseFloat(e.target.value).toFixed(2) })}
+            onMouseUp={() => updateLayerWithHistory(layer.id, {})}
+            onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+            className="flex-1 accent-white" />
+          <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[56px] text-right shrink-0">
+            <span className="text-white text-sm tabular-nums">{(layer.lineHeight ?? 1.2).toFixed(2)}</span>
+            <span className="text-white/40 text-[11px] ml-0.5">×</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Opacity */}
+      <div className="py-3">
+        <div className="text-sm font-semibold text-white mb-2.5">Opacity</div>
+        <div className="flex items-center gap-3">
+          <input type="range" min={0} max={100} step={1}
+            value={Math.round((layer.opacity ?? 1) * 100)}
+            onChange={e => updateLayer(layer.id, { opacity: +e.target.value / 100 })}
+            onMouseUp={() => updateLayerWithHistory(layer.id, {})}
+            onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+            className="flex-1 accent-white" />
+          <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[56px] text-right shrink-0">
+            <span className="text-white text-sm tabular-nums">{Math.round((layer.opacity ?? 1) * 100)}</span>
+            <span className="text-white/40 text-[11px] ml-0.5">%</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  )
+}
+
 // ─── Tabbed position panel ─────────────────────────────────────────────────────
 
 function PositionPanel({ layer, activeLayerId, ratio, activeSlideIdx, layers, reorderLayer,
-  updateLayer, updateLayerWithHistory, setElementPanel, isGroup }) {
+  updateLayer, updateLayerWithHistory, setElementPanel, isGroup, hideStyleTab, isText }) {
   const [tab, setTab] = useState('position')
 
   return (
     <div className="border-t border-white/10">
       {/* Tab bar */}
       <div className="flex items-center gap-2 px-4 pt-3 pb-0">
-        <div className="flex flex-1 bg-white/8 rounded-xl p-0.5">
-          <button onClick={() => setTab('position')}
-            className={`flex-1 py-1.5 rounded-[10px] text-sm font-medium transition-colors ${
-              tab === 'position' ? 'bg-white/15 text-white' : 'text-white/45'
-            }`}>Position</button>
-          <button onClick={() => setTab('style')}
-            className={`flex-1 py-1.5 rounded-[10px] text-sm font-medium transition-colors ${
-              tab === 'style' ? 'bg-white/15 text-white' : 'text-white/45'
-            }`}>Style</button>
-        </div>
+        {hideStyleTab ? (
+          <div className="flex flex-1 items-center">
+            <span className="text-[11px] text-white/35 uppercase tracking-wider">Position</span>
+          </div>
+        ) : (
+          <div className="flex flex-1 bg-white/8 rounded-xl p-0.5">
+            <button onClick={() => setTab('position')}
+              className={`flex-1 py-1.5 rounded-[10px] text-sm font-medium transition-colors ${
+                tab === 'position' ? 'bg-white/15 text-white' : 'text-white/45'
+              }`}>Position</button>
+            <button onClick={() => setTab('style')}
+              className={`flex-1 py-1.5 rounded-[10px] text-sm font-medium transition-colors ${
+                tab === 'style' ? 'bg-white/15 text-white' : 'text-white/45'
+              }`}>Style</button>
+          </div>
+        )}
         <button onClick={() => setElementPanel(null)} className="text-white/40 pl-1">
           <IconClose size={18} />
         </button>
       </div>
 
-      {tab === 'position' ? (
+      {(hideStyleTab || tab === 'position') ? (
         <PositionTab
           layer={layer} activeLayerId={activeLayerId} ratio={ratio}
           activeSlideIdx={activeSlideIdx} layers={layers}
           reorderLayer={reorderLayer} updateLayer={updateLayer}
-          updateLayerWithHistory={updateLayerWithHistory} isGroup={isGroup} />
+          updateLayerWithHistory={updateLayerWithHistory} isGroup={isGroup} isText={isText} />
       ) : (
         <StyleTab
           layer={layer} activeLayerId={activeLayerId} layers={layers}
@@ -334,6 +555,8 @@ export default function LayerToolbar() {
   const setCropMode    = useStore(s => s.setCropMode)
   const cropMode       = useStore(s => s.cropMode)
   const setActiveCellId = useStore(s => s.setActiveCellId)
+  const textEditId     = useStore(s => s.textEditId)
+  const setTextEditId  = useStore(s => s.setTextEditId)
   const openPickerRef  = useCanvasPicker()
 
   const layer = layers.find(l => l.id === activeLayerId)
@@ -418,6 +641,76 @@ export default function LayerToolbar() {
             reorderLayer={reorderLayer} updateLayer={updateLayer}
             updateLayerWithHistory={updateLayerWithHistory}
             setElementPanel={setElementPanel} isGroup />
+        )}
+      </div>
+    )
+  }
+
+  // ── Text layer ────────────────────────────────────────────────────────────
+  if (layer.type === 'text') {
+    const editActive  = textEditId === activeLayerId
+    const styleActive = elementPanel === 'text-style'
+    const posActive   = elementPanel === 'position'
+
+    const toggleEdit = () => {
+      if (editActive) {
+        setTextEditId(null)
+      } else {
+        setTextEditId(activeLayerId)
+        setElementPanel(null)
+      }
+    }
+    const toggleStyle = () => {
+      if (styleActive) {
+        setElementPanel(null)
+      } else {
+        setElementPanel('text-style')
+        setTextEditId(null)
+      }
+    }
+    const togglePos = () => {
+      if (posActive) {
+        setElementPanel(null)
+      } else {
+        setElementPanel('position')
+        setTextEditId(null)
+      }
+    }
+
+    return (
+      <div className="bg-black border-t border-white/10">
+        <div className="flex items-center justify-between px-1 py-1">
+          <Btn label="Edit"     active={editActive}  onClick={toggleEdit} />
+          <Btn label="Style"    active={styleActive} onClick={toggleStyle} />
+          <Btn label="Position" active={posActive}   onClick={togglePos} />
+          <Btn label="Delete"   danger onClick={() => deleteLayer(activeLayerId)} />
+          <button onClick={() => useStore.getState().setActiveLayer(null)} className="text-white/40 px-2">
+            <IconClose size={18} />
+          </button>
+        </div>
+
+        {editActive && <TextEditPanel layer={layer} />}
+
+        {styleActive && !editActive && (
+          <div className="border-t border-white/10">
+            <div className="flex items-center justify-between px-4 pt-3 pb-0">
+              <span className="text-[11px] text-white/35 uppercase tracking-wider">Text Style</span>
+              <button onClick={() => setElementPanel(null)} className="text-white/40">
+                <IconClose size={18} />
+              </button>
+            </div>
+            <TextStylePanel layer={layer} updateLayer={updateLayer} updateLayerWithHistory={updateLayerWithHistory} />
+          </div>
+        )}
+
+        {posActive && !editActive && (
+          <PositionPanel
+            layer={layer} activeLayerId={activeLayerId} ratio={ratio}
+            activeSlideIdx={activeSlideIdx} layers={layers}
+            reorderLayer={reorderLayer} updateLayer={updateLayer}
+            updateLayerWithHistory={updateLayerWithHistory}
+            setElementPanel={setElementPanel} isGroup={false}
+            hideStyleTab isText />
         )}
       </div>
     )

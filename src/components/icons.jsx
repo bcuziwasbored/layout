@@ -236,3 +236,66 @@ export function IconFlipV({ size = 28 }) {
     </svg>
   )
 }
+
+// ─── Text icons ────────────────────────────────────────────────────────────────
+
+export function IconText({ size = 24 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 6h16" />
+      <path d="M12 6v13" />
+      <path d="M8 19h8" />
+    </svg>
+  )
+}
+
+export function IconBold({ size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="currentColor">
+      <path d="M5.5 4A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H11a4 4 0 0 0 2.389-7.18A3.5 3.5 0 0 0 11 4H5.5zm1.5 6V6h4a1.5 1.5 0 1 1 0 3H7zm0 2h4.5a2 2 0 1 1 0 4H7v-4z" />
+    </svg>
+  )
+}
+
+export function IconItalic({ size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
+      <line x1="13" y1="4" x2="7" y2="16" />
+      <line x1="9" y1="4" x2="15" y2="4" />
+      <line x1="5" y1="16" x2="11" y2="16" />
+    </svg>
+  )
+}
+
+export function IconTextAlignLeft({ size = 22 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <line x1="3" y1="6"  x2="19" y2="6"  />
+      <line x1="3" y1="10" x2="13" y2="10" />
+      <line x1="3" y1="14" x2="17" y2="14" />
+      <line x1="3" y1="18" x2="11" y2="18" />
+    </svg>
+  )
+}
+
+export function IconTextAlignCenter({ size = 22 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <line x1="3" y1="6"  x2="19" y2="6"  />
+      <line x1="6" y1="10" x2="16" y2="10" />
+      <line x1="3" y1="14" x2="19" y2="14" />
+      <line x1="6" y1="18" x2="16" y2="18" />
+    </svg>
+  )
+}
+
+export function IconTextAlignRight({ size = 22 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <line x1="3"  y1="6"  x2="19" y2="6"  />
+      <line x1="9"  y1="10" x2="19" y2="10" />
+      <line x1="5"  y1="14" x2="19" y2="14" />
+      <line x1="11" y1="18" x2="19" y2="18" />
+    </svg>
+  )
+}

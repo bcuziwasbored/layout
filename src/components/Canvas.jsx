@@ -152,6 +152,44 @@ function applyRoundRectClip(ctx, x, y, w, h, r) {
   }
 }
 
+function TextCell({ layer }) {
+  const fontStyle = [layer.italic && 'italic', layer.bold && 'bold'].filter(Boolean).join(' ') || 'normal'
+  const hasText = layer.text && layer.text.trim().length > 0
+  return (
+    <Group x={layer.x} y={layer.y} opacity={layer.opacity ?? 1}>
+      {hasText ? (
+        <Text
+          x={0} y={0}
+          width={layer.w} height={layer.h}
+          text={layer.text}
+          fontFamily={layer.fontFamily ?? 'Inter'}
+          fontSize={layer.fontSize ?? 72}
+          fontStyle={fontStyle}
+          fill={layer.color ?? '#000000'}
+          align={layer.align ?? 'center'}
+          verticalAlign={layer.verticalAlign ?? 'middle'}
+          lineHeight={layer.lineHeight ?? 1.2}
+          letterSpacing={layer.letterSpacing ?? 0}
+          wrap="word"
+          listening={false}
+        />
+      ) : (
+        <Text
+          x={0} y={0} width={layer.w} height={layer.h}
+          text="Tap to type…"
+          fontFamily={layer.fontFamily ?? 'Inter'}
+          fontSize={layer.fontSize ?? 72}
+          fill="rgba(160,160,160,0.5)"
+          align="center" verticalAlign="middle"
+          listening={false}
+        />
+      )}
+      {/* Transparent hit area */}
+      <Rect width={layer.w} height={layer.h} fill="rgba(0,0,0,0.01)" />
+    </Group>
+  )
+}
+
 function EmptyCell({ layer, onTap, vs }) {
   const gap = layer.cellGap ?? 0
   const inset = gap / 2
@@ -325,9 +363,12 @@ export default function Canvas({ openPickerRef }) {
   const layers       = useStore(s => s.layers)
   const activeSlideIdx  = useStore(s => s.activeSlideIdx)
   const activeLayerId   = useStore(s => s.activeLayerId)
+  const elementPanel    = useStore(s => s.elementPanel)
   const activeCellId    = useStore(s => s.activeCellId)
   const cropMode        = useStore(s => s.cropMode)
   const cropAspect      = useStore(s => s.cropAspect)
+  const textEditId      = useStore(s => s.textEditId)
+  const setTextEditId   = useStore(s => s.setTextEditId)
   const setActiveLayer  = useStore(s => s.setActiveLayer)
   const setActiveCellId = useStore(s => s.setActiveCellId)
   const setCropMode     = useStore(s => s.setCropMode)
@@ -352,7 +393,7 @@ export default function Canvas({ openPickerRef }) {
   const fresh = useRef({})
   fresh.current = { layers, slides, ratio, activeLayerId, activeCellId, cropMode, cropAspect, activeSlideIdx,
     setActiveLayer, setActiveCellId, setCropMode, addSlide, updateLayer, updateLayerWithHistory,
-    addImageLayer, fillCells }
+    addImageLayer, fillCells, setTextEditId }
 
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
   const [view, setView] = useState(null)
@@ -366,6 +407,62 @@ export default function Canvas({ openPickerRef }) {
       return next
     })
   }, [])
+
+  // ── Text-style panel: pan canvas to show active layer ──
+  const animFrameRef  = useRef(null)
+  const savedViewYRef = useRef(null)
+
+  const animateViewY = useCallback((toY) => {
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
+    const fromY = viewRef.current?.y ?? toY
+    if (Math.abs(fromY - toY) < 0.5) return
+    const start = performance.now()
+    const dur = 300
+    const tick = (now) => {
+      const t = Math.min((now - start) / dur, 1)
+      const e = 1 - Math.pow(1 - t, 3) // ease-out cubic
+      const y = fromY + (toY - fromY) * e
+      setViewSync(v => ({ ...v, y }))
+      if (t < 1) animFrameRef.current = requestAnimationFrame(tick)
+    }
+    animFrameRef.current = requestAnimationFrame(tick)
+  }, [setViewSync])
+
+  // Re-runs when any panel opens/closes, textEditId changes, or containerSize.h changes
+  useEffect(() => {
+    if (!viewRef.current) return
+
+    const layer = layers.find(l => l.id === activeLayerId)
+    const isTextLayer = layer?.type === 'text'
+    const panelOpen = elementPanel !== null || textEditId === activeLayerId
+
+    if (isTextLayer && panelOpen) {
+      // Save the original view.y only the first time
+      if (savedViewYRef.current === null) savedViewYRef.current = viewRef.current.y
+
+      const scale = viewRef.current.scale
+      const availH = containerSize.h
+      const topPad = 20, botPad = 20
+
+      // Place the text layer's center at the middle of the available canvas area
+      const layerMidCanvas = (layer.y + layer.h / 2) * scale
+      let targetY = availH / 2 - layerMidCanvas
+
+      // Clamp so the whole layer fits with padding on both sides
+      const layerTopScreen = targetY + layer.y * scale
+      const layerBotScreen = targetY + (layer.y + layer.h) * scale
+      if (layerTopScreen < topPad) targetY += topPad - layerTopScreen
+      if (layerBotScreen > availH - botPad) targetY -= layerBotScreen - (availH - botPad)
+
+      animateViewY(targetY)
+    } else {
+      if (savedViewYRef.current !== null) {
+        const savedY = savedViewYRef.current
+        savedViewYRef.current = null
+        animateViewY(savedY)
+      }
+    }
+  }, [elementPanel, textEditId, containerSize.h, activeLayerId]) // eslint-disable-line
 
   // ── Measure container ──
   useEffect(() => {
@@ -594,7 +691,7 @@ export default function Canvas({ openPickerRef }) {
     }
 
     const hitLayer = [...curLayers].reverse().find(l =>
-      (l.src || l.locked) &&
+      (l.src || l.locked || l.type === 'text') &&
       canvasX >= l.x && canvasX <= l.x + l.w &&
       canvasY >= l.y && canvasY <= l.y + l.h
     )
@@ -703,9 +800,13 @@ export default function Canvas({ openPickerRef }) {
           if (snapY !== null) { if (p.handle.includes('b')) nh = snapY - ny; else { nh += ny - snapY; ny = snapY }; sgy = snapY }
         }
         setSnapGuides({ xs: sgx !== null ? [sgx] : [], ys: sgy !== null ? [sgy] : [] })
-        const { imgScale: newImgScale, imgX: newImgX, imgY: newImgY } =
-          fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, nw, nh)
-        upd(sl.id, { x: nx, y: ny, w: nw, h: nh, imgScale: newImgScale, imgX: newImgX, imgY: newImgY })
+        if (sl.type === 'text') {
+          upd(sl.id, { x: nx, y: ny, w: nw, h: nh })
+        } else {
+          const { imgScale: newImgScale, imgX: newImgX, imgY: newImgY } =
+            fitInCell(sl.naturalW ?? sl.w, sl.naturalH ?? sl.h, nw, nh)
+          upd(sl.id, { x: nx, y: ny, w: nw, h: nh, imgScale: newImgScale, imgX: newImgX, imgY: newImgY })
+        }
       }
     } else if (p.type === 'group-resize') {
       const gb = p.startBounds
@@ -815,6 +916,15 @@ export default function Canvas({ openPickerRef }) {
     if (p.type === 'crop-pan' && p.moved) {
       fresh.current.updateLayerWithHistory(p.startLayer.id, {})
       return
+    }
+
+    if (p.type === 'drag' && !p.moved) {
+      // Second tap on an already-selected text layer → enter edit mode
+      const tapped = fresh.current.layers.find(l => l.id === p.layerId)
+      if (tapped?.type === 'text') {
+        fresh.current.setTextEditId(p.layerId)
+        return
+      }
     }
 
     if (p.type === 'drag' && p.moved) {
@@ -985,6 +1095,9 @@ export default function Canvas({ openPickerRef }) {
                   />
                 )
               }
+              if (layer.type === 'text') {
+                return <TextCell key={layer.id} layer={layer} />
+              }
               return layer.src ? (
                 <FilledCell key={layer.id} layer={layer} vs={vs} />
               ) : (
@@ -1061,7 +1174,7 @@ export default function Canvas({ openPickerRef }) {
                   </Group>
                 )
               }
-              if (!activeLayer.src) return null
+              if (!activeLayer.src && activeLayer.type !== 'text') return null
               return <SelectionOverlay layer={activeLayer} vs={vs} />
             })()}
           </Group>

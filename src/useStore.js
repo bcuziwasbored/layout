@@ -32,6 +32,7 @@ export const useStore = create((set, get) => ({
   activeSlideIdx: 0,
   activeLayerId: null,
   activeCellId: null,   // sub-selected cell within a locked group (for image pan)
+  textEditId: null,     // id of text layer currently being edited
   panel: null,
   elementPanel: null,
   cropMode: false,
@@ -57,6 +58,7 @@ export const useStore = create((set, get) => ({
     set(s => ({
       history: s.history.slice(0, -1),
       future: [s._snapshot(), ...s.future.slice(0, 30)],
+      textEditId: null,
       ...parsed,
     }))
   },
@@ -69,6 +71,7 @@ export const useStore = create((set, get) => ({
     set(s => ({
       future: s.future.slice(1),
       history: [...s.history.slice(-30), s._snapshot()],
+      textEditId: null,
       ...parsed,
     }))
   },
@@ -103,6 +106,7 @@ export const useStore = create((set, get) => ({
       activeSlideIdx: 0,
       activeLayerId: null,
       activeCellId: null,
+      textEditId: null,
       panel: null,
       elementPanel: null,
       cropMode: false,
@@ -124,12 +128,50 @@ export const useStore = create((set, get) => ({
     set({ activeSlideIdx: idx, activeLayerId: null, activeCellId: null, panel: null, elementPanel: null, cropMode: false })
   },
 
+  setTextEditId(id) {
+    set({ textEditId: id })
+  },
+
+  addTextLayer(slideIdx) {
+    get()._pushHistory()
+    const { ratio, activeSlideIdx } = get()
+    const si = slideIdx ?? activeSlideIdx
+    const offsetX = si * ratio.w
+    const w = Math.round(ratio.w * 0.82)
+    const h = Math.round(ratio.h * 0.22)
+    const layer = {
+      id: uid(),
+      type: 'text',
+      x: offsetX + Math.round((ratio.w - w) / 2),
+      y: Math.round((ratio.h - h) / 2),
+      w, h,
+      text: '',
+      fontFamily: 'Inter',
+      fontSize: Math.round(ratio.h * 0.075),
+      bold: false,
+      italic: false,
+      color: '#000000',
+      align: 'center',
+      verticalAlign: 'middle',
+      lineHeight: 1.2,
+      letterSpacing: 0,
+      opacity: 1,
+    }
+    set(s => ({
+      layers: [...s.layers, layer],
+      activeLayerId: layer.id,
+      textEditId: layer.id,
+      panel: null,
+      elementPanel: null,
+    }))
+  },
+
   setActiveLayer(id) {
     if (!id) {
-      set({ activeLayerId: null, activeCellId: null, panel: null, elementPanel: null, cropMode: false })
+      set({ activeLayerId: null, activeCellId: null, textEditId: null, panel: null, elementPanel: null, cropMode: false })
       return
     }
-    set({ activeLayerId: id, activeCellId: null, panel: null, elementPanel: null, cropMode: false })
+    set({ activeLayerId: id, activeCellId: null, textEditId: null, panel: null, elementPanel: null, cropMode: false })
   },
 
   setActiveCellId(id) {
@@ -303,6 +345,7 @@ export const useStore = create((set, get) => ({
       layers: s.layers.filter(l => l.id !== id),
       activeLayerId: null,
       activeCellId: null,
+      textEditId: null,
       elementPanel: null,
       cropMode: false,
     }))

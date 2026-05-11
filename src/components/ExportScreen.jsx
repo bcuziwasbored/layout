@@ -1,6 +1,76 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../useStore'
 
+// ─── Text rendering helper ─────────────────────────────────────────────────────
+
+function renderTextLayer(ctx, layer, sliceStart, sliceEnd) {
+  if (layer.x >= sliceEnd || layer.x + layer.w <= sliceStart) return
+
+  const x = layer.x - sliceStart
+  const y = layer.y
+  const w = layer.w
+  const h = layer.h
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(x, y, w, h)
+  ctx.clip()
+  ctx.globalAlpha = layer.opacity ?? 1
+
+  const bold     = layer.bold   ? 'bold'   : ''
+  const italic   = layer.italic ? 'italic' : ''
+  const fontStyle = [italic, bold].filter(Boolean).join(' ') || 'normal'
+  const fontSize  = layer.fontSize ?? 72
+  const fontFamily = layer.fontFamily ?? 'Inter'
+
+  ctx.font = `${fontStyle} ${fontSize}px "${fontFamily}"`
+  ctx.fillStyle  = layer.color ?? '#000000'
+  ctx.textBaseline = 'alphabetic'
+  ctx.letterSpacing = `${layer.letterSpacing ?? 0}px`
+
+  const align = layer.align ?? 'center'
+  ctx.textAlign = align
+
+  const lineHeightPx = (layer.lineHeight ?? 1.2) * fontSize
+
+  // Word-wrap
+  const raw = layer.text ?? ''
+  const paragraphs = raw.split('\n')
+  const lines = []
+  for (const para of paragraphs) {
+    if (para === '') { lines.push(''); continue }
+    const words = para.split(' ')
+    let cur = ''
+    for (const word of words) {
+      const test = cur ? cur + ' ' + word : word
+      if (ctx.measureText(test).width > w && cur) {
+        lines.push(cur)
+        cur = word
+      } else {
+        cur = test
+      }
+    }
+    if (cur) lines.push(cur)
+  }
+
+  const totalH = lines.length * lineHeightPx
+  const va = layer.verticalAlign ?? 'middle'
+  let baseY
+  if (va === 'top')        baseY = y + fontSize
+  else if (va === 'bottom') baseY = y + h - totalH + fontSize
+  else                      baseY = y + (h - totalH) / 2 + fontSize // middle
+
+  const textX = align === 'left' ? x : align === 'right' ? x + w : x + w / 2
+
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], textX, baseY + i * lineHeightPx)
+  }
+
+  ctx.restore()
+}
+
+// ─── Slide renderer ────────────────────────────────────────────────────────────
+
 async function renderSlide(slideIdx, slides, layers, ratio, bgColor) {
   const canvas = document.createElement('canvas')
   canvas.width = ratio.w
@@ -13,7 +83,7 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor) {
   // Layers whose x range intersects this slide
   const sliceStart = slideIdx * ratio.w
   const sliceEnd = (slideIdx + 1) * ratio.w
-  const relevant = layers.filter(l => l.src && l.x < sliceEnd && l.x + l.w > sliceStart)
+  const relevant = layers.filter(l => (l.src || l.type === 'text') && l.x < sliceEnd && l.x + l.w > sliceStart)
 
   // Helper: draw a rounded-rect path on a 2D canvas context
   function roundRectPath(ctx, x, y, w, h, r) {
@@ -28,7 +98,8 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor) {
     ctx.closePath()
   }
 
-  await Promise.all(relevant.map(layer => new Promise(resolve => {
+  // Render image layers
+  await Promise.all(relevant.filter(l => l.src).map(layer => new Promise(resolve => {
     const img = new Image()
     img.onload = () => {
       const gap = layer.cellGap ?? 0
@@ -88,6 +159,12 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor) {
     img.onerror = resolve
     img.src = layer.src
   })))
+
+  // Render text layers (in z-order, after images)
+  await document.fonts.ready
+  for (const layer of relevant.filter(l => l.type === 'text')) {
+    renderTextLayer(ctx, layer, sliceStart, sliceEnd)
+  }
 
   return canvas.toDataURL('image/jpeg', 0.95)
 }
