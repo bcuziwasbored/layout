@@ -4,6 +4,35 @@ import { RATIOS, TEMPLATES } from '../templates'
 import { IconClose } from './icons'
 import { listProjects, loadProject, deleteProject } from '../projectStorage'
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatRelativeTime(timestamp) {
+  const now = Date.now()
+  const diff = now - timestamp
+  const hours = diff / (1000 * 60 * 60)
+  if (hours < 24) {
+    const h = Math.floor(hours)
+    if (h < 1) {
+      const m = Math.floor(diff / (1000 * 60))
+      if (m < 1) return 'just now'
+      return `${m}m ago`
+    }
+    return `${h}h ago`
+  }
+  return new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function TrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M9 6V4h6v2" />
+    </svg>
+  )
+}
+
 // ─── Template tile (used in picker) ───────────────────────────────────────────
 
 function TemplateTile({ template, ratio, onClick }) {
@@ -42,175 +71,169 @@ function TemplateTile({ template, ratio, onClick }) {
   )
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Photo cell helper ────────────────────────────────────────────────────────
+// Renders an absolutely-positioned photo cell inside a slide preview
 
-function formatRelativeTime(timestamp) {
-  const now = Date.now()
-  const diff = now - timestamp
-  const hours = diff / (1000 * 60 * 60)
-  if (hours < 24) {
-    const h = Math.floor(hours)
-    if (h < 1) {
-      const m = Math.floor(diff / (1000 * 60))
-      if (m < 1) return 'just now'
-      return `${m}m ago`
-    }
-    return `${h}h ago`
-  }
-  return new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
-function TrashIcon() {
+function PhotoCell({ x, y, w, h, src, pos = 'center center', gap = 3, total = 1 }) {
+  const G = gap
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6l-1 14H6L5 6" />
-      <path d="M10 11v6M14 11v6" />
-      <path d="M9 6V4h6v2" />
-    </svg>
+    <div
+      className="absolute overflow-hidden"
+      style={{
+        left:   `calc(${x * 100}% + ${x > 0 ? G / 2 : 0}px)`,
+        top:    `calc(${y * 100}% + ${y > 0 ? G / 2 : 0}px)`,
+        width:  `calc(${w * 100}% - ${x > 0 ? G / 2 : 0}px - ${x + w < 1 ? G / 2 : 0}px)`,
+        height: `calc(${h * 100}% - ${y > 0 ? G / 2 : 0}px - ${y + h < 1 ? G / 2 : 0}px)`,
+      }}
+    >
+      <img
+        src={src}
+        className="w-full h-full object-cover"
+        style={{ objectPosition: pos }}
+        draggable={false}
+      />
+    </div>
   )
 }
 
-// ─── Onboarding: visual carousel preview ──────────────────────────────────────
+// ─── Sample carousel previews ─────────────────────────────────────────────────
+// Hard-coded layouts using the two sample photos
 
-// Shows a mini mockup of a multi-slide carousel so users immediately see
-// what the app produces.
-function CarouselPreview() {
-  const SLIDES = [
-    // slide 1: big image top, two cells bottom
-    [
-      { x: 0, y: 0, w: 1, h: 0.6, gradient: 'from-violet-500 to-purple-700' },
-      { x: 0, y: 0.62, w: 0.48, h: 0.38, gradient: 'from-rose-400 to-pink-600' },
-      { x: 0.52, y: 0.62, w: 0.48, h: 0.38, gradient: 'from-amber-400 to-orange-500' },
+const B = import.meta.env.BASE_URL + 'samples/'
+// Individual photos (short aliases)
+// a=yellow Lambo frontal, b=pink Porsche frontal, c=gold BBS wheel
+// d=Subaru WRX nose, e=BMW M4 nose, f=driver in Lambo w/ toy car
+// g=guy leaning on Lambo, h=blue BMW Z4, i=two white BMWs, j=guy in Lambo cockpit
+const P = {
+  a: B+'a.jpg', b: B+'b.jpg', c: B+'c.jpg', d: B+'d.jpg', e: B+'e.jpg',
+  f: B+'f.jpg', g: B+'g.jpg', h: B+'h.jpg', i: B+'i.jpg', j: B+'j.jpg',
+}
+
+const SAMPLE_CAROUSELS = [
+  // Carousel A: full bleed Lambo → pink Porsche + BBS wheel side-by-side
+  {
+    slides: [
+      [{ x:0, y:0, w:1, h:1, src:P.a, pos:'center 60%' }],
+      [
+        { x:0,    y:0, w:0.49, h:1, src:P.b, pos:'center 50%' },
+        { x:0.51, y:0, w:0.49, h:1, src:P.c, pos:'center center' },
+      ],
     ],
-    // slide 2: side-by-side
-    [
-      { x: 0, y: 0, w: 0.48, h: 1, gradient: 'from-sky-400 to-blue-600' },
-      { x: 0.52, y: 0, w: 0.48, h: 1, gradient: 'from-emerald-400 to-teal-600' },
+  },
+  // Carousel B: Subaru top + two detail cells → full-width twin BMWs
+  {
+    slides: [
+      [
+        { x:0,    y:0,    w:1,    h:0.57, src:P.d, pos:'center 40%' },
+        { x:0,    y:0.58, w:0.49, h:0.42, src:P.e, pos:'center 50%' },
+        { x:0.51, y:0.58, w:0.49, h:0.42, src:P.c, pos:'center center' },
+      ],
+      [{ x:0, y:0, w:1, h:1, src:P.i, pos:'center 40%' }],
     ],
-    // slide 3: full + text overlay
-    [
-      { x: 0, y: 0, w: 1, h: 1, gradient: 'from-slate-700 to-slate-900' },
-      { x: 0.1, y: 0.35, w: 0.8, h: 0.3, gradient: 'from-white/20 to-white/10', text: true },
+  },
+  // Carousel C: tall portrait + 2 stacked right → cinematic cockpit shot
+  {
+    slides: [
+      [
+        { x:0,    y:0,    w:0.49, h:1,    src:P.g, pos:'center 35%' },
+        { x:0.51, y:0,    w:0.49, h:0.49, src:P.h, pos:'center 50%' },
+        { x:0.51, y:0.51, w:0.49, h:0.49, src:P.j, pos:'center 30%' },
+      ],
+      [{ x:0, y:0, w:1, h:1, src:P.f, pos:'center 40%' }],
     ],
-  ]
+  },
+]
+
+function SampleCarousel({ carousel, slideW, slideH }) {
+  const SLIDE_GAP = 5
+  const totalW = carousel.slides.length * slideW + (carousel.slides.length - 1) * SLIDE_GAP
 
   return (
-    <div className="flex gap-2 items-center justify-center w-full px-2">
-      {SLIDES.map((cells, si) => (
+    <div className="shrink-0 flex shadow-2xl" style={{ width: totalW, gap: SLIDE_GAP }}>
+      {carousel.slides.map((cells, si) => (
         <div
           key={si}
-          className="relative rounded-xl overflow-hidden shrink-0 shadow-lg"
+          className="relative shrink-0 bg-zinc-900 overflow-hidden"
           style={{
-            width: si === 0 ? 130 : 100,
-            height: si === 0 ? 162 : 125,
-            opacity: si === 0 ? 1 : si === 1 ? 0.75 : 0.45,
-            transform: `scale(${si === 0 ? 1 : 0.95}) translateX(${si === 0 ? 0 : si === 1 ? -4 : -12}px)`,
+            width: slideW,
+            height: slideH,
+            borderRadius: si === 0 ? '14px 6px 6px 14px' : si === carousel.slides.length - 1 ? '6px 14px 14px 6px' : 6,
           }}
         >
-          <div className="absolute inset-0 bg-gray-800" />
           {cells.map((cell, ci) => (
-            <div
-              key={ci}
-              className={`absolute bg-gradient-to-br ${cell.gradient} ${cell.text ? 'rounded-lg' : ''}`}
-              style={{
-                left:   `${cell.x * 100}%`,
-                top:    `${cell.y * 100}%`,
-                width:  `${cell.w * 100}%`,
-                height: `${cell.h * 100}%`,
-              }}
-            >
-              {cell.text && (
-                <div className="flex flex-col items-center justify-center h-full gap-1 px-2">
-                  <div className="w-3/4 h-1.5 bg-white/70 rounded-full" />
-                  <div className="w-1/2 h-1 bg-white/40 rounded-full mt-0.5" />
-                </div>
-              )}
-            </div>
+            <PhotoCell key={ci} {...cell} gap={3} />
           ))}
-          {/* Slide number dot */}
-          {si === 0 && (
-            <div className="absolute bottom-1.5 left-0 right-0 flex justify-center gap-1">
-              {SLIDES.map((_, di) => (
-                <div key={di} className={`rounded-full ${di === 0 ? 'w-2 h-1.5 bg-white' : 'w-1.5 h-1.5 bg-white/40'}`} />
+          {/* pagination dots on first slide */}
+          {si === 0 && carousel.slides.length > 1 && (
+            <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1 z-10">
+              {carousel.slides.map((_, di) => (
+                <div key={di} className={`rounded-full ${
+                  di === 0 ? 'w-3 h-1.5 bg-white' : 'w-1.5 h-1.5 bg-white/50'
+                }`} />
               ))}
             </div>
           )}
         </div>
       ))}
-      {/* Faint "swipe" arrow */}
-      <div className="text-white/20 text-xl ml-1 select-none">›</div>
     </div>
   )
 }
 
-// ─── Onboarding: first-time user screen ───────────────────────────────────────
+// ─── Onboarding hero ──────────────────────────────────────────────────────────
 
 function OnboardingScreen({ onStart }) {
-  const steps = [
-    {
-      emoji: '🖼️',
-      title: 'Pick a layout',
-      desc: 'Choose from grids, splits, full-bleed, and multi-slide carousels.',
-    },
-    {
-      emoji: '✏️',
-      title: 'Add photos & text',
-      desc: 'Tap any cell to drop in a photo. Layer text, shapes, and colors on top.',
-    },
-    {
-      emoji: '📤',
-      title: 'Export to Instagram',
-      desc: 'Download all slides at once or share directly from the app.',
-    },
-  ]
+  const SLIDE_W = 136
+  const SLIDE_H = 170
 
   return (
-    <div className="flex flex-col h-full bg-black text-white overflow-y-auto">
+    <div className="flex flex-col h-full bg-black text-white">
+      {/* Top chrome */}
       <div
-        className="flex flex-col items-center px-6 gap-8"
-        style={{ paddingTop: 'max(48px, env(safe-area-inset-top))', paddingBottom: 40 }}
+        className="shrink-0 flex items-center justify-between px-5"
+        style={{ paddingTop: 'max(52px, env(safe-area-inset-top))', paddingBottom: 0 }}
       >
-        {/* Logo */}
-        <div className="text-center">
-          <div className="text-3xl font-bold tracking-tight mb-1">Layout</div>
-          <div className="text-white/40 text-sm">Make scroll-stopping Instagram carousels</div>
-        </div>
+        <span className="text-lg font-bold tracking-tight">Layout</span>
+      </div>
 
-        {/* Visual preview */}
-        <CarouselPreview />
-
-        {/* What it is */}
-        <div className="text-center px-2">
-          <p className="text-white/70 text-sm leading-relaxed">
-            Layout lets you design <span className="text-white font-medium">multi-slide carousels</span> and <span className="text-white font-medium">photo collages</span> — the kind of posts that make people stop scrolling.
+      {/* Scrollable body */}
+      <div className="flex-1 overflow-y-auto flex flex-col">
+        {/* Hero text */}
+        <div className="px-5 pt-6 pb-5">
+          <h1 className="text-[28px] font-bold leading-tight tracking-tight">
+            Make carousels that<br />
+            <span className="text-white/40">stop the scroll.</span>
+          </h1>
+          <p className="mt-2 text-sm text-white/45 leading-relaxed">
+            Design multi-slide Instagram carousels and photo collages — right from your phone.
           </p>
         </div>
 
-        {/* How it works */}
-        <div className="w-full flex flex-col gap-3">
-          {steps.map((step, i) => (
-            <div key={i} className="flex items-start gap-4 bg-white/5 rounded-2xl px-4 py-3.5">
-              <div className="text-2xl leading-none mt-0.5">{step.emoji}</div>
-              <div>
-                <div className="text-sm font-semibold text-white mb-0.5">{step.title}</div>
-                <div className="text-xs text-white/45 leading-relaxed">{step.desc}</div>
-              </div>
+        {/* Carousel examples — horizontally scrollable */}
+        <div className="overflow-x-auto flex gap-3 px-5 pb-5 scrollbar-hide">
+          {SAMPLE_CAROUSELS.map((c, i) => (
+            <SampleCarousel key={i} carousel={c} slideW={SLIDE_W} slideH={SLIDE_H} />
+          ))}
+        </div>
+
+        {/* Feature pills */}
+        <div className="flex gap-2 px-5 pb-6 overflow-x-auto scrollbar-hide">
+          {['Grids & collages', 'Multi-slide carousels', 'Text & shapes', 'Export to IG'].map(f => (
+            <div key={f} className="shrink-0 text-xs text-white/50 bg-white/8 rounded-full px-3 py-1.5 border border-white/10">
+              {f}
             </div>
           ))}
         </div>
 
         {/* CTA */}
-        <button
-          onClick={onStart}
-          className="w-full bg-white text-black font-semibold text-base py-4 rounded-2xl active:scale-95 transition-transform"
-        >
-          Create your first carousel →
-        </button>
-
-        <p className="text-white/20 text-xs text-center -mt-4">
-          No account needed · Works offline · Free
-        </p>
+        <div className="px-5 pb-4">
+          <button
+            onClick={onStart}
+            className="w-full bg-white text-black font-semibold text-[15px] py-4 rounded-2xl active:scale-[0.98] transition-transform"
+          >
+            Start creating
+          </button>
+          <p className="text-center text-white/20 text-xs mt-3">Free · No account needed · Works offline</p>
+        </div>
       </div>
     </div>
   )
@@ -222,7 +245,7 @@ export default function HomeScreen() {
   const startProject = useStore(s => s.startProject)
   const openProject  = useStore(s => s.openProject)
 
-  const [step, setStep]                   = useState(null)   // null | 'ratio' | 'template'
+  const [step, setStep]                   = useState(null)
   const [selectedRatio, setSelectedRatio] = useState(null)
   const [projects, setProjects]           = useState([])
   const [projectsLoading, setProjectsLoading] = useState(true)
@@ -263,7 +286,6 @@ export default function HomeScreen() {
   const singlePageTemplates = TEMPLATES.filter(t => !t.pageSpan || t.pageSpan === 1)
   const multiPageTemplates  = TEMPLATES.filter(t => t.pageSpan && t.pageSpan > 1)
 
-  // Show onboarding for new users once loading is done
   const isFirstTime = !projectsLoading && projects.length === 0
 
   if (isFirstTime && step === null) {
@@ -273,30 +295,31 @@ export default function HomeScreen() {
   // ── Returning user home ──────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full bg-black text-white overflow-y-auto">
+      {/* Header */}
       <div
-        className="flex flex-col items-center px-6 pb-8 gap-6"
-        style={{ paddingTop: 'max(48px, env(safe-area-inset-top))' }}
+        className="shrink-0 flex items-center justify-between px-5 pb-4"
+        style={{ paddingTop: 'max(52px, env(safe-area-inset-top))' }}
       >
-        <div className="w-full flex items-center justify-between">
-          <div className="text-xl font-bold tracking-tight">Layout</div>
-          <button
-            onClick={() => setStep('ratio')}
-            className="bg-white text-black font-semibold text-sm px-4 py-2 rounded-xl active:scale-95 transition-transform"
-          >
-            + New
-          </button>
-        </div>
+        <span className="text-lg font-bold tracking-tight">Layout</span>
+        <button
+          onClick={() => setStep('ratio')}
+          className="bg-white text-black font-semibold text-sm px-4 py-2 rounded-xl active:scale-95 transition-transform"
+        >
+          + New
+        </button>
+      </div>
 
-        {/* Saved projects */}
+      {/* Projects */}
+      <div className="flex-1 px-5 pb-10">
         {projectsLoading ? (
-          <div className="w-full grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             {[0, 1, 2, 3].map(i => (
-              <div key={i} className="rounded-2xl bg-white/6 animate-pulse" style={{ aspectRatio: '1/1.1' }} />
+              <div key={i} className="rounded-2xl bg-white/6 animate-pulse" style={{ aspectRatio: '1/1.25' }} />
             ))}
           </div>
         ) : projects.length > 0 ? (
-          <div className="w-full">
-            <div className="text-xs text-white/30 uppercase tracking-wider mb-3">Recent Projects</div>
+          <>
+            <div className="text-xs text-white/30 uppercase tracking-wider mb-3">Recent</div>
             <div className="grid grid-cols-2 gap-3">
               {projects.map(project => (
                 <button
@@ -305,11 +328,8 @@ export default function HomeScreen() {
                   className="relative text-left rounded-2xl overflow-hidden bg-white/6 active:opacity-70 transition-opacity"
                 >
                   <div
-                    className="w-full"
-                    style={{
-                      aspectRatio: project.ratio ? `${project.ratio.w} / ${project.ratio.h}` : '1/1',
-                      background: '#1a1a1a',
-                    }}
+                    className="w-full bg-zinc-900"
+                    style={{ aspectRatio: project.ratio ? `${project.ratio.w} / ${project.ratio.h}` : '1/1' }}
                   >
                     {project.thumbnail ? (
                       <img src={project.thumbnail} className="w-full h-full object-cover" alt="" />
@@ -317,20 +337,20 @@ export default function HomeScreen() {
                       <div className="w-full h-full bg-white/10" />
                     )}
                   </div>
-                  <div className="px-2.5 py-2">
+                  <div className="px-3 py-2">
                     <div className="text-xs font-medium text-white truncate">{project.name}</div>
                     <div className="text-[11px] text-white/40 mt-0.5">{formatRelativeTime(project.updatedAt)}</div>
                   </div>
                   <button
                     onClick={(e) => handleDeleteProject(e, project.id)}
-                    className="absolute top-2 right-2 bg-black/60 text-white/70 rounded-full p-1.5 active:text-white"
+                    className="absolute top-2 right-2 bg-black/60 text-white/60 rounded-full p-1.5 active:text-white"
                   >
                     <TrashIcon />
                   </button>
                 </button>
               ))}
             </div>
-          </div>
+          </>
         ) : null}
       </div>
 
@@ -338,14 +358,15 @@ export default function HomeScreen() {
       {step === 'ratio' && (
         <div className="fixed inset-0 bg-black/80 flex items-end z-50" onClick={handleClose}>
           <div
-            className="w-full bg-[#1a1a1a] rounded-t-2xl p-6 pb-10"
+            className="w-full bg-[#161616] rounded-t-2xl p-6"
+            style={{ paddingBottom: 'max(32px, env(safe-area-inset-bottom))' }}
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-5">
               <span className="text-base font-semibold">Choose Format</span>
-              <button onClick={handleClose} className="text-white/50"><IconClose size={18} /></button>
+              <button onClick={handleClose} className="text-white/40"><IconClose size={18} /></button>
             </div>
-            <div className="flex gap-4 overflow-x-auto pb-2">
+            <div className="flex gap-5 overflow-x-auto pb-1 scrollbar-hide">
               {RATIOS.map(r => {
                 const previewH = 80
                 const previewW = Math.round(previewH * (r.w / r.h))
@@ -353,9 +374,9 @@ export default function HomeScreen() {
                   <button
                     key={r.value}
                     onClick={() => handleRatio(r)}
-                    className="flex flex-col items-center gap-2 shrink-0 active:opacity-70"
+                    className="flex flex-col items-center gap-2.5 shrink-0 active:opacity-60"
                   >
-                    <div className="bg-white rounded-lg" style={{ width: previewW, height: previewH }} />
+                    <div className="bg-white rounded-xl shadow-lg" style={{ width: previewW, height: previewH }} />
                     <div className="text-xs text-white/70 font-medium">{r.label}</div>
                     <div className="text-[11px] text-white/35">{r.value}</div>
                   </button>
@@ -383,6 +404,7 @@ export default function HomeScreen() {
           </div>
 
           <div className="flex-1 overflow-y-auto px-5 pb-10">
+            {/* Blank option */}
             <button
               onClick={() => handleTemplate({ id: 'blank', label: 'Blank', cells: [] })}
               className="w-full mb-6 flex items-center gap-4 bg-white/6 rounded-2xl px-5 py-4 active:bg-white/12"
