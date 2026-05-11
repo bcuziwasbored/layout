@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../../useStore'
 import { useCanvasPicker } from '../../CanvasContext'
 import { TEMPLATES } from '../../templates'
-import { IconImage, IconGrid, IconBlank, IconText, IconClose } from '../icons'
+import { IconImage, IconGrid, IconBlank, IconText, IconClose, IconShapes, IconShapeRect, IconShapeCircle } from '../icons'
 
 const TemplateThumb = ({ template, onClick }) => {
   const ps = template.pageSpan ?? 1
@@ -36,11 +36,12 @@ const TemplateThumb = ({ template, onClick }) => {
 }
 
 export default function AddPanel() {
-  const setPanel      = useStore(s => s.setPanel)
-  const applyTemplate = useStore(s => s.applyTemplate)
-  const addSlide      = useStore(s => s.addSlide)
-  const addTextLayer  = useStore(s => s.addTextLayer)
-  const openPickerRef = useCanvasPicker()
+  const setPanel       = useStore(s => s.setPanel)
+  const applyTemplate  = useStore(s => s.applyTemplate)
+  const addSlide       = useStore(s => s.addSlide)
+  const addTextLayer   = useStore(s => s.addTextLayer)
+  const addShapeLayer  = useStore(s => s.addShapeLayer)
+  const openPickerRef  = useCanvasPicker()
   const [view, setView] = useState('root')
 
   const openImagePicker = () => {
@@ -80,13 +81,39 @@ export default function AddPanel() {
     )
   }
 
+  if (view === 'shape') {
+    return (
+      <div className="bg-[#111] rounded-t-2xl p-5 pb-8">
+        <div className="flex items-center justify-between mb-5">
+          <button onClick={() => setView('root')} className="text-white/50 text-sm active:text-white">‹ Back</button>
+          <span className="font-semibold text-base">Shapes</span>
+          <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => { addShapeLayer('rect'); setPanel(null) }}
+            className="flex flex-col items-center gap-3 bg-white/8 rounded-xl py-6 active:bg-white/15">
+            <IconShapeRect size={40} />
+            <span className="text-[13px] text-white/70">Rectangle</span>
+          </button>
+          <button
+            onClick={() => { addShapeLayer('circle'); setPanel(null) }}
+            className="flex flex-col items-center gap-3 bg-white/8 rounded-xl py-6 active:bg-white/15">
+            <IconShapeCircle size={40} />
+            <span className="text-[13px] text-white/70">Circle</span>
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="bg-[#111] rounded-t-2xl p-5 pb-8">
       <div className="flex items-center justify-between mb-5">
         <span className="font-semibold text-base">Add</span>
         <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
       </div>
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-5 gap-3">
         <button onClick={openImagePicker}
           className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
           <IconImage size={26} />
@@ -96,6 +123,11 @@ export default function AddPanel() {
           className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
           <IconText size={26} />
           <span className="text-[11px] text-white/70">Text</span>
+        </button>
+        <button onClick={() => setView('shape')}
+          className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
+          <IconShapes size={26} />
+          <span className="text-[11px] text-white/70">Shape</span>
         </button>
         <button onClick={() => setView('grid')}
           className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">

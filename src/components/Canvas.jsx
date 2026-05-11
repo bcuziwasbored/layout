@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react'
-import { Stage, Layer, Rect, Circle, Image as KImage, Group, Text, Line } from 'react-konva'
+import { Stage, Layer, Rect, Circle, Ellipse, Image as KImage, Group, Text, Line } from 'react-konva'
 import { useStore, fitInCell } from '../useStore'
 import useImage from 'use-image'
 
@@ -152,6 +152,23 @@ function applyRoundRectClip(ctx, x, y, w, h, r) {
   }
 }
 
+function useAdjustedImage(src, brightness, contrast, saturation) {
+  const [img] = useImage(src)
+  const [adjusted, setAdjusted] = React.useState(null)
+  React.useEffect(() => {
+    if (!img) { setAdjusted(null); return }
+    const b = brightness ?? 0, c = contrast ?? 0, s = saturation ?? 0
+    if (!b && !c && !s) { setAdjusted(img); return }
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth; canvas.height = img.naturalHeight
+    const ctx = canvas.getContext('2d')
+    ctx.filter = `brightness(${1 + b/100}) contrast(${1 + c/100}) saturate(${1 + s/100})`
+    ctx.drawImage(img, 0, 0)
+    setAdjusted(canvas)
+  }, [img, brightness, contrast, saturation])
+  return adjusted
+}
+
 function TextCell({ layer }) {
   const fontStyle = [layer.italic && 'italic', layer.bold && 'bold'].filter(Boolean).join(' ') || 'normal'
   const hasText = layer.text && layer.text.trim().length > 0
@@ -190,6 +207,34 @@ function TextCell({ layer }) {
   )
 }
 
+function ShapeCell({ layer }) {
+  const sw = layer.strokeWidth ?? 0
+  return (
+    <Group x={layer.x} y={layer.y} opacity={layer.opacity ?? 1}>
+      {layer.shapeType === 'circle' ? (
+        <Ellipse
+          x={layer.w / 2} y={layer.h / 2}
+          radiusX={layer.w / 2} radiusY={layer.h / 2}
+          fill={layer.fill ?? '#000000'}
+          stroke={sw > 0 ? (layer.stroke ?? '#000000') : null}
+          strokeWidth={sw}
+          listening={false}
+        />
+      ) : (
+        <Rect
+          width={layer.w} height={layer.h}
+          fill={layer.fill ?? '#000000'}
+          stroke={sw > 0 ? (layer.stroke ?? '#000000') : null}
+          strokeWidth={sw}
+          cornerRadius={layer.cornerRadius ?? 0}
+          listening={false}
+        />
+      )}
+      <Rect width={layer.w} height={layer.h} fill="rgba(0,0,0,0.01)" />
+    </Group>
+  )
+}
+
 function EmptyCell({ layer, onTap, vs }) {
   const gap = layer.cellGap ?? 0
   const inset = gap / 2
@@ -216,7 +261,7 @@ function EmptyCell({ layer, onTap, vs }) {
 // All interaction (select, drag, cell-edit) is handled at the Stage level via
 // handleStageDown/Move/Up — FilledCell is purely visual.
 function FilledCell({ layer, vs }) {
-  const [img] = useImage(layer.src)
+  const img = useAdjustedImage(layer.src, layer.brightness, layer.contrast, layer.saturation)
   const gap = layer.cellGap ?? 0
   const inset = gap / 2
   const innerW = layer.w - gap
@@ -691,7 +736,7 @@ export default function Canvas({ openPickerRef }) {
     }
 
     const hitLayer = [...curLayers].reverse().find(l =>
-      (l.src || l.locked || l.type === 'text') &&
+      (l.src || l.locked || l.type === 'text' || l.type === 'shape') &&
       canvasX >= l.x && canvasX <= l.x + l.w &&
       canvasY >= l.y && canvasY <= l.y + l.h
     )
@@ -800,7 +845,7 @@ export default function Canvas({ openPickerRef }) {
           if (snapY !== null) { if (p.handle.includes('b')) nh = snapY - ny; else { nh += ny - snapY; ny = snapY }; sgy = snapY }
         }
         setSnapGuides({ xs: sgx !== null ? [sgx] : [], ys: sgy !== null ? [sgy] : [] })
-        if (sl.type === 'text') {
+        if (sl.type === 'text' || sl.type === 'shape') {
           upd(sl.id, { x: nx, y: ny, w: nw, h: nh })
         } else {
           const { imgScale: newImgScale, imgX: newImgX, imgY: newImgY } =
@@ -1034,7 +1079,7 @@ export default function Canvas({ openPickerRef }) {
             {/* Slide backgrounds — no tap handler; slide selection is via Slides panel only */}
             {slides.map((slide, i) => (
               <Rect key={slide.id} x={i * ratio.w} y={0} width={ratio.w} height={ratio.h}
-                fill={bgColor} listening={false} />
+                fill={slides[i].bgColor ?? bgColor} listening={false} />
             ))}
 
             {/* Slide borders — active slide slightly brighter (visual only, not in export) */}
@@ -1097,6 +1142,9 @@ export default function Canvas({ openPickerRef }) {
               }
               if (layer.type === 'text') {
                 return <TextCell key={layer.id} layer={layer} />
+              }
+              if (layer.type === 'shape') {
+                return <ShapeCell key={layer.id} layer={layer} />
               }
               return layer.src ? (
                 <FilledCell key={layer.id} layer={layer} vs={vs} />
@@ -1174,7 +1222,7 @@ export default function Canvas({ openPickerRef }) {
                   </Group>
                 )
               }
-              if (!activeLayer.src && activeLayer.type !== 'text') return null
+              if (!activeLayer.src && activeLayer.type !== 'text' && activeLayer.type !== 'shape') return null
               return <SelectionOverlay layer={activeLayer} vs={vs} />
             })()}
           </Group>

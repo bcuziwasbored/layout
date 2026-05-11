@@ -166,6 +166,21 @@ export const useStore = create((set, get) => ({
     }))
   },
 
+  addShapeLayer(shapeType = 'rect') {
+    get()._pushHistory()
+    const { ratio, activeSlideIdx } = get()
+    const si = activeSlideIdx
+    const w = Math.round(ratio.w * 0.5)
+    const h = Math.round(ratio.h * 0.25)
+    const layer = {
+      id: uid(), type: 'shape', shapeType,
+      x: si * ratio.w + Math.round((ratio.w - w) / 2),
+      y: Math.round((ratio.h - h) / 2),
+      w, h, fill: '#3b82f6', stroke: null, strokeWidth: 0, cornerRadius: 0, opacity: 1,
+    }
+    set(s => ({ layers: [...s.layers, layer], activeLayerId: layer.id, panel: null, elementPanel: null }))
+  },
+
   setActiveLayer(id) {
     if (!id) {
       set({ activeLayerId: null, activeCellId: null, textEditId: null, panel: null, elementPanel: null, cropMode: false })
@@ -189,6 +204,16 @@ export const useStore = create((set, get) => ({
   setBgColor(color) {
     get()._pushHistory()
     set({ bgColor: color })
+  },
+
+  setSlideBgColor(idx, color) {
+    get()._pushHistory()
+    set(s => ({ slides: s.slides.map((sl, i) => i === idx ? { ...sl, bgColor: color } : sl) }))
+  },
+
+  clearSlideBgColor(idx) {
+    get()._pushHistory()
+    set(s => ({ slides: s.slides.map((sl, i) => i === idx ? { ...sl, bgColor: undefined } : sl) }))
   },
 
   setRatio(ratio) {

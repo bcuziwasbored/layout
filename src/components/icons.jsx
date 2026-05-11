@@ -299,3 +299,31 @@ export function IconTextAlignRight({ size = 22 }) {
     </svg>
   )
 }
+
+// ─── Shape icons ───────────────────────────────────────────────────────────────
+
+export function IconShapeRect({ size = 24 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" fillOpacity="0.25" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <rect x="3" y="7" width="18" height="10" rx="2" />
+    </svg>
+  )
+}
+
+export function IconShapeCircle({ size = 24 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" fillOpacity="0.25" stroke="currentColor" strokeWidth="1.5">
+      <ellipse cx="12" cy="12" rx="9" ry="7" />
+    </svg>
+  )
+}
+
+export function IconShapes({ size = 24 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <rect x="2" y="2" width="9" height="9" rx="2" fill="currentColor" fillOpacity="0.2" />
+      <ellipse cx="17.5" cy="6.5" rx="4.5" ry="4.5" fill="currentColor" fillOpacity="0.2" />
+      <rect x="2" y="14" width="20" height="8" rx="2" fill="currentColor" fillOpacity="0.2" />
+    </svg>
+  )
+}

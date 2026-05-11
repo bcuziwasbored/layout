@@ -10,6 +10,7 @@ import {
   IconFlipH, IconFlipV,
   IconBold, IconItalic,
   IconTextAlignLeft, IconTextAlignCenter, IconTextAlignRight,
+  IconShapeRect, IconShapeCircle,
 } from '../icons'
 import { FONTS, loadFont } from '../../fonts'
 
@@ -490,6 +491,178 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
   )
 }
 
+// ─── Shape style panel ────────────────────────────────────────────────────────
+
+function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElementPanel }) {
+  const fillRef   = useRef()
+  const strokeRef = useRef()
+
+  const sw = layer.strokeWidth ?? 0
+  const cr = layer.cornerRadius ?? 0
+
+  return (
+    <div className="px-4 pb-6 pt-2 overflow-y-auto" style={{ maxHeight: '62vh' }}>
+
+      {/* Shape type toggle */}
+      <div className="mb-4">
+        <div className="text-xs text-white/35 uppercase tracking-wider mb-2">Shape</div>
+        <div className="flex bg-white/8 rounded-xl p-0.5">
+          <button
+            onClick={() => updateLayerWithHistory(layer.id, { shapeType: 'rect' })}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-[10px] text-sm font-medium transition-colors ${
+              (layer.shapeType ?? 'rect') === 'rect' ? 'bg-white/15 text-white' : 'text-white/45'
+            }`}>
+            <IconShapeRect size={18} /> Rect
+          </button>
+          <button
+            onClick={() => updateLayerWithHistory(layer.id, { shapeType: 'circle' })}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-[10px] text-sm font-medium transition-colors ${
+              layer.shapeType === 'circle' ? 'bg-white/15 text-white' : 'text-white/45'
+            }`}>
+            <IconShapeCircle size={18} /> Circle
+          </button>
+        </div>
+      </div>
+
+      {/* Fill color */}
+      <div className="py-3 border-b border-white/8">
+        <div className="text-sm font-semibold text-white mb-2.5">Fill</div>
+        <button onClick={() => fillRef.current?.click()}
+          className="flex items-center gap-3 active:opacity-60">
+          <div className="w-8 h-8 rounded-full border-2 border-white/20"
+            style={{ background: layer.fill ?? '#000000' }} />
+          <span className="text-sm text-white/60">{(layer.fill ?? '#000000').toUpperCase()}</span>
+          <span className="text-white/30 text-lg ml-auto pr-1">›</span>
+        </button>
+        <input ref={fillRef} type="color" value={layer.fill ?? '#000000'}
+          onChange={e => updateLayer(layer.id, { fill: e.target.value })}
+          onBlur={() => updateLayerWithHistory(layer.id, {})}
+          className="sr-only" />
+      </div>
+
+      {/* Corner radius — rect only */}
+      {(layer.shapeType ?? 'rect') !== 'circle' && (
+        <div className="py-3 border-b border-white/8">
+          <div className="text-sm font-semibold text-white mb-2.5">Corner Radius</div>
+          <div className="flex items-center gap-3">
+            <input type="range" min={0} max={240} step={1} value={cr}
+              onChange={e => updateLayer(layer.id, { cornerRadius: +e.target.value })}
+              onMouseUp={() => updateLayerWithHistory(layer.id, {})}
+              onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+              className="flex-1 accent-white" />
+            <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[64px] text-right shrink-0">
+              <span className="text-white text-sm tabular-nums">{cr}</span>
+              <span className="text-white/40 text-[11px] ml-0.5">px</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stroke width */}
+      <div className="py-3 border-b border-white/8">
+        <div className="text-sm font-semibold text-white mb-2.5">Stroke Width</div>
+        <div className="flex items-center gap-3">
+          <input type="range" min={0} max={30} step={1} value={sw}
+            onChange={e => updateLayer(layer.id, { strokeWidth: +e.target.value })}
+            onMouseUp={() => updateLayerWithHistory(layer.id, {})}
+            onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+            className="flex-1 accent-white" />
+          <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[64px] text-right shrink-0">
+            <span className="text-white text-sm tabular-nums">{sw}</span>
+            <span className="text-white/40 text-[11px] ml-0.5">px</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Stroke color — only when stroke width > 0 */}
+      {sw > 0 && (
+        <div className="py-3 border-b border-white/8">
+          <div className="text-sm font-semibold text-white mb-2.5">Stroke Color</div>
+          <button onClick={() => strokeRef.current?.click()}
+            className="flex items-center gap-3 active:opacity-60">
+            <div className="w-8 h-8 rounded-full border-2 border-white/20"
+              style={{ background: layer.stroke ?? '#000000' }} />
+            <span className="text-sm text-white/60">{(layer.stroke ?? '#000000').toUpperCase()}</span>
+            <span className="text-white/30 text-lg ml-auto pr-1">›</span>
+          </button>
+          <input ref={strokeRef} type="color" value={layer.stroke ?? '#000000'}
+            onChange={e => updateLayer(layer.id, { stroke: e.target.value })}
+            onBlur={() => updateLayerWithHistory(layer.id, {})}
+            className="sr-only" />
+        </div>
+      )}
+
+      {/* Opacity */}
+      <div className="py-3">
+        <div className="text-sm font-semibold text-white mb-2.5">Opacity</div>
+        <div className="flex items-center gap-3">
+          <input type="range" min={0} max={100} step={1}
+            value={Math.round((layer.opacity ?? 1) * 100)}
+            onChange={e => updateLayer(layer.id, { opacity: +e.target.value / 100 })}
+            onMouseUp={() => updateLayerWithHistory(layer.id, {})}
+            onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+            className="flex-1 accent-white" />
+          <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[56px] text-right shrink-0">
+            <span className="text-white text-sm tabular-nums">{Math.round((layer.opacity ?? 1) * 100)}</span>
+            <span className="text-white/40 text-[11px] ml-0.5">%</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  )
+}
+
+// ─── Adjust panel ─────────────────────────────────────────────────────────────
+
+function AdjustPanel({ layer, updateLayer, updateLayerWithHistory, setElementPanel }) {
+  const b = layer.brightness ?? 0
+  const c = layer.contrast   ?? 0
+  const s = layer.saturation ?? 0
+  const hasAdjustment = b !== 0 || c !== 0 || s !== 0
+
+  return (
+    <div className="border-t border-white/10">
+      <div className="flex items-center justify-between px-4 pt-3 pb-0">
+        <span className="text-[11px] text-white/35 uppercase tracking-wider">Adjust</span>
+        <div className="flex items-center gap-3">
+          {hasAdjustment && (
+            <button
+              onClick={() => updateLayerWithHistory(layer.id, { brightness: 0, contrast: 0, saturation: 0 })}
+              className="text-white text-sm font-semibold active:opacity-60 bg-white/10 px-3 py-1 rounded-full">
+              Reset
+            </button>
+          )}
+          <button onClick={() => setElementPanel(null)} className="text-white/40">
+            <IconClose size={18} />
+          </button>
+        </div>
+      </div>
+      <div className="px-5 pb-6 pt-2 space-y-0">
+        {[
+          { label: 'Brightness', key: 'brightness', val: b },
+          { label: 'Contrast',   key: 'contrast',   val: c },
+          { label: 'Saturation', key: 'saturation', val: s },
+        ].map(({ label, key, val }) => (
+          <div key={key} className="py-3 border-b border-white/8 last:border-0">
+            <div className="text-sm font-semibold text-white mb-2.5">{label}</div>
+            <div className="flex items-center gap-3">
+              <input type="range" min={-100} max={100} step={1} value={val}
+                onChange={e => updateLayer(layer.id, { [key]: +e.target.value })}
+                onMouseUp={() => updateLayerWithHistory(layer.id, {})}
+                onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+                className="flex-1 accent-white" />
+              <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[64px] text-right shrink-0">
+                <span className="text-white text-sm tabular-nums">{val > 0 ? `+${val}` : val}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Tabbed position panel ─────────────────────────────────────────────────────
 
 function PositionPanel({ layer, activeLayerId, ratio, activeSlideIdx, layers, reorderLayer,
@@ -716,11 +889,65 @@ export default function LayerToolbar() {
     )
   }
 
+  // ── Shape layer ───────────────────────────────────────────────────────────
+  if (layer.type === 'shape') {
+    const shapeStyleActive = elementPanel === 'shape-style'
+    const posActive        = elementPanel === 'position'
+
+    const toggleShapeStyle = () => {
+      if (shapeStyleActive) setElementPanel(null)
+      else setElementPanel('shape-style')
+    }
+    const togglePos = () => {
+      if (posActive) setElementPanel(null)
+      else setElementPanel('position')
+    }
+
+    return (
+      <div className="bg-black border-t border-white/10">
+        <div className="flex items-center justify-between px-1 py-1">
+          <Btn label="Style"    active={shapeStyleActive} onClick={toggleShapeStyle} />
+          <Btn label="Position" active={posActive}         onClick={togglePos} />
+          <Btn label="Delete"   danger onClick={() => deleteLayer(activeLayerId)} />
+          <button onClick={() => useStore.getState().setActiveLayer(null)} className="text-white/40 px-2">
+            <IconClose size={18} />
+          </button>
+        </div>
+
+        {shapeStyleActive && (
+          <div className="border-t border-white/10">
+            <div className="flex items-center justify-between px-4 pt-3 pb-0">
+              <span className="text-[11px] text-white/35 uppercase tracking-wider">Shape Style</span>
+              <button onClick={() => setElementPanel(null)} className="text-white/40">
+                <IconClose size={18} />
+              </button>
+            </div>
+            <ShapeStylePanel
+              layer={layer} updateLayer={updateLayer}
+              updateLayerWithHistory={updateLayerWithHistory}
+              setElementPanel={setElementPanel} />
+          </div>
+        )}
+
+        {posActive && (
+          <PositionPanel
+            layer={layer} activeLayerId={activeLayerId} ratio={ratio}
+            activeSlideIdx={activeSlideIdx} layers={layers}
+            reorderLayer={reorderLayer} updateLayer={updateLayer}
+            updateLayerWithHistory={updateLayerWithHistory}
+            setElementPanel={setElementPanel} isGroup={false}
+            hideStyleTab isText />
+        )}
+      </div>
+    )
+  }
+
   // ── Regular layer ─────────────────────────────────────────────────────────
   return (
     <div className="bg-black border-t border-white/10">
       <div className="flex items-center justify-between px-1 py-1">
         <Btn label="Replace" onClick={() => openPickerRef?.current?.(activeLayerId)} />
+        <Btn label="Adjust" active={elementPanel === 'adjust'} onClick={() => setElementPanel('adjust')} />
         <Btn label="Position" active={elementPanel === 'position'} onClick={() => setElementPanel('position')} />
         <Btn label="Crop" onClick={() => setCropMode(true)} />
         <Btn label="Delete" danger onClick={() => deleteLayer(activeLayerId)} />
@@ -728,6 +955,13 @@ export default function LayerToolbar() {
           <IconClose size={18} />
         </button>
       </div>
+
+      {elementPanel === 'adjust' && (
+        <AdjustPanel
+          layer={layer} updateLayer={updateLayer}
+          updateLayerWithHistory={updateLayerWithHistory}
+          setElementPanel={setElementPanel} />
+      )}
 
       {elementPanel === 'position' && (
         <PositionPanel

@@ -69,6 +69,49 @@ function renderTextLayer(ctx, layer, sliceStart, sliceEnd) {
   ctx.restore()
 }
 
+// ─── Shape rendering helper ────────────────────────────────────────────────────
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  const cr = Math.min(r, w / 2, h / 2)
+  if (cr <= 0) { ctx.rect(x, y, w, h); return }
+  if (ctx.roundRect) { ctx.roundRect(x, y, w, h, cr); return }
+  ctx.moveTo(x + cr, y)
+  ctx.lineTo(x + w - cr, y); ctx.arcTo(x + w, y, x + w, y + cr, cr)
+  ctx.lineTo(x + w, y + h - cr); ctx.arcTo(x + w, y + h, x + w - cr, y + h, cr)
+  ctx.lineTo(x + cr, y + h); ctx.arcTo(x, y + h, x, y + h - cr, cr)
+  ctx.lineTo(x, y + cr); ctx.arcTo(x, y, x + cr, y, cr)
+  ctx.closePath()
+}
+
+function renderShapeLayer(ctx, layer, sliceStart) {
+  const x = layer.x - sliceStart, y = layer.y, w = layer.w, h = layer.h
+  ctx.save()
+  ctx.globalAlpha = layer.opacity ?? 1
+  if (layer.fill) {
+    ctx.fillStyle = layer.fill
+    ctx.beginPath()
+    if (layer.shapeType === 'circle') {
+      ctx.ellipse(x + w/2, y + h/2, w/2, h/2, 0, 0, Math.PI * 2)
+    } else {
+      roundRectPath(ctx, x, y, w, h, layer.cornerRadius ?? 0)
+    }
+    ctx.fill()
+  }
+  const sw = layer.strokeWidth ?? 0
+  if (sw > 0 && layer.stroke) {
+    ctx.strokeStyle = layer.stroke
+    ctx.lineWidth = sw
+    ctx.beginPath()
+    if (layer.shapeType === 'circle') {
+      ctx.ellipse(x + w/2, y + h/2, w/2, h/2, 0, 0, Math.PI * 2)
+    } else {
+      roundRectPath(ctx, x, y, w, h, layer.cornerRadius ?? 0)
+    }
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
 // ─── Slide renderer ────────────────────────────────────────────────────────────
 
 async function renderSlide(slideIdx, slides, layers, ratio, bgColor) {
@@ -80,35 +123,40 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor) {
   ctx.fillStyle = bgColor
   ctx.fillRect(0, 0, ratio.w, ratio.h)
 
-  // Layers whose x range intersects this slide
   const sliceStart = slideIdx * ratio.w
   const sliceEnd = (slideIdx + 1) * ratio.w
-  const relevant = layers.filter(l => (l.src || l.type === 'text') && l.x < sliceEnd && l.x + l.w > sliceStart)
 
-  // Helper: draw a rounded-rect path on a 2D canvas context
-  function roundRectPath(ctx, x, y, w, h, r) {
-    const cr = Math.min(r, w / 2, h / 2)
-    if (cr <= 0) { ctx.rect(x, y, w, h); return }
-    if (ctx.roundRect) { ctx.roundRect(x, y, w, h, cr); return }
-    ctx.moveTo(x + cr, y)
-    ctx.lineTo(x + w - cr, y); ctx.arcTo(x + w, y, x + w, y + cr, cr)
-    ctx.lineTo(x + w, y + h - cr); ctx.arcTo(x + w, y + h, x + w - cr, y + h, cr)
-    ctx.lineTo(x + cr, y + h); ctx.arcTo(x, y + h, x, y + h - cr, cr)
-    ctx.lineTo(x, y + cr); ctx.arcTo(x, y, x + cr, y, cr)
-    ctx.closePath()
-  }
+  // All relevant layers (images, text, shapes) in z-order
+  const relevant = layers.filter(l =>
+    (l.src || l.type === 'text' || l.type === 'shape') &&
+    l.x < sliceEnd && l.x + l.w > sliceStart
+  )
 
-  // Render image layers
-  await Promise.all(relevant.filter(l => l.src).map(layer => new Promise(resolve => {
-    const img = new Image()
-    img.onload = () => {
+  // Pre-load all image layers into a Map
+  const imgMap = new Map()
+  await Promise.all(
+    relevant.filter(l => l.src).map(layer => new Promise(resolve => {
+      const img = new Image()
+      img.onload = () => { imgMap.set(layer.id, img); resolve() }
+      img.onerror = resolve
+      img.src = layer.src
+    }))
+  )
+
+  await document.fonts.ready
+
+  // Render ALL relevant layers in z-order
+  for (const layer of relevant) {
+    if (layer.src) {
+      const img = imgMap.get(layer.id)
+      if (!img) continue
+
       const gap = layer.cellGap ?? 0
       const inset = gap / 2
       const cr  = layer.cornerRadius ?? 0
       const bw  = layer.borderWidth ?? 0
       const bc  = layer.borderColor ?? '#000000'
 
-      // Clip rect accounts for inset, constrained to this slide's x range
       const clipX = Math.max(layer.x, sliceStart) - sliceStart + inset
       const clipW = Math.min(layer.x + layer.w, sliceEnd) - Math.max(layer.x, sliceStart) - gap
       const clipY = layer.y + inset
@@ -120,7 +168,12 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor) {
       ctx.clip()
       ctx.globalAlpha = layer.opacity ?? 1
 
-      // Image position: imgX/imgY are relative to the inner (inset) frame
+      // Apply image adjustments
+      const b = layer.brightness ?? 0, c = layer.contrast ?? 0, s = layer.saturation ?? 0
+      if (b || c || s) {
+        ctx.filter = `brightness(${1 + b/100}) contrast(${1 + c/100}) saturate(${1 + s/100})`
+      }
+
       const drawX = (layer.x - sliceStart) + (layer.imgX ?? 0) + inset
       const drawY = layer.y + (layer.imgY ?? 0) + inset
       const drawW = img.naturalWidth  * (layer.imgScale ?? 1)
@@ -129,7 +182,6 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor) {
       const flipH = layer.flipH ?? false
       const flipV = layer.flipV ?? false
       if (rotation || flipH || flipV) {
-        // Transforms around inner-frame center
         const frameCX = (layer.x - sliceStart) + layer.w / 2
         const frameCY = layer.y + layer.h / 2
         ctx.translate(frameCX, frameCY)
@@ -140,6 +192,7 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor) {
       } else {
         ctx.drawImage(img, drawX, drawY, drawW, drawH)
       }
+      ctx.filter = 'none'
       ctx.restore()
 
       // Border drawn on top, outside the clip
@@ -153,33 +206,27 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor) {
         ctx.stroke()
         ctx.restore()
       }
-
-      resolve()
+    } else if (layer.type === 'text') {
+      renderTextLayer(ctx, layer, sliceStart, sliceEnd)
+    } else if (layer.type === 'shape') {
+      renderShapeLayer(ctx, layer, sliceStart)
     }
-    img.onerror = resolve
-    img.src = layer.src
-  })))
-
-  // Render text layers (in z-order, after images)
-  await document.fonts.ready
-  for (const layer of relevant.filter(l => l.type === 'text')) {
-    renderTextLayer(ctx, layer, sliceStart, sliceEnd)
   }
 
   return canvas.toDataURL('image/jpeg', 0.95)
 }
 
 export default function ExportScreen({ onClose }) {
-  const slides = useStore(s => s.slides)
-  const layers = useStore(s => s.layers)
-  const ratio = useStore(s => s.ratio)
+  const slides  = useStore(s => s.slides)
+  const layers  = useStore(s => s.layers)
+  const ratio   = useStore(s => s.ratio)
   const bgColor = useStore(s => s.bgColor)
 
   const [rendered, setRendered] = useState([])
   const [activeIdx, setActiveIdx] = useState(0)
 
   useEffect(() => {
-    Promise.all(slides.map((_, i) => renderSlide(i, slides, layers, ratio, bgColor)))
+    Promise.all(slides.map((slide, i) => renderSlide(i, slides, layers, ratio, slide.bgColor ?? bgColor)))
       .then(setRendered)
   }, [])
 
@@ -221,7 +268,7 @@ export default function ExportScreen({ onClose }) {
                 style={{
                   width: PREVIEW_W,
                   height: PREVIEW_H,
-                  background: bgColor,
+                  background: slide.bgColor ?? bgColor,
                   scrollSnapAlign: 'center',
                 }}
               >
