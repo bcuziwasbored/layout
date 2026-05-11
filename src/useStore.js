@@ -244,6 +244,41 @@ export const useStore = create((set, get) => ({
     set(s => ({ slides: [...s.slides, slide], activeSlideIdx: s.slides.length, panel: null }))
   },
 
+  insertSlide(atIdx) {
+    get()._pushHistory()
+    const { ratio, slides, layers } = get()
+    const newSlide = { id: uid() }
+    const newSlides = [...slides]
+    newSlides.splice(atIdx, 0, newSlide)
+    const newLayers = layers.map(l => {
+      const si = Math.floor(l.x / ratio.w)
+      if (si >= atIdx) return { ...l, x: l.x + ratio.w }
+      return l
+    })
+    set({ slides: newSlides, layers: newLayers, activeSlideIdx: atIdx, panel: null })
+  },
+
+  moveSlide(fromIdx, toIdx) {
+    if (fromIdx === toIdx) return
+    get()._pushHistory()
+    const { ratio, slides, layers, activeSlideIdx } = get()
+    const newSlides = [...slides]
+    const [moved] = newSlides.splice(fromIdx, 1)
+    newSlides.splice(toIdx, 0, moved)
+    const newLayers = layers.map(l => {
+      const si = Math.floor(l.x / ratio.w)
+      if (si === fromIdx) return { ...l, x: toIdx * ratio.w + (l.x - fromIdx * ratio.w) }
+      if (fromIdx < toIdx && si > fromIdx && si <= toIdx) return { ...l, x: l.x - ratio.w }
+      if (fromIdx > toIdx && si >= toIdx && si < fromIdx) return { ...l, x: l.x + ratio.w }
+      return l
+    })
+    let newActive = activeSlideIdx
+    if (activeSlideIdx === fromIdx) newActive = toIdx
+    else if (fromIdx < toIdx && activeSlideIdx > fromIdx && activeSlideIdx <= toIdx) newActive = activeSlideIdx - 1
+    else if (fromIdx > toIdx && activeSlideIdx >= toIdx && activeSlideIdx < fromIdx) newActive = activeSlideIdx + 1
+    set({ slides: newSlides, layers: newLayers, activeSlideIdx: newActive })
+  },
+
   duplicateSlide(idx) {
     get()._pushHistory()
     const { ratio, slides, layers } = get()
