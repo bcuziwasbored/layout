@@ -62,7 +62,7 @@ function findGroupSeams(groupLayers) {
     for (const b of groupLayers) {
       if (a === b) continue
       const gapX = b.x - (a.x + a.w)
-      if (gapX >= 0 && gapX <= tol) {
+      if (gapX >= -1 && gapX <= tol) {
         const sharedY1 = Math.max(a.y, b.y)
         const sharedY2 = Math.min(a.y + a.h, b.y + b.h)
         if (sharedY2 > sharedY1) {
@@ -73,7 +73,7 @@ function findGroupSeams(groupLayers) {
         }
       }
       const gapY = b.y - (a.y + a.h)
-      if (gapY >= 0 && gapY <= tol) {
+      if (gapY >= -1 && gapY <= tol) {
         const sharedX1 = Math.max(a.x, b.x)
         const sharedX2 = Math.min(a.x + a.w, b.x + b.w)
         if (sharedX2 > sharedX1) {
