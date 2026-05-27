@@ -591,9 +591,10 @@ export default function Canvas({ openPickerRef }) {
 
   const containerRef = useRef()
   const fileRef      = useRef()
-  const pendingLayerId  = useRef(null)
-  const pendingSlideIdx = useRef(null)
-  const isMulti         = useRef(false)
+  const pendingLayerId       = useRef(null)
+  const pendingSlideIdx      = useRef(null)
+  const pendingReplaceFilled = useRef(false)
+  const isMulti              = useRef(false)
   const viewRef         = useRef(null)
   const pinchRef        = useRef({ active: false, lastDist: 0 })
   // When true, the next activeSlideIdx-change effect is suppressed (used to
@@ -1259,18 +1260,19 @@ export default function Canvas({ openPickerRef }) {
 
   // ── File picker ──
   const openPickerRef2 = useRef(null)
-  const openPickerForCell = useCallback((layerId, slideIdx, multi = false) => {
-    pendingLayerId.current  = layerId
-    pendingSlideIdx.current = slideIdx
-    isMulti.current = multi
+  const openPickerForCell = useCallback((layerId, slideIdx, multi = false, replaceFilled = false) => {
+    pendingLayerId.current       = layerId
+    pendingSlideIdx.current      = slideIdx
+    pendingReplaceFilled.current = replaceFilled
+    isMulti.current              = multi
     if (fileRef.current) { fileRef.current.multiple = multi; fileRef.current.click() }
   }, [])
 
   useEffect(() => {
     openPickerRef2.current = openPickerForCell
     if (openPickerRef) {
-      openPickerRef.current = (layerId = null, slideIdx = null, multi = false) =>
-        openPickerForCell(layerId, slideIdx ?? fresh.current.activeSlideIdx, multi)
+      openPickerRef.current = (layerId = null, slideIdx = null, multi = false, replaceFilled = false) =>
+        openPickerForCell(layerId, slideIdx ?? fresh.current.activeSlideIdx, multi, replaceFilled)
     }
   })
 
@@ -1284,7 +1286,10 @@ export default function Canvas({ openPickerRef }) {
     if (isMulti.current && files.length > 1) {
       // Process all files (downscale), then fill cells in order
       const processed = await Promise.all(files.map(processImageFile))
-      fill(processed)  // store accepts [{src, naturalW, naturalH}]
+      // Pass pendingLayerId so fillCells can scope by the template group (multi-page)
+      fill(processed, pendingLayerId.current, pendingReplaceFilled.current)
+      pendingLayerId.current = null
+      pendingReplaceFilled.current = false
     } else {
       const { src, srcOriginal, naturalW, naturalH } = await processImageFile(files[0])
       if (pendingLayerId.current) {
@@ -1412,8 +1417,13 @@ export default function Canvas({ openPickerRef }) {
                 <EmptyCell key={layer.id} layer={layer} vs={vs}
                   onTap={() => {
                     const si = Math.floor(layer.x / ratio.w)
-                    const emptyInSlide = layers.filter(l => !l.src && Math.floor(l.x / ratio.w) === si)
-                    openPickerRef2.current?.(layer.id, si, emptyInSlide.length > 1)
+                    // If part of a template group, count empty cells across the
+                    // whole group (across all pages) so multi-page templates can
+                    // be filled in one pick.
+                    const emptyInScope = layer.groupId
+                      ? layers.filter(l => !l.src && l.groupId === layer.groupId)
+                      : layers.filter(l => !l.src && Math.floor(l.x / ratio.w) === si)
+                    openPickerRef2.current?.(layer.id, si, emptyInScope.length > 1)
                   }}
                 />
               )

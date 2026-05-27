@@ -467,17 +467,26 @@ export const useStore = create((set, get) => ({
     set(s => ({ layers: [...s.layers, layer], activeLayerId: layer.id, panel: null }))
   },
 
-  fillCells(processedImages) {
-    // Fill empty cells in active slide with pre-processed images [{src, naturalW, naturalH}]
+  fillCells(processedImages, contextLayerId = null, replaceFilled = false) {
+    // Fill cells with pre-processed images [{src, naturalW, naturalH}].
+    // Scope: if the context layer belongs to a template group, fills cells across
+    // the whole group (all pages of a multi-page template). Otherwise falls back
+    // to cells in the active slide.
+    // replaceFilled: if true, also replaces already-filled cells (used by "Replace All").
     get()._pushHistory()
     const { ratio, activeSlideIdx, layers } = get()
-    const emptyCells = layers
-      .filter(l => !l.src && Math.floor(l.x / ratio.w) === activeSlideIdx)
+    const contextLayer = contextLayerId ? layers.find(l => l.id === contextLayerId) : null
+
+    const scopeCells = contextLayer?.groupId
+      ? layers.filter(l => l.groupId === contextLayer.groupId)
+      : layers.filter(l => Math.floor(l.x / ratio.w) === activeSlideIdx)
+
+    const targetCells = (replaceFilled ? scopeCells : scopeCells.filter(l => !l.src))
       .sort((a, b) => a.x - b.x || a.y - b.y)
 
     processedImages.forEach(({ src, srcOriginal, naturalW, naturalH }, i) => {
-      if (i >= emptyCells.length) return
-      const cell = emptyCells[i]
+      if (i >= targetCells.length) return
+      const cell = targetCells[i]
       const gap = cell.cellGap ?? 0
       const fit = fitInCell(naturalW, naturalH, cell.w - gap, cell.h - gap)
       useStore.getState().updateLayer(cell.id, { src, srcOriginal: srcOriginal ?? src, naturalW, naturalH, ...fit })

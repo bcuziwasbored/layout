@@ -950,16 +950,25 @@ export default function LayerToolbar() {
 
   // ── Group mode ────────────────────────────────────────────────────────────
   if (layer.locked) {
+    const groupCells = layers.filter(l => l.groupId === layer.groupId)
+    const emptyCount = groupCells.filter(l => !l.src).length
+    const totalCount = groupCells.length
+    // If there are empty cells, picker fills empties (count = empty).
+    // If all cells are filled, picker replaces all (count = total).
+    const replaceMode = emptyCount === 0
+    const pickCount = replaceMode ? totalCount : emptyCount
+    const pickLabel = replaceMode ? `Replace All (${totalCount})` : `Add Photos (${emptyCount})`
+
     return (
       <div className="bg-black border-t border-white/10">
         {/* Discoverability hint for per-cell editing */}
         {!elementPanel && (
           <div className="text-center text-[11px] text-white/40 px-3 pt-2 pb-0">
-            Tap any photo to replace or edit it
+            Tap any photo to replace or edit it · {pickCount === 1 ? 'pick 1 photo' : `pick ${pickCount} photos`} below to fill all
           </div>
         )}
         <div className="flex items-center justify-between px-1 py-1">
-          <Btn label="Refill All" onClick={() => openPickerRef?.current?.(null, null, true)} />
+          <Btn label={pickLabel} onClick={() => openPickerRef?.current?.(layer.id, null, true, replaceMode)} />
           <Btn label="Position" active={elementPanel === 'position'} onClick={() => setElementPanel('position')} />
           <Btn label="Delete" danger onClick={() => deleteGroup(layer.groupId)} />
           <button onClick={() => useStore.getState().setActiveLayer(null)} className="text-white/40 px-2">
