@@ -250,6 +250,9 @@ function StyleTab({ layer, activeLayerId, layers, updateLayer, updateLayerWithHi
   const cr  = layer.cornerRadius ?? 0
   const bw  = layer.borderWidth ?? 0
   const bc  = layer.borderColor ?? '#000000'
+  const shape = layer.shape ?? 'rect'
+  // Only image layers (with src or potential src) get the shape picker
+  const isImage = layer.type !== 'text' && layer.type !== 'shape'
 
   // Propagate a style prop to all cells in a group, or just to this layer
   const applyProp = (prop, value) => {
@@ -276,6 +279,36 @@ function StyleTab({ layer, activeLayerId, layers, updateLayer, updateLayerWithHi
 
   return (
     <div className="px-5 pb-6 pt-1 overflow-y-auto" style={{ maxHeight: '62vh' }}>
+      {/* Shape: only meaningful for image cells */}
+      {isImage && (
+        <div className="py-4">
+          <div className="text-sm font-semibold text-white mb-3">Shape</div>
+          <div className="flex gap-2">
+            {[
+              { id: 'rect',   label: 'Rectangle',
+                icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="14" rx="2" /></svg> },
+              { id: 'circle', label: 'Circle',
+                icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="12" rx="9" ry="7" /></svg> },
+            ].map(s => {
+              const active = shape === s.id
+              return (
+                <button key={s.id} onClick={() => {
+                  useStore.getState()._captureUndo()
+                  applyProp('shape', s.id)
+                  useStore.getState()._commitUndo()
+                }}
+                  className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-xl border transition-colors active:opacity-60 ${
+                    active ? 'bg-white/15 border-white/40 text-white' : 'bg-white/5 border-white/10 text-white/50'
+                  }`}>
+                  {s.icon}
+                  <span className="text-[11px] leading-none">{s.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       <StyleSliderRow
         label={isGroup ? 'Spacing' : 'Inset'}
         value={gap} min={0} max={80} step={1} display={gap} unit="px"
@@ -290,11 +323,14 @@ function StyleTab({ layer, activeLayerId, layers, updateLayer, updateLayerWithHi
         onChange={v => updateLayer(activeLayerId, { opacity: v / 100 })}
         onDone={() => useStore.getState()._commitUndo()} />
 
-      <StyleSliderRow
-        label="Corner Radius"
-        value={cr} min={0} max={240} step={1} display={cr} unit="px"
-        onChange={v => applyProp('cornerRadius', v)}
-        onDone={() => useStore.getState()._commitUndo()} />
+      {/* Corner radius only applies to rectangle shape */}
+      {shape !== 'circle' && (
+        <StyleSliderRow
+          label="Corner Radius"
+          value={cr} min={0} max={240} step={1} display={cr} unit="px"
+          onChange={v => applyProp('cornerRadius', v)}
+          onDone={() => useStore.getState()._commitUndo()} />
+      )}
 
       <StyleSliderRow
         label="Border Thickness"

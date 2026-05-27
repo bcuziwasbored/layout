@@ -207,6 +207,22 @@ function applyRoundRectClip(ctx, x, y, w, h, r) {
   }
 }
 
+// Shape-aware clip path. `shape` may be 'rect' (default — uses cornerRadius)
+// or 'circle' (ellipse inscribed in the cell).
+function applyShapeClip(ctx, x, y, w, h, shape, cornerRadius) {
+  if (shape === 'circle') {
+    const cx = x + w / 2, cy = y + h / 2
+    const rx = w / 2, ry = h / 2
+    if (ctx.ellipse) {
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2)
+    } else {
+      ctx.arc(cx, cy, Math.min(rx, ry), 0, Math.PI * 2)
+    }
+    return
+  }
+  applyRoundRectClip(ctx, x, y, w, h, cornerRadius)
+}
+
 // In-memory cache: blobId → data URL string.
 // Populated the first time each image is read from IDB so subsequent renders
 // (including after iOS backgrounding) don't hit IDB again.
@@ -413,6 +429,7 @@ function FilledCell({ layer, vs }) {
   const cr = layer.cornerRadius ?? 0
   const bw = layer.borderWidth ?? 0
   const bc = layer.borderColor ?? '#000000'
+  const shape = layer.shape ?? 'rect'
 
   return (
     <Group
@@ -421,11 +438,16 @@ function FilledCell({ layer, vs }) {
       rotation={layer.freeRotation ?? 0}
       opacity={layer.opacity ?? 1}
     >
-      <Group clipFunc={ctx => applyRoundRectClip(ctx, inset, inset, innerW, innerH, cr)} listening={false}>
+      <Group clipFunc={ctx => applyShapeClip(ctx, inset, inset, innerW, innerH, shape, cr)} listening={false}>
         {/* Gray placeholder while image decodes — prevents blank-white flash */}
         {!img && (
-          <Rect x={inset} y={inset} width={innerW} height={innerH}
-            fill="#c8c8c8" cornerRadius={cr} />
+          shape === 'circle' ? (
+            <Ellipse x={inset + innerW / 2} y={inset + innerH / 2}
+              radiusX={innerW / 2} radiusY={innerH / 2} fill="#c8c8c8" />
+          ) : (
+            <Rect x={inset} y={inset} width={innerW} height={innerH}
+              fill="#c8c8c8" cornerRadius={cr} />
+          )
         )}
         {img && (hasTransform ? (
           // All transforms (rotation + flip) around frame center
@@ -438,8 +460,14 @@ function FilledCell({ layer, vs }) {
       </Group>
       {/* Border overlay (outside clip so full stroke is visible) */}
       {bw > 0 && (
-        <Rect x={inset} y={inset} width={innerW} height={innerH}
-          cornerRadius={cr} stroke={bc} strokeWidth={bw} listening={false} />
+        shape === 'circle' ? (
+          <Ellipse x={inset + innerW / 2} y={inset + innerH / 2}
+            radiusX={innerW / 2} radiusY={innerH / 2}
+            stroke={bc} strokeWidth={bw} listening={false} />
+        ) : (
+          <Rect x={inset} y={inset} width={innerW} height={innerH}
+            cornerRadius={cr} stroke={bc} strokeWidth={bw} listening={false} />
+        )
       )}
       {/* Hit area outside clipFunc so coordinate hit-testing in handleStageDown works */}
       <Rect width={layer.w} height={layer.h} fill="rgba(0,0,0,0.01)" />

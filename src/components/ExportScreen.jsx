@@ -104,6 +104,15 @@ function roundRectPath(ctx, x, y, w, h, r) {
   ctx.closePath()
 }
 
+// Shape-aware path. Matches Canvas.jsx applyShapeClip.
+function shapePath(ctx, x, y, w, h, shape, cornerRadius) {
+  if (shape === 'circle') {
+    ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
+    return
+  }
+  roundRectPath(ctx, x, y, w, h, cornerRadius)
+}
+
 function renderShapeLayer(ctx, layer, sliceStart) {
   const x = layer.x - sliceStart, y = layer.y, w = layer.w, h = layer.h
   ctx.save()
@@ -233,6 +242,7 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
       const cr  = layer.cornerRadius ?? 0
       const bw  = layer.borderWidth ?? 0
       const bc  = layer.borderColor ?? '#000000'
+      const shape = layer.shape ?? 'rect'
 
       // Rotated layers: clip to the full frame — the canvas viewport clips to
       // the slide edge automatically, so we don't need to intersect with sliceEnd.
@@ -248,7 +258,7 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
 
       ctx.save()
       ctx.beginPath()
-      roundRectPath(ctx, clipX, clipY, clipW, clipH, cr)
+      shapePath(ctx, clipX, clipY, clipW, clipH, shape, cr)
       ctx.clip()
       ctx.globalAlpha = layer.opacity ?? 1
 
@@ -295,7 +305,7 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
         ctx.lineWidth = bw
         ctx.globalAlpha = layer.opacity ?? 1
         ctx.beginPath()
-        roundRectPath(ctx, clipX, clipY, clipW, clipH, cr)
+        shapePath(ctx, clipX, clipY, clipW, clipH, shape, cr)
         ctx.stroke()
         ctx.restore()
       }
