@@ -23,6 +23,12 @@ function fitInCell(naturalW, naturalH, cellW, cellH) {
   }
 }
 
+// Session-wide registry of layer-id → { src, srcOriginal }. Survives layer
+// deletes so undoing a "delete layer with image" can restore the image. The
+// strings stored here are the same references the layers hold, so this doesn't
+// duplicate any data — it just keeps a separate index keyed by layer id.
+const imageSrcRegistry = new Map()
+
 export const useStore = create((set, get) => ({
   screen: 'home',
   ratio: RATIOS[0],
@@ -59,7 +65,9 @@ export const useStore = create((set, get) => ({
     return JSON.stringify({ slides: s.slides, layers, bgColor: s.bgColor, bgGradient: s.bgGradient })
   },
 
-  // Merge srcs from current store back into snapshot-restored layers
+  // Merge srcs from current store back into snapshot-restored layers.
+  // Falls back to imageSrcRegistry for layers that were deleted then undone —
+  // those won't be in currentLayers but the registry remembers their src.
   _restoreSrcs(parsedLayers, currentLayers) {
     const srcByLayerId = new Map()
     currentLayers.forEach(l => {
@@ -68,8 +76,8 @@ export const useStore = create((set, get) => ({
     return parsedLayers.map(l => {
       const { _hadSrc, ...layerData } = l
       if (!_hadSrc) return { ...layerData, src: null }
-      const tracked = srcByLayerId.get(l.id)
-      return tracked ? { ...layerData, ...tracked } : { ...layerData, src: null }
+      const tracked = srcByLayerId.get(l.id) ?? imageSrcRegistry.get(l.id)
+      return tracked?.src ? { ...layerData, ...tracked } : { ...layerData, src: null }
     })
   },
 
@@ -558,5 +566,15 @@ export const useStore = create((set, get) => ({
     set({ screen: 'home', panel: null, elementPanel: null, cropMode: false })
   },
 }))
+
+// Keep imageSrcRegistry in sync with whatever srcs are currently on layers.
+// Runs on every state change — cheap (just iterating layers + Map.set on string
+// refs). The registry never evicts entries during a session so undo can restore
+// images even for layers that were deleted.
+useStore.subscribe(state => {
+  for (const l of state.layers) {
+    if (l.src) imageSrcRegistry.set(l.id, { src: l.src, srcOriginal: l.srcOriginal })
+  }
+})
 
 export { fitInCell }
