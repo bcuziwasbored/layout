@@ -865,19 +865,42 @@ export default function LayerToolbar() {
     const minScale = cell
       ? Math.max(innerW / (cell.naturalW ?? 1), innerH / (cell.naturalH ?? 1))
       : 0.1
+    const CellBtn = ({ label, active, onClick, primary }) => (
+      <button onClick={onClick}
+        className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl text-xs transition-colors active:opacity-60 ${
+          primary ? 'text-white font-medium' : active ? 'text-blue-400' : 'text-white/60'
+        }`}>
+        {label}
+      </button>
+    )
     return (
       <div className="bg-black border-t border-white/10">
-        <div className="flex items-center justify-between px-4 py-3">
+        {/* Top row: Done + label + actions */}
+        <div className="flex items-center justify-between px-3 py-2">
           <button onClick={() => setActiveCellId(null)}
-            className="text-white/50 text-sm active:text-white">Done</button>
-          <span className="text-xs text-white/40 uppercase tracking-wider">Drag to reposition</span>
-          {cell && (
-            <button onClick={() => openPickerRef?.current?.(activeCellId)}
-              className="text-white text-sm font-medium active:opacity-60">Replace</button>
-          )}
+            className="text-white/50 text-sm active:text-white px-2">Done</button>
+          <div className="flex items-center gap-1">
+            {cell?.src && (
+              <CellBtn label="Replace"
+                primary
+                onClick={() => openPickerRef?.current?.(activeCellId)} />
+            )}
+            {cell?.src && (
+              <CellBtn label="Adjust"
+                active={elementPanel === 'adjust'}
+                onClick={() => setElementPanel('adjust')} />
+            )}
+            {!cell?.src && (
+              <CellBtn label="Add photo"
+                primary
+                onClick={() => openPickerRef?.current?.(activeCellId)} />
+            )}
+          </div>
         </div>
-        {cell && cell.src && (
-          <div className="px-4 pb-4 pt-1 border-t border-white/10">
+
+        {/* Zoom slider (when image is set and no panel open) */}
+        {cell?.src && !elementPanel && (
+          <div className="px-4 pb-3 pt-1 border-t border-white/10">
             <div className="flex items-center gap-3">
               <span className="text-xs text-white/50 w-12 shrink-0">Zoom</span>
               <input type="range" min={minScale} max={minScale * 4} step={0.001}
@@ -901,7 +924,16 @@ export default function LayerToolbar() {
                 {Math.round((cell.imgScale ?? minScale) / minScale * 100)}%
               </span>
             </div>
+            <p className="text-[10px] text-white/30 text-center mt-2">Drag image to reposition</p>
           </div>
+        )}
+
+        {/* Adjust panel (brightness/contrast/saturation) */}
+        {cell?.src && elementPanel === 'adjust' && (
+          <AdjustPanel
+            layer={cell} updateLayer={updateLayer}
+            updateLayerWithHistory={updateLayerWithHistory}
+            setElementPanel={setElementPanel} />
         )}
       </div>
     )
@@ -920,8 +952,14 @@ export default function LayerToolbar() {
   if (layer.locked) {
     return (
       <div className="bg-black border-t border-white/10">
+        {/* Discoverability hint for per-cell editing */}
+        {!elementPanel && (
+          <div className="text-center text-[11px] text-white/40 px-3 pt-2 pb-0">
+            Tap any photo to replace or edit it
+          </div>
+        )}
         <div className="flex items-center justify-between px-1 py-1">
-          <Btn label="Replace All" onClick={() => openPickerRef?.current?.(null, null, true)} />
+          <Btn label="Refill All" onClick={() => openPickerRef?.current?.(null, null, true)} />
           <Btn label="Position" active={elementPanel === 'position'} onClick={() => setElementPanel('position')} />
           <Btn label="Delete" danger onClick={() => deleteGroup(layer.groupId)} />
           <button onClick={() => useStore.getState().setActiveLayer(null)} className="text-white/40 px-2">
