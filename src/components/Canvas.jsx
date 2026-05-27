@@ -3,6 +3,7 @@ import { Stage, Layer, Rect, Circle, Ellipse, Image as KImage, Group, Text, Line
 import { useStore, fitInCell } from '../useStore'
 import useImage from 'use-image'
 import { dbGetBlob } from '../db'
+import { blobCache } from '../blobCache'
 
 // ─── Image downscaling ─────────────────────────────────────────────────────────
 // Phone cameras produce 12–50MP images. Drawing a 4032×3024 image in Konva every
@@ -19,6 +20,7 @@ function processImageFile(file) {
       const { naturalWidth: nW, naturalHeight: nH } = img
       if (nW <= MAX_DIM && nH <= MAX_DIM) {
         // Already small enough — use same URL for both display and export
+        blobCache.set(rawUrl, null)  // sentinel: fetch from rawUrl directly
         resolve({ src: rawUrl, srcOriginal: rawUrl, naturalW: nW, naturalH: nH })
         return
       }
@@ -33,7 +35,9 @@ function processImageFile(file) {
       canvas.toBlob(
         blob => {
           if (!blob) { reject(new Error('toBlob failed')); return }
-          resolve({ src: URL.createObjectURL(blob), srcOriginal: rawUrl, naturalW: w, naturalH: h })
+          const url = URL.createObjectURL(blob)
+          blobCache.set(url, blob)  // cache so serializeLayers never needs fetch(url)
+          resolve({ src: url, srcOriginal: rawUrl, naturalW: w, naturalH: h })
         },
         'image/jpeg', 0.92,
       )
