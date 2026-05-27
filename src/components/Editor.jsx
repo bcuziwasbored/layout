@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { useStore } from '../useStore'
 import { CanvasContext } from '../CanvasContext'
 import { saveProject } from '../projectStorage'
@@ -21,7 +21,22 @@ export default function Editor() {
   const setPanel = useStore(s => s.setPanel)
   const history = useStore(s => s.history)
   const currentProjectId = useStore(s => s.currentProjectId)
+  const layers = useStore(s => s.layers)
   const saveTimerRef = useRef(null)
+
+  // First-use hint: show when there are empty template cells and no layer is selected
+  const [hint, setHint] = useState(false)
+  const hintShownRef = useRef(false)
+  useEffect(() => {
+    if (hintShownRef.current) return
+    const hasEmptyCells = layers.some(l => !l.src && l.type !== 'text' && l.type !== 'shape')
+    if (hasEmptyCells) {
+      hintShownRef.current = true
+      setHint(true)
+      const t = setTimeout(() => setHint(false), 4000)
+      return () => clearTimeout(t)
+    }
+  }, []) // only on mount
 
   useEffect(() => {
     if (!currentProjectId) return
@@ -46,6 +61,17 @@ export default function Editor() {
           onClick={panel ? () => setPanel(null) : undefined}
         >
           <Canvas openPickerRef={openPickerRef} />
+
+          {/* First-use hint banner */}
+          <div
+            className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none z-30
+              flex items-center gap-2 bg-black/70 text-white text-sm px-4 py-2.5
+              rounded-full shadow-lg backdrop-blur-sm transition-all duration-500"
+            style={{ opacity: hint ? 1 : 0, transform: `translateX(-50%) translateY(${hint ? 0 : -8}px)` }}
+          >
+            <span>📷</span>
+            <span>Tap any cell to add your photos</span>
+          </div>
         </div>
 
         <div>

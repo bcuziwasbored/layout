@@ -443,29 +443,20 @@ export const useStore = create((set, get) => ({
     set(s => ({ layers: [...s.layers, layer], activeLayerId: layer.id, panel: null }))
   },
 
-  fillCells(files) {
-    // Fill empty cells in active slide with multiple images
+  fillCells(processedImages) {
+    // Fill empty cells in active slide with pre-processed images [{src, naturalW, naturalH}]
     get()._pushHistory()
     const { ratio, activeSlideIdx, layers } = get()
     const emptyCells = layers
       .filter(l => !l.src && Math.floor(l.x / ratio.w) === activeSlideIdx)
       .sort((a, b) => a.x - b.x || a.y - b.y)
 
-    const updates = {}
-    files.forEach((file, i) => {
+    processedImages.forEach(({ src, naturalW, naturalH }, i) => {
       if (i >= emptyCells.length) return
       const cell = emptyCells[i]
-      const url = URL.createObjectURL(file)
-      // We'll update asynchronously as images load; use a helper
-      const img = new Image()
-      img.onload = () => {
-        const gap = cell.cellGap ?? 0
-        const fit = fitInCell(img.naturalWidth, img.naturalHeight, cell.w - gap, cell.h - gap)
-        useStore.getState().updateLayer(cell.id, {
-          src: url, naturalW: img.naturalWidth, naturalH: img.naturalHeight, ...fit,
-        })
-      }
-      img.src = url
+      const gap = cell.cellGap ?? 0
+      const fit = fitInCell(naturalW, naturalH, cell.w - gap, cell.h - gap)
+      useStore.getState().updateLayer(cell.id, { src, naturalW, naturalH, ...fit })
     })
   },
 

@@ -3,6 +3,44 @@ import { Stage, Layer, Rect, Circle, Ellipse, Image as KImage, Group, Text, Line
 import { useStore, fitInCell } from '../useStore'
 import useImage from 'use-image'
 
+// ─── Image downscaling ─────────────────────────────────────────────────────────
+// Phone cameras produce 12–50MP images. Drawing a 4032×3024 image in Konva every
+// animation frame will overheat mobile GPUs. We cap at 2048px on the longest side,
+// which is more than enough for any display — this is done once at pick-time.
+
+const MAX_DIM = 2048
+
+function processImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const rawUrl = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      const { naturalWidth: nW, naturalHeight: nH } = img
+      if (nW <= MAX_DIM && nH <= MAX_DIM) {
+        // Already small enough — use directly
+        resolve({ src: rawUrl, naturalW: nW, naturalH: nH })
+        return
+      }
+      const scale = MAX_DIM / Math.max(nW, nH)
+      const w = Math.round(nW * scale)
+      const h = Math.round(nH * scale)
+      const canvas = document.createElement('canvas')
+      canvas.width = w; canvas.height = h
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+      URL.revokeObjectURL(rawUrl)
+      canvas.toBlob(
+        blob => {
+          if (!blob) { reject(new Error('toBlob failed')); return }
+          resolve({ src: URL.createObjectURL(blob), naturalW: w, naturalH: h })
+        },
+        'image/jpeg', 0.92,
+      )
+    }
+    img.onerror = () => { URL.revokeObjectURL(rawUrl); reject(new Error('load failed')) }
+    img.src = rawUrl
+  })
+}
+
 function linearGradientPoints(angleDeg, w, h) {
   const rad = (angleDeg * Math.PI) / 180
   const cos = Math.cos(rad), sin = Math.sin(rad)
@@ -272,6 +310,8 @@ function EmptyCell({ layer, onTap, vs }) {
   const cr = layer.cornerRadius ?? 0
   const iconR = Math.min(Math.min(innerW, innerH) * 0.12, 30)
   const sw = 2 / vs
+  const labelSize = Math.max(Math.min(iconR * 0.7, 22), 10)
+  const showLabel = innerH > iconR * 4.5  // only show text if cell is tall enough
   return (
     <Group
       x={layer.x + layer.w / 2} y={layer.y + layer.h / 2}
@@ -280,13 +320,31 @@ function EmptyCell({ layer, onTap, vs }) {
       onClick={e => { e.cancelBubble = true; onTap() }}
       onTap={e => { e.cancelBubble = true; onTap() }}
     >
-      <Rect x={inset} y={inset} width={innerW} height={innerH} fill="#e0e0e0"
+      <Rect x={inset} y={inset} width={innerW} height={innerH} fill="#d8d8d8"
         stroke="white" strokeWidth={sw} cornerRadius={cr} />
-      <Rect x={layer.w / 2 - iconR} y={layer.h / 2 - iconR} width={iconR * 2} height={iconR * 2}
-        cornerRadius={iconR} fill="rgba(0,0,0,0.18)" listening={false} />
-      <Text text="+" fill="rgba(0,0,0,0.45)"
-        fontSize={iconR * 1.4} x={layer.w / 2 - iconR * 0.4} y={layer.h / 2 - iconR * 0.75}
+      {/* Icon circle */}
+      <Rect x={layer.w / 2 - iconR} y={layer.h / 2 - iconR - (showLabel ? labelSize * 0.8 : 0)}
+        width={iconR * 2} height={iconR * 2}
+        cornerRadius={iconR} fill="rgba(0,0,0,0.2)" listening={false} />
+      <Text text="+" fill="rgba(0,0,0,0.5)"
+        fontSize={iconR * 1.4}
+        x={layer.w / 2 - iconR * 0.42}
+        y={layer.h / 2 - iconR * 0.82 - (showLabel ? labelSize * 0.8 : 0)}
         listening={false} />
+      {/* "Tap to add photo" hint */}
+      {showLabel && (
+        <Text
+          text="Tap to add photo"
+          fontFamily="Inter, system-ui"
+          fontSize={labelSize}
+          fill="rgba(0,0,0,0.38)"
+          width={innerW}
+          x={inset}
+          y={layer.h / 2 + iconR * 1.1}
+          align="center"
+          listening={false}
+        />
+      )}
     </Group>
   )
 }
@@ -319,6 +377,11 @@ function FilledCell({ layer, vs }) {
       opacity={layer.opacity ?? 1}
     >
       <Group clipFunc={ctx => applyRoundRectClip(ctx, inset, inset, innerW, innerH, cr)} listening={false}>
+        {/* Gray placeholder while image decodes — prevents blank-white flash */}
+        {!img && (
+          <Rect x={inset} y={inset} width={innerW} height={innerH}
+            fill="#c8c8c8" cornerRadius={cr} />
+        )}
         {img && (hasTransform ? (
           // All transforms (rotation + flip) around frame center
           <Group x={layer.w / 2} y={layer.h / 2} rotation={rotation} scaleX={scaleX} scaleY={scaleY}>
@@ -1139,33 +1202,31 @@ export default function Canvas({ openPickerRef }) {
     }
   })
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const files = [...e.target.files]
+    e.target.value = ''
     if (!files.length) return
     const { addImageLayer: addImg, fillCells: fill, updateLayerWithHistory: upd,
       layers: curLayers, activeSlideIdx: asi } = fresh.current
 
     if (isMulti.current && files.length > 1) {
-      fill(files)
+      // Process all files (downscale), then fill cells in order
+      const processed = await Promise.all(files.map(processImageFile))
+      fill(processed)  // store accepts [{src, naturalW, naturalH}]
     } else {
-      const url = URL.createObjectURL(files[0])
-      const img = new Image()
-      img.onload = () => {
-        if (pendingLayerId.current) {
-          const layer = curLayers.find(l => l.id === pendingLayerId.current)
-          if (layer) {
-            const gap = layer.cellGap ?? 0
-            const fit = fitInCell(img.naturalWidth, img.naturalHeight, layer.w - gap, layer.h - gap)
-            upd(pendingLayerId.current, { src: url, naturalW: img.naturalWidth, naturalH: img.naturalHeight, ...fit })
-          }
-          pendingLayerId.current = null
-        } else {
-          addImg(url, img.naturalWidth, img.naturalHeight, pendingSlideIdx.current ?? asi)
+      const { src, naturalW, naturalH } = await processImageFile(files[0])
+      if (pendingLayerId.current) {
+        const layer = curLayers.find(l => l.id === pendingLayerId.current)
+        if (layer) {
+          const gap = layer.cellGap ?? 0
+          const fit = fitInCell(naturalW, naturalH, layer.w - gap, layer.h - gap)
+          upd(pendingLayerId.current, { src, naturalW, naturalH, ...fit })
         }
+        pendingLayerId.current = null
+      } else {
+        addImg(src, naturalW, naturalH, pendingSlideIdx.current ?? asi)
       }
-      img.src = url
     }
-    e.target.value = ''
   }
 
   if (!view) return <div ref={containerRef} className="flex-1 w-full" />
