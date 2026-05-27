@@ -63,15 +63,14 @@ export default function Editor() {
           <Canvas openPickerRef={openPickerRef} />
 
           {/* First-use hint banner */}
-          <div
-            className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none z-30
-              flex items-center gap-2 bg-black/70 text-white text-sm px-4 py-2.5
-              rounded-full shadow-lg backdrop-blur-sm transition-all duration-500"
-            style={{ opacity: hint ? 1 : 0, transform: `translateX(-50%) translateY(${hint ? 0 : -8}px)` }}
-          >
-            <span>📷</span>
-            <span>Tap any cell to add your photos</span>
-          </div>
+          {hint && (
+            <div className="absolute top-3 inset-x-0 flex justify-center pointer-events-none z-30">
+              <div className="flex items-center gap-2 bg-black/75 text-white text-sm px-4 py-2.5 rounded-full shadow-lg backdrop-blur-sm">
+                <span>📷</span>
+                <span>Tap any cell to add your photos</span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div>
