@@ -1,4 +1,5 @@
 import { useStore, fitInCell } from '../../useStore'
+import { SQUARE_SHAPES } from '../../shapes'
 
 // Minimum imgScale needed so a rotated image fully covers its frame with no empty corners.
 // Formula: for frame (W,H) and image natural size (nW,nH) at angle θ (radians):
@@ -25,13 +26,21 @@ const ASPECT_PRESETS = [
 ]
 
 // Shape options for cropping a standalone image into a different outline.
-// Easy to extend with more shapes (star, heart, blob) — just add applyShapeClip
-// cases in Canvas.jsx and shapePath cases in ExportScreen.jsx.
+// To add another shape: add a new entry here and a matching path function
+// in src/shapes.js (the renderer + export already use the shared registry).
 const SHAPE_OPTIONS = [
-  { id: 'rect',   label: 'Rect',
+  { id: 'rect', label: 'Rect',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="14" rx="2" /></svg> },
   { id: 'circle', label: 'Circle',
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="12" rx="9" ry="7" /></svg> },
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /></svg> },
+  { id: 'diamond', label: 'Diamond',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3 L21 12 L12 21 L3 12 Z" /></svg> },
+  { id: 'star', label: 'Star',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2 L14.4 8.6 L21 9 L16 13.5 L17.5 20 L12 16.5 L6.5 20 L8 13.5 L3 9 L9.6 8.6 Z" /></svg> },
+  { id: 'heart', label: 'Heart',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 21 C 4 14, 2 9, 6 5 C 9 2, 11 4, 12 6 C 13 4, 15 2, 18 5 C 22 9, 20 14, 12 21 Z" /></svg> },
+  { id: 'blob', label: 'Blob',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2 Q 21 4, 22 12 Q 21 21, 14 22 Q 5 21, 2 14 Q 1 5, 12 2 Z" /></svg> },
 ]
 
 export default function CropControls() {
@@ -76,10 +85,11 @@ export default function CropControls() {
             return (
               <button key={id} onClick={() => {
                 useStore.getState()._captureUndo()
-                // For circle, snap the frame to a square (shorter side, centered)
-                // so the ellipse becomes a perfect circle instead of an oval.
-                // The image is refit to cover the new square frame.
-                if (id === 'circle' && layer.w !== layer.h) {
+                // For shapes with rotational symmetry (circle, star, heart),
+                // snap the frame to a square (shorter side, centered) so the
+                // result isn't stretched. Rectangular-friendly shapes (rect,
+                // diamond, blob) keep the user's current aspect ratio.
+                if (SQUARE_SHAPES.has(id) && layer.w !== layer.h) {
                   const size = Math.min(layer.w, layer.h)
                   const newX = layer.x + (layer.w - size) / 2
                   const newY = layer.y + (layer.h - size) / 2

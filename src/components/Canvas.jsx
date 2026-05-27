@@ -4,6 +4,7 @@ import { useStore, fitInCell } from '../useStore'
 import useImage from 'use-image'
 import { dbGetBlob } from '../db'
 import { blobCache } from '../blobCache'
+import { drawShapePath } from '../shapes'
 
 // ─── Image downscaling ─────────────────────────────────────────────────────────
 // Phone cameras produce 12–50MP images. Drawing a 4032×3024 image in Konva every
@@ -189,38 +190,50 @@ function computeResize(sl, handle, ddx, ddy, aspectOverride) {
 
 // ─── Layer visuals ─────────────────────────────────────────────────────────────
 
-// Clip path helper: rounded rect if cornerRadius > 0, plain rect otherwise.
-// Called inside Konva clipFunc (ctx is already in node-local space).
-function applyRoundRectClip(ctx, x, y, w, h, r) {
-  const cr = Math.min(r, w / 2, h / 2)
-  if (cr > 0 && ctx.roundRect) {
-    ctx.roundRect(x, y, w, h, cr)
-  } else if (cr > 0) {
-    ctx.moveTo(x + cr, y)
-    ctx.lineTo(x + w - cr, y); ctx.arcTo(x + w, y, x + w, y + cr, cr)
-    ctx.lineTo(x + w, y + h - cr); ctx.arcTo(x + w, y + h, x + w - cr, y + h, cr)
-    ctx.lineTo(x + cr, y + h); ctx.arcTo(x, y + h, x, y + h - cr, cr)
-    ctx.lineTo(x, y + cr); ctx.arcTo(x, y, x + cr, y, cr)
-    ctx.closePath()
-  } else {
-    ctx.rect(x, y, w, h)
+// Konva node renderers for shape-aware fill and border. For rect/circle we use
+// Konva primitives (cheaper). For other shapes we use a custom Shape with the
+// shared drawShapePath helper.
+
+function ShapedFill({ shape, x, y, w, h, cornerRadius, fill }) {
+  const s = shape ?? 'rect'
+  if (s === 'rect') {
+    return <Rect x={x} y={y} width={w} height={h} cornerRadius={cornerRadius} fill={fill} listening={false} />
   }
+  if (s === 'circle') {
+    return <Ellipse x={x + w / 2} y={y + h / 2} radiusX={w / 2} radiusY={h / 2} fill={fill} listening={false} />
+  }
+  return (
+    <Shape
+      sceneFunc={(ctx, sh) => {
+        ctx.beginPath()
+        drawShapePath(ctx, x, y, w, h, s, cornerRadius)
+        ctx.fillStrokeShape(sh)
+      }}
+      fill={fill} listening={false}
+    />
+  )
 }
 
-// Shape-aware clip path. `shape` may be 'rect' (default — uses cornerRadius)
-// or 'circle' (ellipse inscribed in the cell).
-function applyShapeClip(ctx, x, y, w, h, shape, cornerRadius) {
-  if (shape === 'circle') {
-    const cx = x + w / 2, cy = y + h / 2
-    const rx = w / 2, ry = h / 2
-    if (ctx.ellipse) {
-      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2)
-    } else {
-      ctx.arc(cx, cy, Math.min(rx, ry), 0, Math.PI * 2)
-    }
-    return
+function ShapedBorder({ shape, x, y, w, h, cornerRadius, stroke, strokeWidth }) {
+  const s = shape ?? 'rect'
+  if (s === 'rect') {
+    return <Rect x={x} y={y} width={w} height={h} cornerRadius={cornerRadius}
+      stroke={stroke} strokeWidth={strokeWidth} listening={false} />
   }
-  applyRoundRectClip(ctx, x, y, w, h, cornerRadius)
+  if (s === 'circle') {
+    return <Ellipse x={x + w / 2} y={y + h / 2} radiusX={w / 2} radiusY={h / 2}
+      stroke={stroke} strokeWidth={strokeWidth} listening={false} />
+  }
+  return (
+    <Shape
+      sceneFunc={(ctx, sh) => {
+        ctx.beginPath()
+        drawShapePath(ctx, x, y, w, h, s, cornerRadius)
+        ctx.fillStrokeShape(sh)
+      }}
+      stroke={stroke} strokeWidth={strokeWidth} listening={false}
+    />
+  )
 }
 
 // In-memory cache: blobId → data URL string.
@@ -438,16 +451,11 @@ function FilledCell({ layer, vs }) {
       rotation={layer.freeRotation ?? 0}
       opacity={layer.opacity ?? 1}
     >
-      <Group clipFunc={ctx => applyShapeClip(ctx, inset, inset, innerW, innerH, shape, cr)} listening={false}>
+      <Group clipFunc={ctx => drawShapePath(ctx, inset, inset, innerW, innerH, shape, cr)} listening={false}>
         {/* Gray placeholder while image decodes — prevents blank-white flash */}
         {!img && (
-          shape === 'circle' ? (
-            <Ellipse x={inset + innerW / 2} y={inset + innerH / 2}
-              radiusX={innerW / 2} radiusY={innerH / 2} fill="#c8c8c8" />
-          ) : (
-            <Rect x={inset} y={inset} width={innerW} height={innerH}
-              fill="#c8c8c8" cornerRadius={cr} />
-          )
+          <ShapedFill shape={shape} x={inset} y={inset} w={innerW} h={innerH}
+            cornerRadius={cr} fill="#c8c8c8" />
         )}
         {img && (hasTransform ? (
           // All transforms (rotation + flip) around frame center
@@ -460,14 +468,8 @@ function FilledCell({ layer, vs }) {
       </Group>
       {/* Border overlay (outside clip so full stroke is visible) */}
       {bw > 0 && (
-        shape === 'circle' ? (
-          <Ellipse x={inset + innerW / 2} y={inset + innerH / 2}
-            radiusX={innerW / 2} radiusY={innerH / 2}
-            stroke={bc} strokeWidth={bw} listening={false} />
-        ) : (
-          <Rect x={inset} y={inset} width={innerW} height={innerH}
-            cornerRadius={cr} stroke={bc} strokeWidth={bw} listening={false} />
-        )
+        <ShapedBorder shape={shape} x={inset} y={inset} w={innerW} h={innerH}
+          cornerRadius={cr} stroke={bc} strokeWidth={bw} />
       )}
       {/* Hit area outside clipFunc so coordinate hit-testing in handleStageDown works */}
       <Rect width={layer.w} height={layer.h} fill="rgba(0,0,0,0.01)" />
@@ -558,7 +560,8 @@ function CropTarget({ layer, vs }) {
     ['r',  layer.x + layer.w, cy],
   ]
 
-  const isCircleShape = (layer.shape ?? 'rect') === 'circle'
+  const shapeId = layer.shape ?? 'rect'
+  const showShapePreview = shapeId !== 'rect'
 
   return (
     <Group>
@@ -568,36 +571,32 @@ function CropTarget({ layer, vs }) {
       <Group clipFunc={ctx => ctx.rect(layer.x, layer.y, layer.w, layer.h)} listening={false}>
         {renderImg(1)}
       </Group>
-      {/* Circle preview overlay: darken the part of the rectangle that won't be
-          in the final circle crop. Uses non-zero winding rule — outer rect
-          drawn clockwise, inner ellipse drawn counter-clockwise so it cuts a
-          hole through the dark fill. */}
-      {isCircleShape && (
+      {/* Shape preview overlay: darken the part of the rectangle that won't be
+          in the final cropped shape. Uses non-zero winding — outer rect drawn
+          clockwise, inner shape drawn anti-clockwise so it cuts a hole. */}
+      {showShapePreview && (
         <Shape
-          sceneFunc={(ctx, shape) => {
-            const ex = layer.x + layer.w / 2
-            const ey = layer.y + layer.h / 2
-            const rx = layer.w / 2
-            const ry = layer.h / 2
+          sceneFunc={(ctx, sh) => {
             ctx.beginPath()
             ctx.rect(layer.x, layer.y, layer.w, layer.h)
-            ctx.moveTo(ex + rx, ey)
-            ctx.ellipse(ex, ey, rx, ry, 0, 0, Math.PI * 2, true) // anticlockwise = hole
-            ctx.closePath()
-            ctx.fillStrokeShape(shape)
+            drawShapePath(ctx, layer.x, layer.y, layer.w, layer.h, shapeId, 0, true)
+            ctx.fillStrokeShape(sh)
           }}
           fill="rgba(0, 0, 0, 0.55)"
           listening={false}
         />
       )}
-      {/* Dashed border */}
+      {/* Dashed border around the crop rectangle */}
       <Rect x={layer.x} y={layer.y} width={layer.w} height={layer.h}
         stroke="white" strokeWidth={1.5 / vs} dash={[6 / vs, 4 / vs]} listening={false} />
-      {/* Circle outline (matches the shaded preview) so the user sees the exact crop edge */}
-      {isCircleShape && (
-        <Ellipse
-          x={layer.x + layer.w / 2} y={layer.y + layer.h / 2}
-          radiusX={layer.w / 2} radiusY={layer.h / 2}
+      {/* Solid outline of the actual crop shape (only when it's not a rect) */}
+      {showShapePreview && (
+        <Shape
+          sceneFunc={(ctx, sh) => {
+            ctx.beginPath()
+            drawShapePath(ctx, layer.x, layer.y, layer.w, layer.h, shapeId, 0)
+            ctx.fillStrokeShape(sh)
+          }}
           stroke="white" strokeWidth={1.5 / vs}
           listening={false}
         />

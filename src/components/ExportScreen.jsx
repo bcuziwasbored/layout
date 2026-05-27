@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../useStore'
 import { dbGetBlob } from '../db'
+import { drawShapePath } from '../shapes'
 
 function linearGradientPoints(angleDeg, w, h) {
   const rad = (angleDeg * Math.PI) / 180
@@ -104,13 +105,10 @@ function roundRectPath(ctx, x, y, w, h, r) {
   ctx.closePath()
 }
 
-// Shape-aware path. Matches Canvas.jsx applyShapeClip.
+// Shape-aware path — delegates to the shared shape module so export matches
+// what the canvas renders exactly.
 function shapePath(ctx, x, y, w, h, shape, cornerRadius) {
-  if (shape === 'circle') {
-    ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
-    return
-  }
-  roundRectPath(ctx, x, y, w, h, cornerRadius)
+  drawShapePath(ctx, x, y, w, h, shape, cornerRadius)
 }
 
 function renderShapeLayer(ctx, layer, sliceStart) {
