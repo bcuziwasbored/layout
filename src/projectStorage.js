@@ -1,12 +1,11 @@
-import { dbGet, dbPut, dbDelete, dbGetAll, dbGetBlob, dbDeleteBlob } from './db'
+import { dbGet, dbPut, dbDelete, dbGetAll, dbGetBlob, dbPutBlob, dbDeleteBlob } from './db'
 import { blobCache } from './blobCache'
 
 const THUMB_W = 240
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
+// ─── Blob ↔ data URL helpers ───────────────────────────────────────────────────
 
-// FileReader-based blob→dataURL: works on every iOS version (since iOS 6).
-// Avoids blob.arrayBuffer() which only exists on iOS 14.5+.
+// FileReader-based blob→dataURL: works on every iOS version (iOS 6+).
 function blobToDataURL(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -16,52 +15,82 @@ function blobToDataURL(blob) {
   })
 }
 
-// ─── Serialization ─────────────────────────────────────────────────────────────
-// Convert blob: URLs to data URL strings stored directly in layer.src.
-// We use the blobCache (populated at pick-time) to get the Blob without fetch(),
-// which can fail on iOS Safari PWA when a service worker is active.
-// Data URL strings survive IDB perfectly on all platforms.
+// Synchronous data URL → Blob. Used when loading so we can immediately create
+// a blob: URL from a persisted data URL without an async round-trip.
+function dataURLToBlob(dataURL) {
+  const [header, b64] = dataURL.split(',')
+  const mime = header.match(/:(.*?);/)[1]
+  const binary = atob(b64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return new Blob([bytes], { type: mime })
+}
 
-async function blobToDataURLSafe(blobUrl) {
-  // 1. Try cached Blob first (avoids fetch entirely)
-  const cached = blobCache.get(blobUrl)
-  if (cached) return blobToDataURL(cached)
-
-  // 2. Fallback: fetch (works on desktop, may fail on iOS PWA)
+// Convert a data URL to a blob: URL and register the Blob in the cache so
+// serializeLayers can retrieve it without fetch().
+function dataURLToBlobURL(dataURL) {
   try {
-    const blob = await fetch(blobUrl).then(r => r.blob())
-    return blobToDataURL(blob)
+    const blob = dataURLToBlob(dataURL)
+    const url = URL.createObjectURL(blob)
+    blobCache.set(url, blob)
+    return url
   } catch {
-    // 3. Last resort: load via img + re-export (always works, re-encodes image)
+    return null
+  }
+}
+
+// Get a Blob from a blob: URL — from cache first, then fetch() as fallback,
+// then img+canvas re-export as last resort.
+async function blobFromURL(url) {
+  const cached = blobCache.get(url)
+  if (cached) return cached
+  try {
+    return await fetch(url).then(r => r.blob())
+  } catch {
     return new Promise((resolve, reject) => {
       const img = new Image()
       img.onload = () => {
         const c = document.createElement('canvas')
         c.width = img.naturalWidth; c.height = img.naturalHeight
         c.getContext('2d').drawImage(img, 0, 0)
-        c.toBlob(b => b ? resolve(blobToDataURL(b)) : reject(new Error('toBlob')), 'image/jpeg', 0.92)
+        c.toBlob(b => b ? resolve(b) : reject(new Error('toBlob')), 'image/jpeg', 0.92)
       }
       img.onerror = () => reject(new Error('img load failed'))
-      img.src = blobUrl
+      img.src = url
     })
   }
 }
+
+// ─── Serialization ─────────────────────────────────────────────────────────────
+// blob: URL → data URL string in blob store, blob-ref://layerId in project record.
+// Project records stay small so dbGetAll (home screen listing) is fast.
 
 async function serializeLayers(layers) {
   return Promise.all(
     layers.map(async (layer) => {
       if (layer.src?.startsWith('blob:')) {
         try {
-          const dataURL = await blobToDataURLSafe(layer.src)
-          // Store data URL inline as layer.src — no blob store needed, works on all platforms
-          return { ...layer, src: dataURL, srcOriginal: undefined }
+          const blob = await blobFromURL(layer.src)
+          const dataURL = await blobToDataURL(blob)
+          await dbPutBlob(layer.id, dataURL)
+          return { ...layer, src: 'blob-ref://' + layer.id, srcOriginal: undefined }
         } catch (e) {
           console.warn('Failed to serialize layer', layer.id, e)
           return { ...layer, srcOriginal: undefined }
         }
       }
-      // blob-ref:// (transitional from previous saves) — keep as-is, handled in loadProject
-      // data: URL — already serialized, keep as-is
+      // blob-ref:// already in blob store; data: URL (transitional) — migrate to blob store
+      if (layer.src?.startsWith('data:')) {
+        try {
+          await dbPutBlob(layer.id, layer.src)
+          return { ...layer, src: 'blob-ref://' + layer.id, srcOriginal: undefined }
+        } catch {
+          return { ...layer, srcOriginal: undefined }
+        }
+      }
+      if (layer.src?.startsWith('blob-ref://')) {
+        return { ...layer, srcOriginal: undefined }
+      }
       return { ...layer, srcOriginal: undefined }
     })
   )
@@ -72,8 +101,7 @@ async function serializeLayers(layers) {
 async function renderThumbnail(layers, slides, ratio, bgColor) {
   const thumbH = Math.round(THUMB_W * ratio.h / ratio.w)
   const canvas = document.createElement('canvas')
-  canvas.width = THUMB_W
-  canvas.height = thumbH
+  canvas.width = THUMB_W; canvas.height = thumbH
   const ctx = canvas.getContext('2d')
   ctx.fillStyle = slides[0]?.bgColor ?? bgColor
   ctx.fillRect(0, 0, THUMB_W, thumbH)
@@ -84,14 +112,10 @@ async function renderThumbnail(layers, slides, ratio, bgColor) {
 
   for (const layer of slide0Layers) {
     let src = layer.src
-    if (!src) continue
-
-    // Resolve blob-ref:// to data URL
-    if (src.startsWith('blob-ref://')) {
+    if (src?.startsWith('blob-ref://')) {
       src = await dbGetBlob(src.slice(10)).catch(() => null)
       if (!src) continue
     }
-
     await new Promise(resolve => {
       const img = new Image()
       img.onload = () => {
@@ -102,9 +126,7 @@ async function renderThumbnail(layers, slides, ratio, bgColor) {
         const clipY = layer.y * scale + inset
         const clipH = layer.h * scale - gap
         ctx.save()
-        ctx.beginPath()
-        ctx.rect(clipX, clipY, clipW, clipH)
-        ctx.clip()
+        ctx.beginPath(); ctx.rect(clipX, clipY, clipW, clipH); ctx.clip()
         ctx.globalAlpha = layer.opacity ?? 1
         const logW = layer.naturalW ?? img.naturalWidth
         const logH = layer.naturalH ?? img.naturalHeight
@@ -113,14 +135,12 @@ async function renderThumbnail(layers, slides, ratio, bgColor) {
         const drawW = logW * (layer.imgScale ?? 1) * scale
         const drawH = logH * (layer.imgScale ?? 1) * scale
         ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, drawX, drawY, drawW, drawH)
-        ctx.restore()
-        resolve()
+        ctx.restore(); resolve()
       }
       img.onerror = resolve
       img.src = src
     })
   }
-
   return canvas.toDataURL('image/jpeg', 0.75)
 }
 
@@ -130,12 +150,8 @@ export async function saveProject(id, name, storeState) {
   const { ratio, bgColor, bgGradient, slides, layers } = storeState
   const serialized = await serializeLayers(layers)
   const thumbnail = await renderThumbnail(serialized, slides, ratio, bgColor)
-
   await dbPut('projects', {
-    id, name,
-    updatedAt: Date.now(),
-    thumbnail,
-    slideCount: slides.length,
+    id, name, updatedAt: Date.now(), thumbnail, slideCount: slides.length,
     state: { ratio, bgColor, bgGradient, slides, layers: serialized },
   })
 }
@@ -146,22 +162,34 @@ export async function loadProject(id) {
 
   const layers = await Promise.all(
     record.state.layers.map(async (layer) => {
-      // Current format: data URL inline — use directly, no lookup needed
-      if (layer.src?.startsWith('data:')) return { ...layer }
-
-      // Transitional format: blob-ref:// pointing to data URL in blob store
+      // Current format: blob-ref:// → read data URL → convert to blob: URL in memory
       if (layer.src?.startsWith('blob-ref://')) {
         const dataURL = await dbGetBlob(layer.src.slice(10)).catch(() => null)
-        if (dataURL) return { ...layer, src: dataURL }
+        if (dataURL) {
+          const url = dataURLToBlobURL(dataURL)
+          return { ...layer, src: url ?? null }
+        }
         return { ...layer, src: null }
       }
 
-      // Legacy format: ref:// with inline Blob in record.blobs.
-      // iOS Safari may have corrupted these — check size > 0 before using.
+      // Transitional: inline data URL → convert to blob: URL
+      if (layer.src?.startsWith('data:')) {
+        const url = dataURLToBlobURL(layer.src)
+        // Async: migrate to blob store so project record shrinks
+        if (url) dbPutBlob(layer.id, layer.src).catch(() => {})
+        return { ...layer, src: url ?? null }
+      }
+
+      // Legacy: ref:// with inline Blob (iOS may have corrupted these)
       if (layer.src?.startsWith('ref://')) {
         const blob = record.blobs?.[layer.src.slice(6)]
         if (blob && blob.size > 0) {
-          try { return { ...layer, src: await blobToDataURL(blob) } } catch {}
+          try {
+            const dataURL = await blobToDataURL(blob)
+            dbPutBlob(layer.id, dataURL).catch(() => {})
+            const url = dataURLToBlobURL(dataURL)
+            return { ...layer, src: url ?? null }
+          } catch {}
         }
         return { ...layer, src: null }
       }
@@ -170,29 +198,30 @@ export async function loadProject(id) {
     })
   )
 
-  // Async: re-save legacy projects with the new inline data URL format
-  if (record.state.layers.some(l => l.src?.startsWith('ref://'))) {
+  // Async: re-save legacy/transitional projects in the new format
+  const needsMigration = record.state.layers.some(
+    l => l.src?.startsWith('ref://') || l.src?.startsWith('data:')
+  )
+  if (needsMigration) {
+    const migratedLayers = layers.map(l => ({
+      ...l,
+      src: l.src?.startsWith('blob:') ? 'blob-ref://' + l.id : (l.src ?? null),
+      srcOriginal: undefined,
+    }))
     dbPut('projects', {
       ...record, blobs: undefined,
-      state: { ...record.state, layers: layers.map(l => ({ ...l, srcOriginal: undefined })) },
+      state: { ...record.state, layers: migratedLayers },
     }).catch(() => {})
   }
 
-  return {
-    ...record.state,
-    layers,
-    projectId: record.id,
-    projectName: record.name,
-  }
+  return { ...record.state, layers, projectId: record.id, projectName: record.name }
 }
 
 export async function listProjects() {
   const all = await dbGetAll('projects')
   return all
     .map(r => ({
-      id: r.id,
-      name: r.name,
-      updatedAt: r.updatedAt,
+      id: r.id, name: r.name, updatedAt: r.updatedAt,
       thumbnail: r.thumbnail,
       slideCount: r.slideCount ?? r.state?.slides?.length ?? 0,
       ratio: r.state?.ratio,

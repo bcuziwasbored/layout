@@ -207,10 +207,10 @@ function applyRoundRectClip(ctx, x, y, w, h, r) {
   }
 }
 
-// Resolves blob-ref://layerId → a live blob: URL fetched lazily from IndexedDB.
-// For normal blob:/http: URLs it's a pass-through. This means reopened projects
-// don't block on loading all blobs upfront — each cell loads its own image
-// independently, behind the gray placeholder.
+// Resolves src to something useImage can load.
+// - blob: and data: URLs pass through directly.
+// - blob-ref://layerId: reads the data URL from IDB (safety net — loadProject
+//   normally converts these to blob: URLs before the canvas ever sees them).
 function useBlobSrc(src) {
   const [resolved, setResolved] = React.useState(() =>
     src?.startsWith('blob-ref://') ? null : (src ?? null)
@@ -223,7 +223,7 @@ function useBlobSrc(src) {
     let cancelled = false
     dbGetBlob(src.slice(10))
       .then(dataURL => { if (!cancelled && dataURL) setResolved(dataURL) })
-      .catch(() => { /* blob store read error — image stays as placeholder */ })
+      .catch(() => {})
     return () => { cancelled = true }
   }, [src])
   return resolved
