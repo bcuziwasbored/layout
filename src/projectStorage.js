@@ -110,27 +110,23 @@ export async function loadProject(id) {
   const record = await dbGet('projects', id)
   if (!record) return null
 
-  // Migrate legacy records that had inline blobs (old ref:// scheme)
-  const layers = await Promise.all(
-    record.state.layers.map(async (layer) => {
-      if (layer.src?.startsWith('ref://')) {
-        // Legacy inline blob — migrate to blob store
-        const legacyId = layer.src.slice(6)
-        const blob = record.blobs?.[legacyId]
-        if (blob) {
-          await dbPutBlob(layer.id, blob).catch(() => {})
-          return { ...layer, src: 'blob-ref://' + layer.id, srcOriginal: undefined }
-        }
-      }
-      return { ...layer }
-    })
-  )
+  const hasLegacyBlobs = record.state.layers.some(l => l.src?.startsWith('ref://'))
 
-  // If this was a legacy record, re-save without the inline blobs
-  if (record.blobs) {
-    const cleaned = { ...record, blobs: undefined }
-    delete cleaned.blobs
-    dbPut('projects', { ...record, blobs: undefined }).catch(() => {})
+  // Legacy format (ref:// + inline blobs): create blob URLs directly — this is
+  // reliable and matches the original behavior. Migration to blob-ref:// happens
+  // in the background so subsequent loads are fast.
+  const layers = record.state.layers.map(layer => {
+    if (layer.src?.startsWith('ref://')) {
+      const legacyId = layer.src.slice(6)
+      const blob = record.blobs?.[legacyId]
+      if (blob) return { ...layer, src: URL.createObjectURL(blob), srcOriginal: undefined }
+    }
+    return { ...layer }
+  })
+
+  if (hasLegacyBlobs) {
+    // Async: migrate blobs to blob store and re-save without inline data
+    migrateLegacyProject(record).catch(() => {})
   }
 
   return {
@@ -139,6 +135,30 @@ export async function loadProject(id) {
     projectId: record.id,
     projectName: record.name,
   }
+}
+
+async function migrateLegacyProject(record) {
+  // Store each blob in the blob store
+  await Promise.all(
+    record.state.layers.map(async layer => {
+      if (!layer.src?.startsWith('ref://')) return
+      const legacyId = layer.src.slice(6)
+      const blob = record.blobs?.[legacyId]
+      if (blob) await dbPutBlob(layer.id, blob)
+    })
+  )
+  // Re-save project record with blob-ref:// srcs and no inline blob data
+  const migratedLayers = record.state.layers.map(layer => {
+    if (layer.src?.startsWith('ref://')) {
+      return { ...layer, src: 'blob-ref://' + layer.id, srcOriginal: undefined }
+    }
+    return layer
+  })
+  await dbPut('projects', {
+    ...record,
+    blobs: undefined,
+    state: { ...record.state, layers: migratedLayers },
+  })
 }
 
 export async function listProjects() {
