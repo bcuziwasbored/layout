@@ -173,15 +173,11 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
   // Resolve all image sources to live URLs (handling blob-ref:// lazy refs).
   // Prefer srcOriginal (full-res, session-only) for maximum quality; fall back
   // to src (2048px stored blob) for reopened projects.
-  const tempBlobURLs = []
   async function resolveLayerSrc(layer) {
     let src = layer.srcOriginal ?? layer.src
     if (src?.startsWith('blob-ref://')) {
-      const blob = await dbGetBlob(src.slice(10))
-      if (!blob) return null
-      const url = URL.createObjectURL(blob)
-      tempBlobURLs.push(url)
-      return url
+      // Returns a data URL string — works directly as img.src on all platforms
+      return await dbGetBlob(src.slice(10)).catch(() => null)
     }
     return src ?? null
   }
@@ -311,9 +307,6 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
 
     if (freeRot) ctx.restore()
   }
-
-  // Clean up any temporary blob URLs created for blob-ref:// sources
-  tempBlobURLs.forEach(u => URL.revokeObjectURL(u))
 
   return canvas.toDataURL('image/jpeg', 0.95)
 }

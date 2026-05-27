@@ -218,8 +218,8 @@ function useBlobSrc(src) {
     }
     let cancelled = false
     dbGetBlob(src.slice(10))
-      .then(blob => { if (!cancelled && blob) setResolved(URL.createObjectURL(blob)) })
-      .catch(() => { /* blob store missing or read error — image stays as placeholder */ })
+      .then(dataURL => { if (!cancelled && dataURL) setResolved(dataURL) })
+      .catch(() => { /* blob store read error — image stays as placeholder */ })
     return () => { cancelled = true }
   }, [src])
   return resolved
