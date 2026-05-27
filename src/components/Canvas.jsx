@@ -596,6 +596,9 @@ export default function Canvas({ openPickerRef }) {
   const isMulti         = useRef(false)
   const viewRef         = useRef(null)
   const pinchRef        = useRef({ active: false, lastDist: 0 })
+  // When true, the next activeSlideIdx-change effect is suppressed (used to
+  // avoid snap-back when the user is panning between slides).
+  const skipSnapRef     = useRef(false)
 
   // For pan + resize handle gestures on the Stage
   const panRef = useRef(null)   // { startX, startY, viewX, viewY, type, handle?, layerId?, startLayer? }
@@ -699,14 +702,37 @@ export default function Canvas({ openPickerRef }) {
   }, [containerSize]) // eslint-disable-line
 
   // ── Snap to active slide ──
+  // Re-centers the view when activeSlideIdx changes explicitly (slides panel,
+  // addSlide, opening a project, etc.). Skips the snap when the change came
+  // from the user panning across slides (see view-tracking effect below).
   useEffect(() => {
     if (!view) return
+    if (skipSnapRef.current) { skipSnapRef.current = false; return }
     const { ratio: r } = fresh.current
     setViewSync(v => ({
       ...v,
       x: (containerSize.w - r.w * v.scale) / 2 - activeSlideIdx * r.w * v.scale,
     }))
   }, [activeSlideIdx, slides.length]) // eslint-disable-line
+
+  // ── Track which slide is closest to screen center as the user pans ──
+  // Updates activeSlideIdx so the next "add" action targets the visible slide,
+  // not whatever slide was last selected via the slides panel.
+  useEffect(() => {
+    if (!view || !containerSize.w) return
+    const r = fresh.current.ratio
+    // Find the canvas-space x position currently at the center of the viewport
+    const canvasCenterX = (containerSize.w / 2 - view.x) / view.scale
+    // Pick the slide whose center is closest to that x
+    const idx = Math.max(0, Math.min(
+      slides.length - 1,
+      Math.round((canvasCenterX - r.w / 2) / r.w),
+    ))
+    if (idx !== activeSlideIdx) {
+      skipSnapRef.current = true  // don't re-center the view we already match
+      useStore.setState({ activeSlideIdx: idx })
+    }
+  }, [view, containerSize.w, slides.length]) // eslint-disable-line
 
   // ── Pinch zoom ──
   useEffect(() => {
