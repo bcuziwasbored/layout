@@ -251,8 +251,9 @@ function StyleTab({ layer, activeLayerId, layers, updateLayer, updateLayerWithHi
   const bw  = layer.borderWidth ?? 0
   const bc  = layer.borderColor ?? '#000000'
   const shape = layer.shape ?? 'rect'
-  // Only image layers (with src or potential src) get the shape picker
-  const isImage = layer.type !== 'text' && layer.type !== 'shape'
+  // Shape picker only makes sense for standalone images — not for grouped
+  // template cells (would break the grid tiling) or text/shape layers.
+  const isStandaloneImage = layer.type !== 'text' && layer.type !== 'shape' && !isGroup && !layer.locked
 
   // Propagate a style prop to all cells in a group, or just to this layer
   const applyProp = (prop, value) => {
@@ -279,8 +280,8 @@ function StyleTab({ layer, activeLayerId, layers, updateLayer, updateLayerWithHi
 
   return (
     <div className="px-5 pb-6 pt-1 overflow-y-auto" style={{ maxHeight: '62vh' }}>
-      {/* Shape: only meaningful for image cells */}
-      {isImage && (
+      {/* Shape: only meaningful for standalone images, not template cells */}
+      {isStandaloneImage && (
         <div className="py-4">
           <div className="text-sm font-semibold text-white mb-3">Shape</div>
           <div className="flex gap-2">
