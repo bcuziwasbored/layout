@@ -1251,6 +1251,12 @@ export default function Canvas({ openPickerRef }) {
     if (p.type === 'select' && !p.moved) {
       // setActiveLayer now atomically updates activeSlideIdx — no separate setActiveSlide needed
       fresh.current.setActiveLayer(p.layerId)
+      // Empty text layers should jump straight into edit mode on first tap —
+      // saves a tap for the very common case of "I just want to type".
+      const tapped = fresh.current.layers.find(l => l.id === p.layerId)
+      if (tapped?.type === 'text' && !(tapped.text && tapped.text.trim())) {
+        fresh.current.setTextEditId(p.layerId)
+      }
       return
     }
 
