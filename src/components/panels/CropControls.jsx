@@ -24,6 +24,16 @@ const ASPECT_PRESETS = [
   { label: '16:9', value: 16/9 },
 ]
 
+// Shape options for cropping a standalone image into a different outline.
+// Easy to extend with more shapes (star, heart, blob) — just add applyShapeClip
+// cases in Canvas.jsx and shapePath cases in ExportScreen.jsx.
+const SHAPE_OPTIONS = [
+  { id: 'rect',   label: 'Rect',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="14" rx="2" /></svg> },
+  { id: 'circle', label: 'Circle',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="12" rx="9" ry="7" /></svg> },
+]
+
 export default function CropControls() {
   const activeLayerId          = useStore(s => s.activeLayerId)
   const layers                 = useStore(s => s.layers)
@@ -57,6 +67,28 @@ export default function CropControls() {
         <button onClick={() => setCropMode(false)}
           className="text-white text-sm font-semibold active:opacity-60">Done</button>
       </div>
+
+      {/* Shape picker — standalone images only (template cells must stay rectangular) */}
+      {!layer.locked && (
+        <div className="flex gap-1.5 overflow-x-auto pb-2 mb-2 scrollbar-hide">
+          {SHAPE_OPTIONS.map(({ id, label, icon }) => {
+            const active = (layer.shape ?? 'rect') === id
+            return (
+              <button key={id} onClick={() => {
+                useStore.getState()._captureUndo()
+                updateLayer(layer.id, { shape: id })
+                useStore.getState()._commitUndo()
+              }}
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  active ? 'bg-blue-500 text-white' : 'bg-white/10 text-white/60 active:bg-white/20'
+                }`}>
+                {icon}
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {/* Aspect ratio presets */}
       <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3 scrollbar-hide">
