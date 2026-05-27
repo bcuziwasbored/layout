@@ -76,7 +76,20 @@ export default function CropControls() {
             return (
               <button key={id} onClick={() => {
                 useStore.getState()._captureUndo()
-                updateLayer(layer.id, { shape: id })
+                // For circle, snap the frame to a square (shorter side, centered)
+                // so the ellipse becomes a perfect circle instead of an oval.
+                // The image is refit to cover the new square frame.
+                if (id === 'circle' && layer.w !== layer.h) {
+                  const size = Math.min(layer.w, layer.h)
+                  const newX = layer.x + (layer.w - size) / 2
+                  const newY = layer.y + (layer.h - size) / 2
+                  const nW = layer.naturalW ?? size
+                  const nH = layer.naturalH ?? size
+                  const fit = fitInCell(nW, nH, size, size)
+                  updateLayer(layer.id, { shape: id, x: newX, y: newY, w: size, h: size, ...fit })
+                } else {
+                  updateLayer(layer.id, { shape: id })
+                }
                 useStore.getState()._commitUndo()
               }}
                 className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
