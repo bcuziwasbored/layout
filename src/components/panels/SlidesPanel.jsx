@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useStore } from '../../useStore'
 import { IconClose } from '../icons'
+import { renderSlide } from '../../renderSlide'
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 
@@ -94,6 +95,7 @@ export default function SlidesPanel() {
   const layers       = useStore(s => s.layers)
   const activeSlideIdx = useStore(s => s.activeSlideIdx)
   const bgColor      = useStore(s => s.bgColor)
+  const bgGradient   = useStore(s => s.bgGradient)
   const ratio        = useStore(s => s.ratio)
   const setActiveSlide  = useStore(s => s.setActiveSlide)
   const setPanel        = useStore(s => s.setPanel)
@@ -106,6 +108,34 @@ export default function SlidesPanel() {
   const THUMB_H = 88
   const THUMB_W = Math.round(THUMB_H * (ratio.w / ratio.h))
   const GAP = 12
+
+  // ── Live canvas thumbnails ──────────────────────────────────────────────────
+  // Render each slide via the shared canvas renderer so thumbnails are an
+  // accurate, up-to-date snapshot of what the user sees on the canvas (text,
+  // shapes, crops, rotation, filters — all of it). Debounced so rapid edits
+  // don't cause lag.
+  const [thumbs, setThumbs] = useState({})  // { [slideId]: dataURL }
+  useEffect(() => {
+    const cancelToken = { cancelled: false }
+    const debounce = setTimeout(async () => {
+      // Pixel ratio so the thumb stays crisp on retina; ~3x oversampled
+      const pxScale = (THUMB_H / ratio.h) * (window.devicePixelRatio || 1)
+      const imgCache = new Map()
+      const results = {}
+      // Render serially to avoid hammering the main thread / image decoder
+      for (let i = 0; i < slides.length; i++) {
+        if (cancelToken.cancelled) return
+        try {
+          results[slides[i].id] = await renderSlide(i, {
+            slides, layers, ratio, bgColor, bgGradient,
+            scale: pxScale, quality: 0.75, preferOriginal: false, imgCache,
+          })
+        } catch {}
+      }
+      if (!cancelToken.cancelled) setThumbs(results)
+    }, 200)
+    return () => { cancelToken.cancelled = true; clearTimeout(debounce) }
+  }, [slides, layers, ratio, bgColor, bgGradient, THUMB_H])
 
   const [menuIdx, setMenuIdx]   = useState(null)
   // dragState: { fromIdx, currentIdx, startX }
@@ -171,11 +201,9 @@ export default function SlidesPanel() {
         <div className="flex px-5 overflow-x-auto pb-2" style={{ gap: GAP }}>
           {visualOrder.map((slideIdx, visualPos) => {
             const slide = slides[slideIdx]
-            const slideLayers = layers.filter(l =>
-              Math.floor(l.x / ratio.w) === slideIdx && (l.src || l.type === 'shape' || l.type === 'text')
-            )
             const isActive  = slideIdx === activeSlideIdx
             const isDragging = dragState?.fromIdx === slideIdx
+            const thumb = thumbs[slide.id]
 
             return (
               <div
@@ -191,20 +219,10 @@ export default function SlidesPanel() {
                   style={{ height: THUMB_H, background: slide.bgColor ?? bgColor }}
                   onClick={() => { if (!dragState) { setActiveSlide(slideIdx); setPanel(null) } }}
                 >
-                  {slideLayers.filter(l => l.src).map(layer => (
-                    <img
-                      key={layer.id}
-                      src={layer.src}
-                      className="absolute object-cover pointer-events-none"
-                      style={{
-                        left:   `${((layer.x - slideIdx * ratio.w) / ratio.w) * 100}%`,
-                        top:    `${(layer.y / ratio.h) * 100}%`,
-                        width:  `${(layer.w / ratio.w) * 100}%`,
-                        height: `${(layer.h / ratio.h) * 100}%`,
-                      }}
-                      alt=""
-                    />
-                  ))}
+                  {thumb && (
+                    <img src={thumb} alt=""
+                      className="absolute inset-0 w-full h-full object-cover pointer-events-none" />
+                  )}
                   {/* Slide number badge */}
                   <div className="absolute bottom-1 left-1.5 bg-black/55 text-white text-[9px] px-1.5 py-0.5 rounded-full font-semibold leading-none">
                     {slideIdx + 1}
