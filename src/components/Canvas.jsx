@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react'
-import { Stage, Layer, Rect, Circle, Ellipse, Image as KImage, Group, Text, Line } from 'react-konva'
+import { Stage, Layer, Rect, Circle, Ellipse, Image as KImage, Group, Text, Line, Shape } from 'react-konva'
 import { useStore, fitInCell } from '../useStore'
 import useImage from 'use-image'
 import { dbGetBlob } from '../db'
@@ -558,6 +558,8 @@ function CropTarget({ layer, vs }) {
     ['r',  layer.x + layer.w, cy],
   ]
 
+  const isCircleShape = (layer.shape ?? 'rect') === 'circle'
+
   return (
     <Group>
       {/* Ghost image outside clip */}
@@ -566,9 +568,40 @@ function CropTarget({ layer, vs }) {
       <Group clipFunc={ctx => ctx.rect(layer.x, layer.y, layer.w, layer.h)} listening={false}>
         {renderImg(1)}
       </Group>
+      {/* Circle preview overlay: darken the part of the rectangle that won't be
+          in the final circle crop. Uses non-zero winding rule — outer rect
+          drawn clockwise, inner ellipse drawn counter-clockwise so it cuts a
+          hole through the dark fill. */}
+      {isCircleShape && (
+        <Shape
+          sceneFunc={(ctx, shape) => {
+            const ex = layer.x + layer.w / 2
+            const ey = layer.y + layer.h / 2
+            const rx = layer.w / 2
+            const ry = layer.h / 2
+            ctx.beginPath()
+            ctx.rect(layer.x, layer.y, layer.w, layer.h)
+            ctx.moveTo(ex + rx, ey)
+            ctx.ellipse(ex, ey, rx, ry, 0, 0, Math.PI * 2, true) // anticlockwise = hole
+            ctx.closePath()
+            ctx.fillStrokeShape(shape)
+          }}
+          fill="rgba(0, 0, 0, 0.55)"
+          listening={false}
+        />
+      )}
       {/* Dashed border */}
       <Rect x={layer.x} y={layer.y} width={layer.w} height={layer.h}
         stroke="white" strokeWidth={1.5 / vs} dash={[6 / vs, 4 / vs]} listening={false} />
+      {/* Circle outline (matches the shaded preview) so the user sees the exact crop edge */}
+      {isCircleShape && (
+        <Ellipse
+          x={layer.x + layer.w / 2} y={layer.y + layer.h / 2}
+          radiusX={layer.w / 2} radiusY={layer.h / 2}
+          stroke="white" strokeWidth={1.5 / vs}
+          listening={false}
+        />
+      )}
       {/* Rule-of-thirds grid */}
       {[1/3, 2/3].map(t => (
         <React.Fragment key={t}>
