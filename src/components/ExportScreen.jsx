@@ -169,7 +169,9 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
     return cx - extHalfW < sliceEnd && cx + extHalfW > sliceStart
   })
 
-  // Pre-load all image layers into a Map, waiting for full decode
+  // Pre-load all image layers into a Map, waiting for full decode.
+  // Use srcOriginal (full-res) when available — the draw-size math uses
+  // layer.naturalW/H (the downscaled logical dimensions) so crop/pan is preserved.
   const imgMap = new Map()
   await Promise.all(
     relevant.filter(l => l.src).map(layer => new Promise(resolve => {
@@ -181,7 +183,8 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
         p.catch(() => {}).then(() => { imgMap.set(layer.id, img); resolve() })
       }
       img.onerror = resolve
-      img.src = layer.src
+      // Prefer the original full-resolution source for maximum export quality
+      img.src = layer.srcOriginal ?? layer.src
     }))
   )
 
@@ -240,8 +243,14 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
 
       const drawX = (layer.x - sliceStart) + (layer.imgX ?? 0) + inset
       const drawY = layer.y + (layer.imgY ?? 0) + inset
-      const drawW = img.naturalWidth  * (layer.imgScale ?? 1)
-      const drawH = img.naturalHeight * (layer.imgScale ?? 1)
+      // Use layer.naturalW/H (the logical/downscaled dimensions imgScale is relative to)
+      // so crop/pan is pixel-accurate whether we loaded the downscaled preview or the
+      // full-resolution original. drawImage will stretch the full-res pixels to fill
+      // the same logical area, giving full-quality output.
+      const logW = layer.naturalW ?? img.naturalWidth
+      const logH = layer.naturalH ?? img.naturalHeight
+      const drawW = logW * (layer.imgScale ?? 1)
+      const drawH = logH * (layer.imgScale ?? 1)
       const rotation = layer.rotation ?? 0
       const flipH = layer.flipH ?? false
       const flipV = layer.flipV ?? false
@@ -252,9 +261,12 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
         if (flipH) ctx.scale(-1, 1)
         if (flipV) ctx.scale(1, -1)
         if (rotation) ctx.rotate(rotation * Math.PI / 180)
-        ctx.drawImage(img, drawX - frameCX, drawY - frameCY, drawW, drawH)
+        // drawImage with explicit source rect maps the full-res image to the logical draw area
+        ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight,
+          drawX - frameCX, drawY - frameCY, drawW, drawH)
       } else {
-        ctx.drawImage(img, drawX, drawY, drawW, drawH)
+        ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight,
+          drawX, drawY, drawW, drawH)
       }
       ctx.filter = 'none'
       ctx.restore()

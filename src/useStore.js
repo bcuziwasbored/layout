@@ -429,14 +429,14 @@ export const useStore = create((set, get) => ({
     set({ slides: newSlides, layers: [...kept, ...newLayers], panel: null })
   },
 
-  addImageLayer(src, naturalW, naturalH, slideIdx) {
+  addImageLayer(src, srcOriginal, naturalW, naturalH, slideIdx) {
     get()._pushHistory()
     const { ratio, activeSlideIdx } = get()
     const si = slideIdx ?? activeSlideIdx
     const offsetX = si * ratio.w
     const { imgScale, imgX, imgY } = fitInCell(naturalW, naturalH, ratio.w, ratio.h)
     const layer = {
-      id: uid(), type: 'image', src,
+      id: uid(), type: 'image', src, srcOriginal: srcOriginal ?? src,
       x: offsetX, y: 0, w: ratio.w, h: ratio.h,
       imgX, imgY, imgScale, opacity: 1, naturalW, naturalH,
     }
@@ -451,12 +451,12 @@ export const useStore = create((set, get) => ({
       .filter(l => !l.src && Math.floor(l.x / ratio.w) === activeSlideIdx)
       .sort((a, b) => a.x - b.x || a.y - b.y)
 
-    processedImages.forEach(({ src, naturalW, naturalH }, i) => {
+    processedImages.forEach(({ src, srcOriginal, naturalW, naturalH }, i) => {
       if (i >= emptyCells.length) return
       const cell = emptyCells[i]
       const gap = cell.cellGap ?? 0
       const fit = fitInCell(naturalW, naturalH, cell.w - gap, cell.h - gap)
-      useStore.getState().updateLayer(cell.id, { src, naturalW, naturalH, ...fit })
+      useStore.getState().updateLayer(cell.id, { src, srcOriginal: srcOriginal ?? src, naturalW, naturalH, ...fit })
     })
   },
 

@@ -17,21 +17,22 @@ function processImageFile(file) {
     img.onload = () => {
       const { naturalWidth: nW, naturalHeight: nH } = img
       if (nW <= MAX_DIM && nH <= MAX_DIM) {
-        // Already small enough — use directly
-        resolve({ src: rawUrl, naturalW: nW, naturalH: nH })
+        // Already small enough — use same URL for both display and export
+        resolve({ src: rawUrl, srcOriginal: rawUrl, naturalW: nW, naturalH: nH })
         return
       }
+      // Downscale for display — keep rawUrl alive as srcOriginal for export
       const scale = MAX_DIM / Math.max(nW, nH)
       const w = Math.round(nW * scale)
       const h = Math.round(nH * scale)
       const canvas = document.createElement('canvas')
       canvas.width = w; canvas.height = h
       canvas.getContext('2d').drawImage(img, 0, 0, w, h)
-      URL.revokeObjectURL(rawUrl)
+      // NOTE: rawUrl is intentionally NOT revoked — it's kept as srcOriginal for export
       canvas.toBlob(
         blob => {
           if (!blob) { reject(new Error('toBlob failed')); return }
-          resolve({ src: URL.createObjectURL(blob), naturalW: w, naturalH: h })
+          resolve({ src: URL.createObjectURL(blob), srcOriginal: rawUrl, naturalW: w, naturalH: h })
         },
         'image/jpeg', 0.92,
       )
@@ -1214,17 +1215,17 @@ export default function Canvas({ openPickerRef }) {
       const processed = await Promise.all(files.map(processImageFile))
       fill(processed)  // store accepts [{src, naturalW, naturalH}]
     } else {
-      const { src, naturalW, naturalH } = await processImageFile(files[0])
+      const { src, srcOriginal, naturalW, naturalH } = await processImageFile(files[0])
       if (pendingLayerId.current) {
         const layer = curLayers.find(l => l.id === pendingLayerId.current)
         if (layer) {
           const gap = layer.cellGap ?? 0
           const fit = fitInCell(naturalW, naturalH, layer.w - gap, layer.h - gap)
-          upd(pendingLayerId.current, { src, naturalW, naturalH, ...fit })
+          upd(pendingLayerId.current, { src, srcOriginal, naturalW, naturalH, ...fit })
         }
         pendingLayerId.current = null
       } else {
-        addImg(src, naturalW, naturalH, pendingSlideIdx.current ?? asi)
+        addImg(src, srcOriginal, naturalW, naturalH, pendingSlideIdx.current ?? asi)
       }
     }
   }
