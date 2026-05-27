@@ -179,6 +179,66 @@ export const TEMPLATES = [
       { x: 0.333, y: 0.333, w: 0.667, h: 0.667 },
     ],
   },
+  // Editorial: TL big hero, TR split, full-width bottom
+  {
+    id: 'editorial', label: 'Editorial',
+    cells: [
+      { x: 0,     y: 0,     w: 0.667, h: 0.667 },
+      { x: 0.667, y: 0,     w: 0.333, h: 0.334 },
+      { x: 0.667, y: 0.334, w: 0.333, h: 0.333 },
+      { x: 0,     y: 0.667, w: 1,     h: 0.333 },
+    ],
+  },
+  // Spread: tall left + 3 stacked right
+  {
+    id: 'spread', label: 'Spread',
+    cells: [
+      { x: 0,   y: 0,    w: 0.6, h: 1 },
+      { x: 0.6, y: 0,    w: 0.4, h: 0.4 },
+      { x: 0.6, y: 0.4,  w: 0.4, h: 0.35 },
+      { x: 0.6, y: 0.75, w: 0.4, h: 0.25 },
+    ],
+  },
+  // Wedge: diagonal asymmetric
+  {
+    id: 'wedge', label: 'Wedge',
+    cells: [
+      { x: 0,     y: 0,   w: 0.333, h: 0.5 },
+      { x: 0.333, y: 0,   w: 0.667, h: 0.5 },
+      { x: 0,     y: 0.5, w: 0.667, h: 0.5 },
+      { x: 0.667, y: 0.5, w: 0.333, h: 0.5 },
+    ],
+  },
+  // Tribune: hero top + 3 unequal bottom
+  {
+    id: 'tribune', label: 'Tribune',
+    cells: [
+      { x: 0,   y: 0,   w: 1,   h: 0.6 },
+      { x: 0,   y: 0.6, w: 0.2, h: 0.4 },
+      { x: 0.2, y: 0.6, w: 0.5, h: 0.4 },
+      { x: 0.7, y: 0.6, w: 0.3, h: 0.4 },
+    ],
+  },
+  // Inset: tall left + 3 staggered right
+  {
+    id: 'inset', label: 'Inset',
+    cells: [
+      { x: 0,   y: 0,    w: 0.7, h: 1 },
+      { x: 0.7, y: 0,    w: 0.3, h: 0.25 },
+      { x: 0.7, y: 0.25, w: 0.3, h: 0.5 },
+      { x: 0.7, y: 0.75, w: 0.3, h: 0.25 },
+    ],
+  },
+  // Parallax: alternating 2×2 with offset heights
+  {
+    id: 'parallax', label: 'Parallax',
+    cells: [
+      { x: 0,   y: 0,   w: 0.5, h: 0.6 },
+      { x: 0,   y: 0.6, w: 0.5, h: 0.4 },
+      { x: 0.5, y: 0,   w: 0.5, h: 0.4 },
+      { x: 0.5, y: 0.4, w: 0.5, h: 0.6 },
+    ],
+  },
 
   // ── 5-cell ───────────────────────────────────────────────────────────────────
   {
@@ -285,6 +345,28 @@ export const TEMPLATES = [
       { x: 0.667, y: 0.5, w: 0.333, h: 0.5 },
     ],
   },
+  // Window: narrow sides flanking a wide center
+  {
+    id: 'window', label: 'Window',
+    cells: [
+      { x: 0,    y: 0,   w: 0.25, h: 0.5 },
+      { x: 0,    y: 0.5, w: 0.25, h: 0.5 },
+      { x: 0.25, y: 0,   w: 0.5,  h: 1 },
+      { x: 0.75, y: 0,   w: 0.25, h: 0.5 },
+      { x: 0.75, y: 0.5, w: 0.25, h: 0.5 },
+    ],
+  },
+  // Portico: thin banners top and bottom, 3 columns in middle
+  {
+    id: 'portico', label: 'Portico',
+    cells: [
+      { x: 0,     y: 0,   w: 1,     h: 0.2 },
+      { x: 0,     y: 0.2, w: 0.333, h: 0.6 },
+      { x: 0.333, y: 0.2, w: 0.334, h: 0.6 },
+      { x: 0.667, y: 0.2, w: 0.333, h: 0.6 },
+      { x: 0,     y: 0.8, w: 1,     h: 0.2 },
+    ],
+  },
 
   // ── 6-cell ───────────────────────────────────────────────────────────────────
   {
@@ -315,6 +397,83 @@ export const TEMPLATES = [
       { x: 0.667, y: 0.5,  w: 0.333, h: 0.25 },
       { x: 0,     y: 0.75, w: 0.5,   h: 0.25 },
       { x: 0.5,   y: 0.75, w: 0.5,   h: 0.25 },
+    ],
+  },
+  // Masthead: thin banner top, hero+side middle, 3 cols bottom
+  {
+    id: 'masthead', label: 'Masthead',
+    cells: [
+      { x: 0,     y: 0,    w: 1,     h: 0.15 },
+      { x: 0,     y: 0.15, w: 0.65,  h: 0.55 },
+      { x: 0.65,  y: 0.15, w: 0.35,  h: 0.55 },
+      { x: 0,     y: 0.7,  w: 0.333, h: 0.3 },
+      { x: 0.333, y: 0.7,  w: 0.334, h: 0.3 },
+      { x: 0.667, y: 0.7,  w: 0.333, h: 0.3 },
+    ],
+  },
+  // Cascade: top-left big + 2 stacked top-right, 2 small + 1 big bottom
+  {
+    id: 'cascade', label: 'Cascade',
+    cells: [
+      { x: 0,    y: 0,    w: 0.5,  h: 0.5 },
+      { x: 0.5,  y: 0,    w: 0.5,  h: 0.25 },
+      { x: 0.5,  y: 0.25, w: 0.5,  h: 0.25 },
+      { x: 0,    y: 0.5,  w: 0.25, h: 0.5 },
+      { x: 0.25, y: 0.5,  w: 0.25, h: 0.5 },
+      { x: 0.5,  y: 0.5,  w: 0.5,  h: 0.5 },
+    ],
+  },
+  // Tabloid: hero TL + split TR, 3 cols bottom with wide center
+  {
+    id: 'tabloid', label: 'Tabloid',
+    cells: [
+      { x: 0,    y: 0,     w: 0.6,  h: 0.55 },
+      { x: 0.6,  y: 0,     w: 0.4,  h: 0.275 },
+      { x: 0.6,  y: 0.275, w: 0.4,  h: 0.275 },
+      { x: 0,    y: 0.55,  w: 0.25, h: 0.45 },
+      { x: 0.25, y: 0.55,  w: 0.5,  h: 0.45 },
+      { x: 0.75, y: 0.55,  w: 0.25, h: 0.45 },
+    ],
+  },
+
+  // ── 7-cell ───────────────────────────────────────────────────────────────────
+  // Stagger: 3 rows with alternating widths
+  {
+    id: 'stagger', label: 'Stagger',
+    cells: [
+      { x: 0,     y: 0,   w: 0.4,   h: 0.3 },
+      { x: 0.4,   y: 0,   w: 0.6,   h: 0.3 },
+      { x: 0,     y: 0.3, w: 0.333, h: 0.4 },
+      { x: 0.333, y: 0.3, w: 0.334, h: 0.4 },
+      { x: 0.667, y: 0.3, w: 0.333, h: 0.4 },
+      { x: 0,     y: 0.7, w: 0.6,   h: 0.3 },
+      { x: 0.6,   y: 0.7, w: 0.4,   h: 0.3 },
+    ],
+  },
+  // Mosaic: 2-3-2 layout with varying heights
+  {
+    id: 'mosaic', label: 'Mosaic',
+    cells: [
+      { x: 0,     y: 0,    w: 0.5,   h: 0.35 },
+      { x: 0.5,   y: 0,    w: 0.5,   h: 0.35 },
+      { x: 0,     y: 0.35, w: 0.333, h: 0.3 },
+      { x: 0.333, y: 0.35, w: 0.334, h: 0.3 },
+      { x: 0.667, y: 0.35, w: 0.333, h: 0.3 },
+      { x: 0,     y: 0.65, w: 0.6,   h: 0.35 },
+      { x: 0.6,   y: 0.65, w: 0.4,   h: 0.35 },
+    ],
+  },
+  // Periodical: editorial 3-row with varying column widths
+  {
+    id: 'periodical', label: 'Periodical',
+    cells: [
+      { x: 0,    y: 0,   w: 0.4,  h: 0.3 },
+      { x: 0.4,  y: 0,   w: 0.6,  h: 0.3 },
+      { x: 0,    y: 0.3, w: 0.25, h: 0.4 },
+      { x: 0.25, y: 0.3, w: 0.5,  h: 0.4 },
+      { x: 0.75, y: 0.3, w: 0.25, h: 0.4 },
+      { x: 0,    y: 0.7, w: 0.65, h: 0.3 },
+      { x: 0.65, y: 0.7, w: 0.35, h: 0.3 },
     ],
   },
 
@@ -368,6 +527,33 @@ export const TEMPLATES = [
       { x: 1.5, y: 0, w: 0.5, h: 1 },
     ],
   },
+  // Panorama: full-width banner top + half-page each below
+  {
+    id: 'panorama', label: 'Panorama', pageSpan: 2,
+    cells: [
+      { x: 0, y: 0,   w: 2, h: 0.6 },
+      { x: 0, y: 0.6, w: 1, h: 0.4 },
+      { x: 1, y: 0.6, w: 1, h: 0.4 },
+    ],
+  },
+  // Bleed: narrow sides + tall center spanning the divide
+  {
+    id: 'bleed', label: 'Bleed', pageSpan: 2,
+    cells: [
+      { x: 0,   y: 0, w: 0.5, h: 1 },
+      { x: 0.5, y: 0, w: 1,   h: 1 },
+      { x: 1.5, y: 0, w: 0.5, h: 1 },
+    ],
+  },
+  // Crossfade: wide outer panels + narrower center spanning the divide
+  {
+    id: 'crossfade', label: 'Crossfade', pageSpan: 2,
+    cells: [
+      { x: 0,    y: 0, w: 0.75, h: 1 },
+      { x: 0.75, y: 0, w: 0.5,  h: 1 },
+      { x: 1.25, y: 0, w: 0.75, h: 1 },
+    ],
+  },
 
   // ── 4-cell multi-page ────────────────────────────────────────────────────────
   // 4 equal vertical columns across 2 pages (2 per page)
@@ -379,6 +565,16 @@ export const TEMPLATES = [
   {
     id: '2p-grid-2x2', label: '2P 2×2', pageSpan: 2,
     cells: grid(2, 2, 2),
+  },
+  // Marquee: tall outer columns + 2 stacked centers spanning the divide
+  {
+    id: 'marquee', label: 'Marquee', pageSpan: 2,
+    cells: [
+      { x: 0,   y: 0,   w: 0.5, h: 1 },
+      { x: 0.5, y: 0,   w: 1,   h: 0.5 },
+      { x: 0.5, y: 0.5, w: 1,   h: 0.5 },
+      { x: 1.5, y: 0,   w: 0.5, h: 1 },
+    ],
   },
 
   // ── 5-cell multi-page ────────────────────────────────────────────────────────
@@ -415,6 +611,61 @@ export const TEMPLATES = [
       { x: 1.5, y: 0.5, w: 0.5, h: 0.5 },
     ],
   },
+  // Horizon: full-width banner, middle row with center spanning divide, full-width bottom
+  {
+    id: 'horizon', label: 'Horizon', pageSpan: 2,
+    cells: [
+      { x: 0,   y: 0,   w: 2,   h: 0.4 },
+      { x: 0,   y: 0.4, w: 0.5, h: 0.3 },
+      { x: 0.5, y: 0.4, w: 1,   h: 0.3 },
+      { x: 1.5, y: 0.4, w: 0.5, h: 0.3 },
+      { x: 0,   y: 0.7, w: 2,   h: 0.3 },
+    ],
+  },
+  // Continuum: 4 corners + full-width banner across the middle
+  {
+    id: 'continuum', label: 'Continuum', pageSpan: 2,
+    cells: [
+      { x: 0, y: 0,   w: 1, h: 0.4 },
+      { x: 1, y: 0,   w: 1, h: 0.4 },
+      { x: 0, y: 0.4, w: 2, h: 0.3 },
+      { x: 0, y: 0.7, w: 1, h: 0.3 },
+      { x: 1, y: 0.7, w: 1, h: 0.3 },
+    ],
+  },
+  // Reel: filmstrip with center band spanning the divide
+  {
+    id: 'reel', label: 'Reel', pageSpan: 2,
+    cells: [
+      { x: 0, y: 0,     w: 1, h: 0.333 },
+      { x: 1, y: 0,     w: 1, h: 0.333 },
+      { x: 0, y: 0.333, w: 2, h: 0.334 },
+      { x: 0, y: 0.667, w: 1, h: 0.333 },
+      { x: 1, y: 0.667, w: 1, h: 0.333 },
+    ],
+  },
+  // Vista: panoramic banner top + 4 equal cells below
+  {
+    id: 'vista', label: 'Vista', pageSpan: 2,
+    cells: [
+      { x: 0,   y: 0,   w: 2,   h: 0.5 },
+      { x: 0,   y: 0.5, w: 0.5, h: 0.5 },
+      { x: 0.5, y: 0.5, w: 0.5, h: 0.5 },
+      { x: 1,   y: 0.5, w: 0.5, h: 0.5 },
+      { x: 1.5, y: 0.5, w: 0.5, h: 0.5 },
+    ],
+  },
+  // Serial: 4 narrow top + big banner bottom
+  {
+    id: 'serial', label: 'Serial', pageSpan: 2,
+    cells: [
+      { x: 0,   y: 0,   w: 0.5, h: 0.4 },
+      { x: 0.5, y: 0,   w: 0.5, h: 0.4 },
+      { x: 1,   y: 0,   w: 0.5, h: 0.4 },
+      { x: 1.5, y: 0,   w: 0.5, h: 0.4 },
+      { x: 0,   y: 0.4, w: 2,   h: 0.6 },
+    ],
+  },
 
   // ── 6-cell multi-page ────────────────────────────────────────────────────────
   // 6 equal vertical columns
@@ -435,6 +686,30 @@ export const TEMPLATES = [
       { x: 1, y: 0,     w: 1, h: 0.333 },
       { x: 1, y: 0.333, w: 1, h: 0.334 },
       { x: 1, y: 0.667, w: 1, h: 0.333 },
+    ],
+  },
+  // Tide: narrow top, wide middle band spanning the divide, full-width bottom
+  {
+    id: 'tide', label: 'Tide', pageSpan: 2,
+    cells: [
+      { x: 0,    y: 0,   w: 1,    h: 0.3 },
+      { x: 1,    y: 0,   w: 1,    h: 0.3 },
+      { x: 0,    y: 0.3, w: 0.25, h: 0.4 },
+      { x: 0.25, y: 0.3, w: 1.5,  h: 0.4 },
+      { x: 1.75, y: 0.3, w: 0.25, h: 0.4 },
+      { x: 0,    y: 0.7, w: 2,    h: 0.3 },
+    ],
+  },
+  // Saga: hero left, split center, hero right, full-width bottom
+  {
+    id: 'saga', label: 'Saga', pageSpan: 2,
+    cells: [
+      { x: 0,   y: 0,   w: 0.7, h: 0.6 },
+      { x: 0.7, y: 0,   w: 0.3, h: 0.3 },
+      { x: 0.7, y: 0.3, w: 0.3, h: 0.3 },
+      { x: 1,   y: 0,   w: 0.3, h: 0.6 },
+      { x: 1.3, y: 0,   w: 0.7, h: 0.6 },
+      { x: 0,   y: 0.6, w: 2,   h: 0.4 },
     ],
   },
 
@@ -497,6 +772,68 @@ export const TEMPLATES = [
   {
     id: '2p-grid-6x4', label: '2P 6×4', pageSpan: 2,
     cells: grid(6, 4, 2),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // ── 3-page templates (pageSpan: 3) ──────────────────────────────────────────
+  // x goes 0–3 across the three pages
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  // Pano 3: full-width banner spanning 3 pages + 3 cells below (one per page)
+  // Label is "Pano 3" to avoid colliding with the existing 2-page "Triptych"
+  {
+    id: 'triptych-pano', label: 'Pano 3', pageSpan: 3,
+    cells: [
+      { x: 0, y: 0,   w: 3, h: 0.6 },
+      { x: 0, y: 0.6, w: 1, h: 0.4 },
+      { x: 1, y: 0.6, w: 1, h: 0.4 },
+      { x: 2, y: 0.6, w: 1, h: 0.4 },
+    ],
+  },
+  // Story: 2-cell intro page + full middle page + 2-cell closer
+  {
+    id: 'story-arc', label: 'Story', pageSpan: 3,
+    cells: [
+      { x: 0, y: 0,   w: 1, h: 0.4 },
+      { x: 0, y: 0.4, w: 1, h: 0.6 },
+      { x: 1, y: 0,   w: 1, h: 1 },
+      { x: 2, y: 0,   w: 1, h: 0.6 },
+      { x: 2, y: 0.6, w: 1, h: 0.4 },
+    ],
+  },
+  // Strip: two full-width banners + 3-up bottom row (one cell per page)
+  {
+    id: 'pano-strip', label: 'Strip', pageSpan: 3,
+    cells: [
+      { x: 0, y: 0,   w: 3, h: 0.4 },
+      { x: 0, y: 0.4, w: 3, h: 0.3 },
+      { x: 0, y: 0.7, w: 1, h: 0.3 },
+      { x: 1, y: 0.7, w: 1, h: 0.3 },
+      { x: 2, y: 0.7, w: 1, h: 0.3 },
+    ],
+  },
+  // Filmstrip: 2-cell sides + full center page
+  {
+    id: 'filmstrip', label: 'Filmstrip', pageSpan: 3,
+    cells: [
+      { x: 0, y: 0,   w: 1, h: 0.5 },
+      { x: 0, y: 0.5, w: 1, h: 0.5 },
+      { x: 1, y: 0,   w: 1, h: 1 },
+      { x: 2, y: 0,   w: 1, h: 0.5 },
+      { x: 2, y: 0.5, w: 1, h: 0.5 },
+    ],
+  },
+  // Cascade 3: banner + half-page pair + 3-up bottom row
+  {
+    id: 'cascade-3', label: 'Cascade 3', pageSpan: 3,
+    cells: [
+      { x: 0,   y: 0,     w: 3,   h: 0.333 },
+      { x: 0,   y: 0.333, w: 1.5, h: 0.334 },
+      { x: 1.5, y: 0.333, w: 1.5, h: 0.334 },
+      { x: 0,   y: 0.667, w: 1,   h: 0.333 },
+      { x: 1,   y: 0.667, w: 1,   h: 0.333 },
+      { x: 2,   y: 0.667, w: 1,   h: 0.333 },
+    ],
   },
 ]
 
