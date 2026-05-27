@@ -1,4 +1,4 @@
-import { dbGet, dbPut, dbDelete, dbGetAll, dbGetBlob, dbPutBlob, dbDeleteBlob } from './db'
+import { dbGet, dbPut, dbDelete, dbGetAll } from './db'
 import { blobCache } from './blobCache'
 
 const THUMB_W = 240
@@ -37,42 +37,24 @@ async function blobFromURL(url) {
 }
 
 // ─── Serialization ─────────────────────────────────────────────────────────────
-// In-memory layer.src values:
-//   blob:      — newly added image this session (from processImageFile)
-//   blob-ref:// — image loaded from a saved project
-//
-// On save: both become blob-ref://layerId in the project record, with the
-// actual image stored as a data URL string in the blob store.
-// Data URL strings work perfectly in IDB on all platforms including iOS.
+// Convert blob: URLs to data URL strings stored inline in layer.src.
+// Simplest possible approach — no separate IDB stores, no async lookups during
+// rendering. Data URL strings work reliably in IDB on every platform including iOS.
 
 async function serializeLayers(layers) {
   return Promise.all(
     layers.map(async (layer) => {
-      // Same-session blob: URL — get Blob from cache and convert to data URL
       if (layer.src?.startsWith('blob:')) {
         try {
           const blob = await blobFromURL(layer.src)
           const dataURL = await blobToDataURL(blob)
-          await dbPutBlob(layer.id, dataURL)
-          return { ...layer, src: 'blob-ref://' + layer.id, srcOriginal: undefined }
+          return { ...layer, src: dataURL, srcOriginal: undefined }
         } catch (e) {
           console.warn('Failed to serialize layer', layer.id, e)
           return { ...layer, srcOriginal: undefined }
         }
       }
-      // Already a blob-ref:// — data URL already in blob store, nothing to do
-      if (layer.src?.startsWith('blob-ref://')) {
-        return { ...layer, srcOriginal: undefined }
-      }
-      // Transitional inline data URL — migrate to blob store
-      if (layer.src?.startsWith('data:')) {
-        try {
-          await dbPutBlob(layer.id, layer.src)
-          return { ...layer, src: 'blob-ref://' + layer.id, srcOriginal: undefined }
-        } catch {
-          return { ...layer, srcOriginal: undefined }
-        }
-      }
+      // Already a data URL or null — keep as-is
       return { ...layer, srcOriginal: undefined }
     })
   )
@@ -93,11 +75,7 @@ async function renderThumbnail(layers, slides, ratio, bgColor) {
   const slide0Layers = layers.filter(l => l.src && l.x < sliceEnd && l.x + l.w > 0)
 
   for (const layer of slide0Layers) {
-    let src = layer.src
-    if (src?.startsWith('blob-ref://')) {
-      src = await dbGetBlob(src.slice(10)).catch(() => null)
-      if (!src) continue
-    }
+    if (!layer.src) continue
     await new Promise(resolve => {
       const img = new Image()
       img.onload = () => {
@@ -120,7 +98,7 @@ async function renderThumbnail(layers, slides, ratio, bgColor) {
         ctx.restore(); resolve()
       }
       img.onerror = resolve
-      img.src = src
+      img.src = layer.src
     })
   }
   return canvas.toDataURL('image/jpeg', 0.75)
@@ -142,40 +120,27 @@ export async function loadProject(id) {
   const record = await dbGet('projects', id)
   if (!record) return null
 
-  // Resolve all layer srcs to something the canvas can render.
-  // blob-ref:// srcs stay as blob-ref:// — useBlobSrc in Canvas.jsx handles
-  // lazy loading from the blob store with an in-memory data URL cache.
-  // This avoids creating blob: URLs that iOS Safari can evict when backgrounded.
-  const layers = record.state.layers.map(layer => {
-    // Legacy: inline data URL — migrate to blob store async, keep as data: for now
-    // (useBlobSrc passes data: URLs through directly as img.src)
-    if (layer.src?.startsWith('data:')) {
-      dbPutBlob(layer.id, layer.src).catch(() => {})
-      return { ...layer, src: 'blob-ref://' + layer.id, srcOriginal: undefined }
-    }
-    // Legacy: ref:// with inline Blob (iOS may have corrupted these)
-    if (layer.src?.startsWith('ref://')) {
-      const blob = record.blobs?.[layer.src.slice(6)]
-      if (blob && blob.size > 0) {
-        // Convert and migrate async
-        blobToDataURL(blob)
-          .then(dataURL => dbPutBlob(layer.id, dataURL))
-          .catch(() => {})
-        return { ...layer, src: 'blob-ref://' + layer.id, srcOriginal: undefined }
-      }
-      return { ...layer, src: null, srcOriginal: undefined }
-    }
-    // Current format: blob-ref:// — useBlobSrc handles it
-    return { ...layer, srcOriginal: undefined }
-  })
+  const layers = await Promise.all(
+    record.state.layers.map(async (layer) => {
+      // Current format: data URL inline — use directly
+      if (layer.src?.startsWith('data:')) return { ...layer, srcOriginal: undefined }
 
-  // Async: re-save legacy projects without inline blob data
-  if (record.state.layers.some(l => l.src?.startsWith('ref://') || l.src?.startsWith('data:'))) {
-    dbPut('projects', {
-      ...record, blobs: undefined,
-      state: { ...record.state, layers },
-    }).catch(() => {})
-  }
+      // Legacy format: ref:// with inline Blob (iOS may have corrupted these)
+      if (layer.src?.startsWith('ref://')) {
+        const blob = record.blobs?.[layer.src.slice(6)]
+        if (blob && blob.size > 0) {
+          try {
+            return { ...layer, src: await blobToDataURL(blob), srcOriginal: undefined }
+          } catch {}
+        }
+        return { ...layer, src: null, srcOriginal: undefined }
+      }
+
+      // blob-ref:// from intermediate version — keep as-is, useBlobSrc will resolve
+      // (only matters if user has projects saved with the blob store approach)
+      return { ...layer, srcOriginal: undefined }
+    })
+  )
 
   return { ...record.state, layers, projectId: record.id, projectName: record.name }
 }
@@ -193,12 +158,5 @@ export async function listProjects() {
 }
 
 export async function deleteProject(id) {
-  const record = await dbGet('projects', id)
-  if (record) {
-    const blobIds = record.state.layers
-      .filter(l => l.src?.startsWith('blob-ref://'))
-      .map(l => l.src.slice(10))
-    await Promise.all(blobIds.map(bid => dbDeleteBlob(bid).catch(() => {})))
-  }
   await dbDelete('projects', id)
 }

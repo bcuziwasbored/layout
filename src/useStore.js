@@ -48,7 +48,29 @@ export const useStore = create((set, get) => ({
 
   _snapshot() {
     const s = get()
-    return JSON.stringify({ slides: s.slides, layers: s.layers, bgColor: s.bgColor, bgGradient: s.bgGradient })
+    // Strip src/srcOriginal from layers to keep snapshots small — data URLs can be
+    // 500KB+ each, and a 30-entry history with 15 images would otherwise use ~225MB.
+    // We mark whether each layer had a src at snapshot time so undo can correctly
+    // restore "image was null" vs "image was set" states from the current store.
+    const layers = s.layers.map(l => {
+      const { src, srcOriginal, ...rest } = l
+      return { ...rest, _hadSrc: !!src }
+    })
+    return JSON.stringify({ slides: s.slides, layers, bgColor: s.bgColor, bgGradient: s.bgGradient })
+  },
+
+  // Merge srcs from current store back into snapshot-restored layers
+  _restoreSrcs(parsedLayers, currentLayers) {
+    const srcByLayerId = new Map()
+    currentLayers.forEach(l => {
+      if (l.src) srcByLayerId.set(l.id, { src: l.src, srcOriginal: l.srcOriginal })
+    })
+    return parsedLayers.map(l => {
+      const { _hadSrc, ...layerData } = l
+      if (!_hadSrc) return { ...layerData, src: null }
+      const tracked = srcByLayerId.get(l.id)
+      return tracked ? { ...layerData, ...tracked } : { ...layerData, src: null }
+    })
   },
 
   _pushHistory() {
@@ -74,7 +96,7 @@ export const useStore = create((set, get) => ({
   },
 
   undo() {
-    const { history, _snapshot } = get()
+    const { history } = get()
     if (!history.length) return
     const prev = history[history.length - 1]
     const parsed = JSON.parse(prev)
@@ -83,11 +105,12 @@ export const useStore = create((set, get) => ({
       future: [s._snapshot(), ...s.future.slice(0, 30)],
       textEditId: null,
       ...parsed,
+      layers: s._restoreSrcs(parsed.layers, s.layers),
     }))
   },
 
   redo() {
-    const { future, _snapshot } = get()
+    const { future } = get()
     if (!future.length) return
     const next = future[0]
     const parsed = JSON.parse(next)
@@ -96,6 +119,7 @@ export const useStore = create((set, get) => ({
       history: [...s.history.slice(-30), s._snapshot()],
       textEditId: null,
       ...parsed,
+      layers: s._restoreSrcs(parsed.layers, s.layers),
     }))
   },
 
