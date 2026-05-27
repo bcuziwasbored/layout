@@ -1,60 +1,59 @@
-import { dbGet, dbPut, dbDelete, dbGetAll } from './db'
+import { dbGet, dbPut, dbDelete, dbGetAll, dbGetBlob, dbPutBlob, dbDeleteBlob } from './db'
 
 const THUMB_W = 240
 
-// Convert blob: URLs to ref:// refs, collect blobs
+// ─── Serialization ─────────────────────────────────────────────────────────────
+// Convert blob: URLs → blob-ref://layerId and store the blob separately.
+// The project record itself stores no blob data, so dbGet is near-instant.
+
 async function serializeLayers(layers) {
-  const blobs = {}
-  const serialized = await Promise.all(
+  return Promise.all(
     layers.map(async (layer) => {
-      if (layer.src && layer.src.startsWith('blob:')) {
+      if (layer.src?.startsWith('blob:')) {
         const blob = await fetch(layer.src).then(r => r.blob())
-        blobs[layer.id] = blob
-        return { ...layer, src: 'ref://' + layer.id }
+        await dbPutBlob(layer.id, blob)
+        // srcOriginal is session-only — don't persist it (reopened projects
+        // use the stored blob for both display and export, which is fine for
+        // Instagram's 1080px output since we cap display at 2048px)
+        return { ...layer, src: 'blob-ref://' + layer.id, srcOriginal: undefined }
+      }
+      if (layer.src?.startsWith('blob-ref://')) {
+        // Already serialized from a previous save — blob is already in blob store
+        return { ...layer, srcOriginal: undefined }
       }
       return { ...layer }
     })
   )
-  return { serialized, blobs }
 }
 
-// Render slide 0 to a small canvas for thumbnail
-async function renderThumbnail(state, blobsDict, ratio) {
-  const { slides, layers, bgColor } = state
-  const thumbH = Math.round(THUMB_W * ratio.h / ratio.w)
+// ─── Thumbnail ─────────────────────────────────────────────────────────────────
 
+async function renderThumbnail(layers, slides, ratio, bgColor) {
+  const thumbH = Math.round(THUMB_W * ratio.h / ratio.w)
   const canvas = document.createElement('canvas')
   canvas.width = THUMB_W
   canvas.height = thumbH
   const ctx = canvas.getContext('2d')
 
-  const slideBg = (slides[0] && slides[0].bgColor) ? slides[0].bgColor : bgColor
+  const slideBg = (slides[0]?.bgColor) ?? bgColor
   ctx.fillStyle = slideBg
   ctx.fillRect(0, 0, THUMB_W, thumbH)
 
   const scale = THUMB_W / ratio.w
   const sliceStart = 0
   const sliceEnd = ratio.w
-
-  // Layers in slide 0, in z-order
-  const slide0Layers = layers.filter(l =>
-    l.src && l.x < sliceEnd && l.x + l.w > sliceStart
-  )
-
-  const createdURLs = []
+  const slide0Layers = layers.filter(l => l.src && l.x < sliceEnd && l.x + l.w > sliceStart)
+  const tempURLs = []
 
   for (const layer of slide0Layers) {
     let src = layer.src
     if (!src) continue
 
-    let blobURL = null
-    if (src.startsWith('ref://')) {
-      const layerId = src.slice(6)
-      const blob = blobsDict[layerId]
+    if (src.startsWith('blob-ref://')) {
+      const blob = await dbGetBlob(src.slice(10))
       if (!blob) continue
-      blobURL = URL.createObjectURL(blob)
-      src = blobURL
-      createdURLs.push(blobURL)
+      src = URL.createObjectURL(blob)
+      tempURLs.push(src)
     }
 
     await new Promise(resolve => {
@@ -66,19 +65,18 @@ async function renderThumbnail(state, blobsDict, ratio) {
         const clipW = (Math.min(layer.x + layer.w, sliceEnd) - Math.max(layer.x, sliceStart)) * scale - gap
         const clipY = layer.y * scale + inset
         const clipH = layer.h * scale - gap
-
         ctx.save()
         ctx.beginPath()
         ctx.rect(clipX, clipY, clipW, clipH)
         ctx.clip()
         ctx.globalAlpha = layer.opacity ?? 1
-
+        const logW = layer.naturalW ?? img.naturalWidth
+        const logH = layer.naturalH ?? img.naturalHeight
         const drawX = (layer.x - sliceStart) * scale + (layer.imgX ?? 0) * scale + inset
         const drawY = layer.y * scale + (layer.imgY ?? 0) * scale + inset
-        const drawW = img.naturalWidth * (layer.imgScale ?? 1) * scale
-        const drawH = img.naturalHeight * (layer.imgScale ?? 1) * scale
-
-        ctx.drawImage(img, drawX, drawY, drawW, drawH)
+        const drawW = logW * (layer.imgScale ?? 1) * scale
+        const drawH = logH * (layer.imgScale ?? 1) * scale
+        ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, drawX, drawY, drawW, drawH)
         ctx.restore()
         resolve()
       }
@@ -87,51 +85,53 @@ async function renderThumbnail(state, blobsDict, ratio) {
     })
   }
 
-  // Revoke temp URLs
-  createdURLs.forEach(u => URL.revokeObjectURL(u))
-
+  tempURLs.forEach(u => URL.revokeObjectURL(u))
   return canvas.toDataURL('image/jpeg', 0.75)
 }
 
+// ─── Public API ────────────────────────────────────────────────────────────────
+
 export async function saveProject(id, name, storeState) {
-  const { ratio, bgColor, slides, layers } = storeState
+  const { ratio, bgColor, bgGradient, slides, layers } = storeState
+  const serialized = await serializeLayers(layers)
+  const thumbnail = await renderThumbnail(serialized, slides, ratio, bgColor)
 
-  const { serialized, blobs } = await serializeLayers(layers)
-
-  const thumbnail = await renderThumbnail(
-    { slides, layers: serialized, bgColor },
-    blobs,
-    ratio
-  )
-
-  const record = {
+  await dbPut('projects', {
     id,
     name,
     updatedAt: Date.now(),
     thumbnail,
-    state: { ratio, bgColor, slides, layers: serialized },
-    blobs,
     slideCount: slides.length,
-  }
-
-  await dbPut('projects', record)
+    state: { ratio, bgColor, bgGradient, slides, layers: serialized },
+  })
 }
 
 export async function loadProject(id) {
   const record = await dbGet('projects', id)
   if (!record) return null
 
-  // Remap ref:// back to blob: URLs
-  const layers = record.state.layers.map(layer => {
-    if (layer.src && layer.src.startsWith('ref://')) {
-      const layerId = layer.src.slice(6)
-      const blob = record.blobs && record.blobs[layerId]
-      if (blob) {
-        return { ...layer, src: URL.createObjectURL(blob) }
+  // Migrate legacy records that had inline blobs (old ref:// scheme)
+  const layers = await Promise.all(
+    record.state.layers.map(async (layer) => {
+      if (layer.src?.startsWith('ref://')) {
+        // Legacy inline blob — migrate to blob store
+        const legacyId = layer.src.slice(6)
+        const blob = record.blobs?.[legacyId]
+        if (blob) {
+          await dbPutBlob(layer.id, blob).catch(() => {})
+          return { ...layer, src: 'blob-ref://' + layer.id, srcOriginal: undefined }
+        }
       }
-    }
-    return { ...layer }
-  })
+      return { ...layer }
+    })
+  )
+
+  // If this was a legacy record, re-save without the inline blobs
+  if (record.blobs) {
+    const cleaned = { ...record, blobs: undefined }
+    delete cleaned.blobs
+    dbPut('projects', { ...record, blobs: undefined }).catch(() => {})
+  }
 
   return {
     ...record.state,
@@ -156,5 +156,12 @@ export async function listProjects() {
 }
 
 export async function deleteProject(id) {
+  const record = await dbGet('projects', id)
+  if (record) {
+    const blobIds = record.state.layers
+      .filter(l => l.src?.startsWith('blob-ref://'))
+      .map(l => l.src.slice(10))
+    await Promise.all(blobIds.map(id => dbDeleteBlob(id).catch(() => {})))
+  }
   await dbDelete('projects', id)
 }

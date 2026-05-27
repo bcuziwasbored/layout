@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../useStore'
+import { dbGetBlob } from '../db'
 
 function linearGradientPoints(angleDeg, w, h) {
   const rad = (angleDeg * Math.PI) / 180
@@ -169,22 +170,42 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
     return cx - extHalfW < sliceEnd && cx + extHalfW > sliceStart
   })
 
-  // Pre-load all image layers into a Map, waiting for full decode.
-  // Use srcOriginal (full-res) when available — the draw-size math uses
-  // layer.naturalW/H (the downscaled logical dimensions) so crop/pan is preserved.
+  // Resolve all image sources to live URLs (handling blob-ref:// lazy refs).
+  // Prefer srcOriginal (full-res, session-only) for maximum quality; fall back
+  // to src (2048px stored blob) for reopened projects.
+  const tempBlobURLs = []
+  async function resolveLayerSrc(layer) {
+    let src = layer.srcOriginal ?? layer.src
+    if (src?.startsWith('blob-ref://')) {
+      const blob = await dbGetBlob(src.slice(10))
+      if (!blob) return null
+      const url = URL.createObjectURL(blob)
+      tempBlobURLs.push(url)
+      return url
+    }
+    return src ?? null
+  }
+
+  const resolvedSrcs = new Map()
+  await Promise.all(
+    relevant.filter(l => l.src).map(async layer => {
+      const src = await resolveLayerSrc(layer)
+      if (src) resolvedSrcs.set(layer.id, src)
+    })
+  )
+
   const imgMap = new Map()
   await Promise.all(
     relevant.filter(l => l.src).map(layer => new Promise(resolve => {
+      const src = resolvedSrcs.get(layer.id)
+      if (!src) { resolve(); return }
       const img = new Image()
       img.onload = () => {
-        // decode() ensures the image is fully decompressed before drawImage —
-        // skipping this causes intermittent blank renders on Safari/mobile.
         const p = img.decode ? img.decode() : Promise.resolve()
         p.catch(() => {}).then(() => { imgMap.set(layer.id, img); resolve() })
       }
       img.onerror = resolve
-      // Prefer the original full-resolution source for maximum export quality
-      img.src = layer.srcOriginal ?? layer.src
+      img.src = src
     }))
   )
 
@@ -290,6 +311,9 @@ async function renderSlide(slideIdx, slides, layers, ratio, bgColor, globalBgGra
 
     if (freeRot) ctx.restore()
   }
+
+  // Clean up any temporary blob URLs created for blob-ref:// sources
+  tempBlobURLs.forEach(u => URL.revokeObjectURL(u))
 
   return canvas.toDataURL('image/jpeg', 0.95)
 }

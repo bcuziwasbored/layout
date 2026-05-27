@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { Stage, Layer, Rect, Circle, Ellipse, Image as KImage, Group, Text, Line } from 'react-konva'
 import { useStore, fitInCell } from '../useStore'
 import useImage from 'use-image'
+import { dbGetBlob } from '../db'
 
 // ─── Image downscaling ─────────────────────────────────────────────────────────
 // Phone cameras produce 12–50MP images. Drawing a 4032×3024 image in Konva every
@@ -202,8 +203,31 @@ function applyRoundRectClip(ctx, x, y, w, h, r) {
   }
 }
 
+// Resolves blob-ref://layerId → a live blob: URL fetched lazily from IndexedDB.
+// For normal blob:/http: URLs it's a pass-through. This means reopened projects
+// don't block on loading all blobs upfront — each cell loads its own image
+// independently, behind the gray placeholder.
+function useBlobSrc(src) {
+  const [resolved, setResolved] = React.useState(() =>
+    src?.startsWith('blob-ref://') ? null : (src ?? null)
+  )
+  React.useEffect(() => {
+    if (!src?.startsWith('blob-ref://')) {
+      setResolved(src ?? null)
+      return
+    }
+    let cancelled = false
+    dbGetBlob(src.slice(10)).then(blob => {
+      if (!cancelled && blob) setResolved(URL.createObjectURL(blob))
+    })
+    return () => { cancelled = true }
+  }, [src])
+  return resolved
+}
+
 function useAdjustedImage(src, brightness, contrast, saturation) {
-  const [img] = useImage(src)
+  const resolvedSrc = useBlobSrc(src)
+  const [img] = useImage(resolvedSrc ?? undefined)
   const [adjusted, setAdjusted] = React.useState(null)
   React.useEffect(() => {
     if (!img) { setAdjusted(null); return }
@@ -449,7 +473,8 @@ function SelectionOverlay({ layer, vs }) {
 }
 
 function CropTarget({ layer, vs }) {
-  const [img] = useImage(layer.src)
+  const resolvedSrc = useBlobSrc(layer.src)
+  const [img] = useImage(resolvedSrc ?? undefined)
   const hr = HANDLE_R_PX / vs
   const imgW = img ? img.naturalWidth  * (layer.imgScale ?? 1) : 0
   const imgH = img ? img.naturalHeight * (layer.imgScale ?? 1) : 0
