@@ -207,25 +207,41 @@ function applyRoundRectClip(ctx, x, y, w, h, r) {
   }
 }
 
-// Resolves src to something useImage can load.
-// - blob: and data: URLs pass through directly.
-// - blob-ref://layerId: reads the data URL from IDB (safety net — loadProject
-//   normally converts these to blob: URLs before the canvas ever sees them).
+// In-memory cache: blobId → data URL string.
+// Populated the first time each image is read from IDB so subsequent renders
+// (including after iOS backgrounding) don't hit IDB again.
+const dataURLCache = new Map()
+
+// Resolves src to something useImage can load:
+// - blob: and data: URLs pass through directly (same-session picks)
+// - blob-ref://layerId: reads data URL from IDB, cached in dataURLCache
+//   Data URLs are used directly as img.src — no blob: URL is created so
+//   iOS Safari background eviction can't affect loaded images.
 function useBlobSrc(src) {
-  const [resolved, setResolved] = React.useState(() =>
-    src?.startsWith('blob-ref://') ? null : (src ?? null)
-  )
+  const blobId = src?.startsWith('blob-ref://') ? src.slice(10) : null
+  const [resolved, setResolved] = React.useState(() => {
+    if (!blobId) return src ?? null
+    return dataURLCache.get(blobId) ?? null   // serve from cache if already loaded
+  })
+
   React.useEffect(() => {
-    if (!src?.startsWith('blob-ref://')) {
-      setResolved(src ?? null)
-      return
-    }
+    if (!blobId) { setResolved(src ?? null); return }
+    // Already cached — no IDB round-trip needed
+    const cached = dataURLCache.get(blobId)
+    if (cached) { setResolved(cached); return }
+
     let cancelled = false
-    dbGetBlob(src.slice(10))
-      .then(dataURL => { if (!cancelled && dataURL) setResolved(dataURL) })
+    dbGetBlob(blobId)
+      .then(dataURL => {
+        if (!cancelled && dataURL) {
+          dataURLCache.set(blobId, dataURL)
+          setResolved(dataURL)
+        }
+      })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [src])
+  }, [src, blobId])
+
   return resolved
 }
 

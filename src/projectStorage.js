@@ -3,9 +3,8 @@ import { blobCache } from './blobCache'
 
 const THUMB_W = 240
 
-// ─── Blob ↔ data URL helpers ───────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────────
 
-// FileReader-based blob→dataURL: works on every iOS version (iOS 6+).
 function blobToDataURL(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -15,32 +14,8 @@ function blobToDataURL(blob) {
   })
 }
 
-// Synchronous data URL → Blob. Used when loading so we can immediately create
-// a blob: URL from a persisted data URL without an async round-trip.
-function dataURLToBlob(dataURL) {
-  const [header, b64] = dataURL.split(',')
-  const mime = header.match(/:(.*?);/)[1]
-  const binary = atob(b64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return new Blob([bytes], { type: mime })
-}
-
-// Convert a data URL to a blob: URL and register the Blob in the cache so
-// serializeLayers can retrieve it without fetch().
-function dataURLToBlobURL(dataURL) {
-  try {
-    const blob = dataURLToBlob(dataURL)
-    const url = URL.createObjectURL(blob)
-    blobCache.set(url, blob)
-    return url
-  } catch {
-    return null
-  }
-}
-
-// Get a Blob from a blob: URL — from cache first, then fetch() as fallback,
-// then img+canvas re-export as last resort.
+// Get a Blob from a blob: URL — from blobCache first (avoids fetch on iOS PWA),
+// then fetch as fallback, then img+canvas re-export as last resort.
 async function blobFromURL(url) {
   const cached = blobCache.get(url)
   if (cached) return cached
@@ -62,12 +37,18 @@ async function blobFromURL(url) {
 }
 
 // ─── Serialization ─────────────────────────────────────────────────────────────
-// blob: URL → data URL string in blob store, blob-ref://layerId in project record.
-// Project records stay small so dbGetAll (home screen listing) is fast.
+// In-memory layer.src values:
+//   blob:      — newly added image this session (from processImageFile)
+//   blob-ref:// — image loaded from a saved project
+//
+// On save: both become blob-ref://layerId in the project record, with the
+// actual image stored as a data URL string in the blob store.
+// Data URL strings work perfectly in IDB on all platforms including iOS.
 
 async function serializeLayers(layers) {
   return Promise.all(
     layers.map(async (layer) => {
+      // Same-session blob: URL — get Blob from cache and convert to data URL
       if (layer.src?.startsWith('blob:')) {
         try {
           const blob = await blobFromURL(layer.src)
@@ -79,7 +60,11 @@ async function serializeLayers(layers) {
           return { ...layer, srcOriginal: undefined }
         }
       }
-      // blob-ref:// already in blob store; data: URL (transitional) — migrate to blob store
+      // Already a blob-ref:// — data URL already in blob store, nothing to do
+      if (layer.src?.startsWith('blob-ref://')) {
+        return { ...layer, srcOriginal: undefined }
+      }
+      // Transitional inline data URL — migrate to blob store
       if (layer.src?.startsWith('data:')) {
         try {
           await dbPutBlob(layer.id, layer.src)
@@ -87,9 +72,6 @@ async function serializeLayers(layers) {
         } catch {
           return { ...layer, srcOriginal: undefined }
         }
-      }
-      if (layer.src?.startsWith('blob-ref://')) {
-        return { ...layer, srcOriginal: undefined }
       }
       return { ...layer, srcOriginal: undefined }
     })
@@ -160,57 +142,38 @@ export async function loadProject(id) {
   const record = await dbGet('projects', id)
   if (!record) return null
 
-  const layers = await Promise.all(
-    record.state.layers.map(async (layer) => {
-      // Current format: blob-ref:// → read data URL → convert to blob: URL in memory
-      if (layer.src?.startsWith('blob-ref://')) {
-        const dataURL = await dbGetBlob(layer.src.slice(10)).catch(() => null)
-        if (dataURL) {
-          const url = dataURLToBlobURL(dataURL)
-          return { ...layer, src: url ?? null }
-        }
-        return { ...layer, src: null }
+  // Resolve all layer srcs to something the canvas can render.
+  // blob-ref:// srcs stay as blob-ref:// — useBlobSrc in Canvas.jsx handles
+  // lazy loading from the blob store with an in-memory data URL cache.
+  // This avoids creating blob: URLs that iOS Safari can evict when backgrounded.
+  const layers = record.state.layers.map(layer => {
+    // Legacy: inline data URL — migrate to blob store async, keep as data: for now
+    // (useBlobSrc passes data: URLs through directly as img.src)
+    if (layer.src?.startsWith('data:')) {
+      dbPutBlob(layer.id, layer.src).catch(() => {})
+      return { ...layer, src: 'blob-ref://' + layer.id, srcOriginal: undefined }
+    }
+    // Legacy: ref:// with inline Blob (iOS may have corrupted these)
+    if (layer.src?.startsWith('ref://')) {
+      const blob = record.blobs?.[layer.src.slice(6)]
+      if (blob && blob.size > 0) {
+        // Convert and migrate async
+        blobToDataURL(blob)
+          .then(dataURL => dbPutBlob(layer.id, dataURL))
+          .catch(() => {})
+        return { ...layer, src: 'blob-ref://' + layer.id, srcOriginal: undefined }
       }
+      return { ...layer, src: null, srcOriginal: undefined }
+    }
+    // Current format: blob-ref:// — useBlobSrc handles it
+    return { ...layer, srcOriginal: undefined }
+  })
 
-      // Transitional: inline data URL → convert to blob: URL
-      if (layer.src?.startsWith('data:')) {
-        const url = dataURLToBlobURL(layer.src)
-        // Async: migrate to blob store so project record shrinks
-        if (url) dbPutBlob(layer.id, layer.src).catch(() => {})
-        return { ...layer, src: url ?? null }
-      }
-
-      // Legacy: ref:// with inline Blob (iOS may have corrupted these)
-      if (layer.src?.startsWith('ref://')) {
-        const blob = record.blobs?.[layer.src.slice(6)]
-        if (blob && blob.size > 0) {
-          try {
-            const dataURL = await blobToDataURL(blob)
-            dbPutBlob(layer.id, dataURL).catch(() => {})
-            const url = dataURLToBlobURL(dataURL)
-            return { ...layer, src: url ?? null }
-          } catch {}
-        }
-        return { ...layer, src: null }
-      }
-
-      return { ...layer }
-    })
-  )
-
-  // Async: re-save legacy/transitional projects in the new format
-  const needsMigration = record.state.layers.some(
-    l => l.src?.startsWith('ref://') || l.src?.startsWith('data:')
-  )
-  if (needsMigration) {
-    const migratedLayers = layers.map(l => ({
-      ...l,
-      src: l.src?.startsWith('blob:') ? 'blob-ref://' + l.id : (l.src ?? null),
-      srcOriginal: undefined,
-    }))
+  // Async: re-save legacy projects without inline blob data
+  if (record.state.layers.some(l => l.src?.startsWith('ref://') || l.src?.startsWith('data:'))) {
     dbPut('projects', {
       ...record, blobs: undefined,
-      state: { ...record.state, layers: migratedLayers },
+      state: { ...record.state, layers },
     }).catch(() => {})
   }
 
