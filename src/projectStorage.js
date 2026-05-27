@@ -115,11 +115,13 @@ export async function loadProject(id) {
   // Legacy format (ref:// + inline blobs): create blob URLs directly — this is
   // reliable and matches the original behavior. Migration to blob-ref:// happens
   // in the background so subsequent loads are fast.
+  // Note: on iOS Safari, Blob objects stored in IDB may come back empty (size=0).
+  // We check for that and skip rather than creating a broken blob URL.
   const layers = record.state.layers.map(layer => {
     if (layer.src?.startsWith('ref://')) {
       const legacyId = layer.src.slice(6)
       const blob = record.blobs?.[legacyId]
-      if (blob) return { ...layer, src: URL.createObjectURL(blob), srcOriginal: undefined }
+      if (blob && blob.size > 0) return { ...layer, src: URL.createObjectURL(blob), srcOriginal: undefined }
     }
     return { ...layer }
   })
@@ -144,7 +146,7 @@ async function migrateLegacyProject(record) {
       if (!layer.src?.startsWith('ref://')) return
       const legacyId = layer.src.slice(6)
       const blob = record.blobs?.[legacyId]
-      if (blob) await dbPutBlob(layer.id, blob)
+      if (blob && blob.size > 0) await dbPutBlob(layer.id, blob)
     })
   )
   // Re-save project record with blob-ref:// srcs and no inline blob data

@@ -72,17 +72,27 @@ export async function dbGetBlob(id) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction('blobs', 'readonly')
     const req = tx.objectStore('blobs').get(id)
-    req.onsuccess = e => resolve(e.target.result?.data ?? null)
+    req.onsuccess = e => {
+      const record = e.target.result
+      if (!record) { resolve(null); return }
+      // Reconstruct Blob from ArrayBuffer (stored this way for iOS Safari compatibility)
+      const blob = new Blob([record.data], { type: record.type || 'image/jpeg' })
+      resolve(blob)
+    }
     req.onerror = e => reject(e.target.error)
   })
 }
 
-export async function dbPutBlob(id, data) {
+export async function dbPutBlob(id, blob) {
+  // iOS Safari does not reliably persist Blob objects in IndexedDB — they come back
+  // empty on retrieval. Store as ArrayBuffer + MIME type instead, which works everywhere.
+  const arrayBuffer = await blob.arrayBuffer()
+  const type = blob.type || 'image/jpeg'
   const db = await openDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction('blobs', 'readwrite')
-    const req = tx.objectStore('blobs').put({ id, data })
-    req.onsuccess = e => resolve()
+    const req = tx.objectStore('blobs').put({ id, data: arrayBuffer, type })
+    req.onsuccess = () => resolve()
     req.onerror = e => reject(e.target.error)
   })
 }
