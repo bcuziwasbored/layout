@@ -839,6 +839,21 @@ export default function Canvas({ openPickerRef }) {
   // True while a drag/resize/rotate gesture is actively moving — hides the
   // floating quick-action toolbar so it doesn't get in the way.
   const [gestureActive, setGestureActive] = useState(false)
+  // Keyboard-aware visible viewport height. iOS Safari overlays the soft
+  // keyboard without resizing the layout viewport (the interactive-widget meta
+  // tag is Android-only), so we track window.visualViewport — which DOES shrink
+  // on iOS — to know how much space is visible above the keyboard.
+  const [viewportH, setViewportH] = useState(
+    typeof window !== 'undefined' ? (window.visualViewport?.height ?? window.innerHeight) : 0
+  )
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const onResize = () => setViewportH(vv.height)
+    vv.addEventListener('resize', onResize)
+    vv.addEventListener('scroll', onResize)
+    return () => { vv.removeEventListener('resize', onResize); vv.removeEventListener('scroll', onResize) }
+  }, [])
 
   const setViewSync = useCallback((updater) => {
     setView(prev => {
@@ -881,7 +896,18 @@ export default function Canvas({ openPickerRef }) {
       if (savedViewYRef.current === null) savedViewYRef.current = viewRef.current.y
 
       const scale = viewRef.current.scale
-      const availH = containerSize.h
+      // Available height = the part of the canvas container visible ABOVE the
+      // keyboard. On iOS the keyboard overlays without shrinking the container,
+      // so we intersect the container rect with the visual viewport's visible
+      // band (vv.offsetTop … vv.offsetTop + vv.height).
+      let availH = containerSize.h
+      const el = containerRef.current
+      const vv = window.visualViewport
+      if (el && vv) {
+        const rect = el.getBoundingClientRect()
+        const visibleBottom = vv.offsetTop + vv.height
+        availH = Math.max(120, Math.min(rect.bottom, visibleBottom) - rect.top)
+      }
       const topPad = 20, botPad = 20
 
       // Place the text layer's center at the middle of the available canvas area
@@ -902,7 +928,7 @@ export default function Canvas({ openPickerRef }) {
         animateViewY(savedY)
       }
     }
-  }, [elementPanel, textEditId, containerSize.h, activeLayerId]) // eslint-disable-line
+  }, [elementPanel, textEditId, containerSize.h, activeLayerId, viewportH]) // eslint-disable-line
 
   // ── Measure container ──
   useEffect(() => {
