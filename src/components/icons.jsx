@@ -252,7 +252,8 @@ export function IconText({ size = 24 }) {
 export function IconBold({ size = 20 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="currentColor">
-      <path d="M5.5 4A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H11a4 4 0 0 0 2.389-7.18A3.5 3.5 0 0 0 11 4H5.5zm1.5 6V6h4a1.5 1.5 0 1 1 0 3H7zm0 2h4.5a2 2 0 1 1 0 4H7v-4z" />
+      <text x="10" y="10" textAnchor="middle" dominantBaseline="central"
+        fontSize="15" fontWeight="800" fontFamily="system-ui, -apple-system, sans-serif">B</text>
     </svg>
   )
 }

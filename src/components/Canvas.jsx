@@ -294,7 +294,7 @@ function useAdjustedImage(src, brightness, contrast, saturation) {
   return adjusted
 }
 
-function TextCell({ layer }) {
+function TextCell({ layer, isEditing }) {
   const fontStyle = [layer.italic && 'italic', layer.bold && 'bold'].filter(Boolean).join(' ') || 'normal'
   const hasText = layer.text && layer.text.trim().length > 0
   return (
@@ -310,7 +310,9 @@ function TextCell({ layer }) {
           opacity={layer.textBgOpacity ?? 1}
           listening={false} />
       )}
-      {hasText ? (
+      {/* While inline-editing, the HTML textarea overlay shows the text instead
+          (true WYSIWYG). We keep the textBg + hit area but hide the Konva text. */}
+      {isEditing ? null : hasText ? (
         <Text
           x={0} y={0}
           width={layer.w} height={layer.h}
@@ -698,6 +700,88 @@ function QuickToolbar({ layer, view, containerH }) {
             <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" />
           </svg>, true)}
       </div>
+    </div>
+  )
+}
+
+// ─── Inline text editor ─────────────────────────────────────────────────────────
+// An HTML <textarea> overlaid exactly on top of the selected text layer, styled
+// to match (font, size, color, alignment, rotation), so the user types WYSIWYG
+// on the canvas instead of in a separate panel. The Konva text node is hidden
+// while this is active (TextCell isEditing).
+
+function InlineTextEditor({ layer, view, onDone }) {
+  const updateLayer = useStore(s => s.updateLayer)
+  const taRef = useRef(null)
+
+  // Focus + place caret at end + size to content on mount.
+  // Capture a pre-edit undo snapshot now; finishTextEdit() commits it so undo
+  // restores the text as it was before this editing session.
+  useEffect(() => {
+    useStore.getState()._captureUndo()
+    const ta = taRef.current
+    if (!ta) return
+    ta.focus()
+    const len = ta.value.length
+    try { ta.setSelectionRange(len, len) } catch {}
+    ta.style.height = 'auto'
+    ta.style.height = ta.scrollHeight + 'px'
+  }, [])
+
+  const scale = view.scale
+  const left = layer.x * scale + view.x
+  const top  = layer.y * scale + view.y
+  const w = layer.w * scale
+  const h = layer.h * scale
+  const rot = layer.freeRotation ?? 0
+  const va = layer.verticalAlign ?? 'middle'
+  const justify = va === 'top' ? 'flex-start' : va === 'bottom' ? 'flex-end' : 'center'
+
+  const onInput = (e) => {
+    updateLayer(layer.id, { text: e.target.value })
+    // Auto-grow so flex vertical-centering matches Konva's verticalAlign
+    e.target.style.height = 'auto'
+    e.target.style.height = e.target.scrollHeight + 'px'
+  }
+
+  return (
+    <div
+      className="absolute z-40"
+      style={{
+        left, top, width: w, height: h,
+        transform: `rotate(${rot}deg)`,
+        transformOrigin: 'center center',
+        display: 'flex', flexDirection: 'column', justifyContent: justify,
+        overflow: 'hidden',
+      }}
+      onPointerDown={e => e.stopPropagation()}
+      onMouseDown={e => e.stopPropagation()}
+      onTouchStart={e => e.stopPropagation()}
+    >
+      <textarea
+        ref={taRef}
+        value={layer.text ?? ''}
+        onChange={onInput}
+        onBlur={onDone}
+        rows={1}
+        spellCheck={false}
+        style={{
+          width: '100%',
+          fontFamily: layer.fontFamily ?? 'Inter',
+          fontSize: (layer.fontSize ?? 72) * scale,
+          fontStyle: layer.italic ? 'italic' : 'normal',
+          fontWeight: layer.bold ? 700 : 400,
+          color: layer.color ?? '#000000',
+          textAlign: layer.align ?? 'center',
+          lineHeight: layer.lineHeight ?? 1.2,
+          letterSpacing: (layer.letterSpacing ?? 0) * scale,
+          background: 'transparent',
+          border: 'none', outline: 'none', resize: 'none',
+          padding: 0, margin: 0, overflow: 'hidden',
+          display: 'block', boxSizing: 'border-box',
+          caretColor: layer.color ?? '#000000',
+        }}
+      />
     </div>
   )
 }
@@ -1467,6 +1551,14 @@ export default function Canvas({ openPickerRef }) {
     !cropMode && textEditId !== activeLayerId && !gestureActive &&
     (activeLayer.type === 'text' || activeLayer.type === 'shape' || activeLayer.src)
 
+  // Inline text editing overlay (WYSIWYG) — active when a text layer is in edit mode
+  const editingTextLayer = (activeLayer?.type === 'text' && textEditId === activeLayerId && !gestureActive)
+    ? activeLayer : null
+  const finishTextEdit = () => {
+    useStore.getState()._commitUndo()
+    setTextEditId(null)
+  }
+
   return (
     <div ref={containerRef} className="flex-1 w-full overflow-hidden relative">
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
@@ -1562,7 +1654,7 @@ export default function Canvas({ openPickerRef }) {
                 )
               }
               if (layer.type === 'text') {
-                return <TextCell key={layer.id} layer={layer} />
+                return <TextCell key={layer.id} layer={layer} isEditing={layer.id === textEditId} />
               }
               if (layer.type === 'shape') {
                 return <ShapeCell key={layer.id} layer={layer} />
@@ -1657,6 +1749,15 @@ export default function Canvas({ openPickerRef }) {
 
       {showQuickToolbar && (
         <QuickToolbar layer={activeLayer} view={view} containerH={containerSize.h} />
+      )}
+
+      {editingTextLayer && (
+        <InlineTextEditor
+          key={editingTextLayer.id}
+          layer={editingTextLayer}
+          view={view}
+          onDone={finishTextEdit}
+        />
       )}
     </div>
   )

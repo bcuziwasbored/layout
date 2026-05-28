@@ -328,47 +328,8 @@ function StyleTab({ layer, activeLayerId, layers, updateLayer, updateLayerWithHi
 }
 
 // ─── Text panels ──────────────────────────────────────────────────────────────
-
-function TextEditPanel({ layer }) {
-  const setTextEditId          = useStore(s => s.setTextEditId)
-  const updateLayer            = useStore(s => s.updateLayer)
-  const updateLayerWithHistory = useStore(s => s.updateLayerWithHistory)
-  const [draft, setDraft] = useState(layer.text ?? '')
-
-  // Keep draft in sync if layer changes externally
-  useEffect(() => { setDraft(layer.text ?? '') }, [layer.id])
-
-  const done = () => {
-    updateLayerWithHistory(layer.id, { text: draft })
-    setTextEditId(null)
-  }
-
-  return (
-    <div className="border-t border-white/10">
-      <div className="flex items-center justify-between px-4 pt-3 pb-2">
-        <span className="text-[11px] text-white/35 uppercase tracking-wider">Edit Text</span>
-        <button onClick={done}
-          className="text-white text-sm font-semibold active:opacity-60 bg-white/10 px-3 py-1 rounded-full">
-          Done
-        </button>
-      </div>
-      <textarea
-        autoFocus
-        value={draft}
-        onChange={e => {
-          setDraft(e.target.value)
-          updateLayer(layer.id, { text: e.target.value })
-        }}
-        placeholder="Type something…"
-        className="w-full bg-white/5 text-white text-base leading-relaxed px-4 pb-4 resize-none outline-none placeholder-white/25"
-        style={{
-          minHeight: 88,
-          fontFamily: layer.fontFamily ?? 'Inter',
-        }}
-      />
-    </div>
-  )
-}
+// (Text content is now edited inline on the canvas via InlineTextEditor in
+//  Canvas.jsx — no separate textarea panel needed.)
 
 function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
   const colorRef  = useRef()
@@ -608,6 +569,73 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
         </div>
       </div>
 
+    </div>
+  )
+}
+
+// ─── Text quick formatting bar ──────────────────────────────────────────────────
+// Always-visible compact row of the most-used text controls. Buttons preventDefault
+// on mousedown so tapping them doesn't blur the inline canvas textarea (which would
+// exit edit mode). Tap "More" to expand the full TextStylePanel.
+
+function TextQuickBar({ layer, updateLayer, updateLayerWithHistory, moreActive, onToggleMore }) {
+  const colorRef = useRef()
+  const addRecentColor = useStore(s => s.addRecentColor)
+  const size = layer.fontSize ?? 72
+  const align = layer.align ?? 'center'
+
+  // Keep the inline textarea focused when tapping formatting controls
+  const keepFocus = e => e.preventDefault()
+
+  const bumpSize = (delta) => updateLayerWithHistory(layer.id, { fontSize: Math.max(8, Math.min(400, size + delta)) })
+  const cycleAlign = () => {
+    const order = ['left', 'center', 'right']
+    updateLayerWithHistory(layer.id, { align: order[(order.indexOf(align) + 1) % 3] })
+  }
+  const AlignIcon = align === 'left' ? IconTextAlignLeft : align === 'right' ? IconTextAlignRight : IconTextAlignCenter
+
+  const cell = 'flex items-center justify-center h-10 rounded-xl transition-colors shrink-0'
+  const toggle = on => on ? 'bg-white text-black' : 'bg-white/10 text-white/75 active:bg-white/20'
+
+  return (
+    <div className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto scrollbar-hide">
+      <button onMouseDown={keepFocus} onClick={() => updateLayerWithHistory(layer.id, { bold: !layer.bold })}
+        className={`${cell} w-10 ${toggle(layer.bold)}`}><IconBold size={18} /></button>
+      <button onMouseDown={keepFocus} onClick={() => updateLayerWithHistory(layer.id, { italic: !layer.italic })}
+        className={`${cell} w-10 ${toggle(layer.italic)}`}><IconItalic size={18} /></button>
+
+      <div className="w-px h-6 bg-white/15 mx-0.5 shrink-0" />
+
+      {/* Size stepper */}
+      <div className="flex items-center bg-white/10 rounded-xl h-10 shrink-0">
+        <button onMouseDown={keepFocus} onClick={() => bumpSize(-2)}
+          className="w-9 h-10 text-white/75 text-xl leading-none active:bg-white/10 rounded-l-xl">−</button>
+        <span className="text-white text-sm tabular-nums w-9 text-center">{size}</span>
+        <button onMouseDown={keepFocus} onClick={() => bumpSize(2)}
+          className="w-9 h-10 text-white/75 text-xl leading-none active:bg-white/10 rounded-r-xl">+</button>
+      </div>
+
+      {/* Color */}
+      <button onClick={() => colorRef.current?.click()}
+        className={`${cell} w-10 bg-white/10 active:bg-white/20`}>
+        <div className="w-5 h-5 rounded-full border-2 border-white/30" style={{ background: layer.color ?? '#000000' }} />
+      </button>
+      <input ref={colorRef} type="color" value={layer.color ?? '#000000'}
+        onChange={e => updateLayer(layer.id, { color: e.target.value })}
+        onBlur={e => { updateLayerWithHistory(layer.id, {}); addRecentColor(e.target.value) }}
+        className="sr-only" />
+
+      {/* Align cycle */}
+      <button onMouseDown={keepFocus} onClick={cycleAlign}
+        className={`${cell} w-10 bg-white/10 text-white/75 active:bg-white/20`}><AlignIcon size={20} /></button>
+
+      <div className="w-px h-6 bg-white/15 mx-0.5 shrink-0" />
+
+      {/* More */}
+      <button onMouseDown={keepFocus} onClick={onToggleMore}
+        className={`${cell} px-3 gap-1 text-xs font-medium ${moreActive ? 'bg-white text-black' : 'bg-white/10 text-white/75 active:bg-white/20'}`}>
+        <span className="text-sm font-bold">Aa</span> More
+      </button>
     </div>
   )
 }
@@ -994,79 +1022,44 @@ export default function LayerToolbar() {
 
   // ── Text layer ────────────────────────────────────────────────────────────
   if (layer.type === 'text') {
-    const editActive  = textEditId === activeLayerId
     const styleActive = elementPanel === 'text-style'
     const posActive   = elementPanel === 'position'
 
-    const toggleEdit = () => {
-      if (editActive) {
-        setTextEditId(null)
-      } else {
-        setTextEditId(activeLayerId)
-        setElementPanel(null)
-      }
-    }
-    const toggleStyle = () => {
-      if (styleActive) {
-        setElementPanel(null)
-      } else {
-        setElementPanel('text-style')
-        setTextEditId(null)
-      }
-    }
-    const togglePos = () => {
-      if (posActive) {
-        setElementPanel(null)
-      } else {
-        setElementPanel('position')
-        setTextEditId(null)
-      }
-    }
-
-    // Primary-action button: visually distinct so users see "Edit" is the
-    // main thing to do with a selected text layer.
-    const EditPrimaryBtn = () => (
-      <button onClick={toggleEdit}
-        className="flex items-center gap-1.5 px-3.5 py-2 mx-1 rounded-xl text-xs font-semibold
-          bg-white text-black active:opacity-70 transition-opacity">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-        </svg>
-        Edit
-      </button>
-    )
+    const toggleStyle = () => setElementPanel(styleActive ? null : 'text-style')
+    const togglePos   = () => setElementPanel(posActive ? null : 'position')
 
     return (
       <div className="bg-black border-t border-white/10">
-        <div className="flex items-center justify-between px-1 py-1">
-          {editActive
-            ? <Btn label="Done" active onClick={toggleEdit} />
-            : <EditPrimaryBtn />
-          }
-          <Btn label="Style"    active={styleActive} onClick={toggleStyle} />
-          <Btn label="Position" active={posActive}   onClick={togglePos} />
-          <Btn label="Delete"   danger onClick={() => deleteLayer(activeLayerId)} />
-          <button onClick={() => useStore.getState().setActiveLayer(null)} className="text-white/40 px-2">
-            <IconClose size={18} />
+        {/* Action row */}
+        <div className="flex items-center justify-between px-1 pt-1">
+          <Btn label="Position" active={posActive} onClick={togglePos} />
+          <Btn label="Delete" danger onClick={() => deleteLayer(activeLayerId)} />
+          <button
+            onClick={() => { setTextEditId(null); useStore.getState().setActiveLayer(null) }}
+            className="text-white/55 text-sm font-medium px-3 active:text-white">
+            Done
           </button>
         </div>
 
-        {editActive && <TextEditPanel layer={layer} />}
+        {/* Compact formatting bar — always visible */}
+        {!posActive && (
+          <TextQuickBar
+            layer={layer}
+            updateLayer={updateLayer}
+            updateLayerWithHistory={updateLayerWithHistory}
+            moreActive={styleActive}
+            onToggleMore={toggleStyle}
+          />
+        )}
 
-        {styleActive && !editActive && (
+        {/* Expanded "More" panel */}
+        {styleActive && !posActive && (
           <div className="border-t border-white/10">
-            <div className="flex items-center justify-between px-4 pt-3 pb-0">
-              <span className="text-[11px] text-white/35 uppercase tracking-wider">Text Style</span>
-              <button onClick={() => setElementPanel(null)} className="text-white/40">
-                <IconClose size={18} />
-              </button>
-            </div>
             <TextStylePanel layer={layer} updateLayer={updateLayer} updateLayerWithHistory={updateLayerWithHistory} />
           </div>
         )}
 
-        {posActive && !editActive && (
+        {posActive && (
           <PositionPanel
             layer={layer} activeLayerId={activeLayerId} ratio={ratio}
             activeSlideIdx={activeSlideIdx} layers={layers}
