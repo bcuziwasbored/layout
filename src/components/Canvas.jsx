@@ -624,6 +624,84 @@ function CropTarget({ layer, vs }) {
   )
 }
 
+// ─── Floating quick-action toolbar ──────────────────────────────────────────────
+// HTML overlay positioned in screen space above the selected layer. Surfaces the
+// most common one-tap actions (Canva/Figma pattern): duplicate, layer order,
+// delete. Positioned from the layer's rotated bounding box; flips below the
+// element when it would clip the top of the canvas.
+
+function QuickToolbar({ layer, view, containerH }) {
+  const duplicateLayer = useStore(s => s.duplicateLayer)
+  const reorderLayer   = useStore(s => s.reorderLayer)
+  const deleteLayer    = useStore(s => s.deleteLayer)
+
+  // Compute the screen-space bounding box of the (possibly rotated) layer
+  const cx = layer.x + layer.w / 2
+  const cy = layer.y + layer.h / 2
+  const rot = (layer.freeRotation ?? 0) * Math.PI / 180
+  const cos = Math.cos(rot), sin = Math.sin(rot)
+  const hw = layer.w / 2, hh = layer.h / 2
+  const corners = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([dx, dy]) => ({
+    sx: (cx + dx * cos - dy * sin) * view.scale + view.x,
+    sy: (cy + dx * sin + dy * cos) * view.scale + view.y,
+  }))
+  const minSY = Math.min(...corners.map(c => c.sy))
+  const maxSY = Math.max(...corners.map(c => c.sy))
+  const centerSX = corners.reduce((a, c) => a + c.sx, 0) / 4
+
+  const BAR_H = 56       // taller now that buttons have labels
+  const GAP = 14         // clearance above the rotate handle
+  // Default above the top edge; flip below if it'd clip the top of the canvas
+  let top = minSY - GAP - BAR_H
+  if (top < 8) { top = maxSY + GAP }
+  // Keep on-screen vertically
+  top = Math.max(8, Math.min(top, containerH - BAR_H - 8))
+
+  const btn = (key, label, onClick, children, danger) => (
+    <button key={key}
+      onClick={e => { e.stopPropagation(); onClick() }}
+      className={`flex flex-col items-center gap-1 px-2.5 py-1.5 rounded-xl active:bg-white/10 active:scale-90 transition-transform ${
+        danger ? 'text-red-400' : 'text-white/85'
+      }`}>
+      {children}
+      <span className="text-[9px] leading-none font-medium">{label}</span>
+    </button>
+  )
+
+  return (
+    <div
+      className="absolute z-40 pointer-events-auto"
+      style={{ left: centerSX, top, transform: 'translateX(-50%)' }}
+      onClick={e => e.stopPropagation()}
+      onPointerDown={e => e.stopPropagation()}
+    >
+      <div className="flex items-center gap-0.5 px-1.5 py-1 rounded-2xl bg-[#1c1c1e]/95 backdrop-blur-md shadow-2xl border border-white/10">
+        {btn('dup', 'Duplicate', () => duplicateLayer(layer.id),
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" />
+          </svg>)}
+        {btn('fwd', 'Forward', () => reorderLayer(layer.id, 'forward'),
+          // Stack with the front square highlighted + up arrow
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3v8" /><path d="M8.5 6.5 12 3l3.5 3.5" />
+            <rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" />
+          </svg>)}
+        {btn('bwd', 'Backward', () => reorderLayer(layer.id, 'backward'),
+          // Stack with down arrow
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 21v-8" /><path d="M8.5 17.5 12 21l3.5-3.5" />
+            <rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" />
+          </svg>)}
+        <div className="w-px h-7 bg-white/15 mx-0.5" />
+        {btn('del', 'Delete', () => deleteLayer(layer.id),
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" />
+          </svg>, true)}
+      </div>
+    </div>
+  )
+}
+
 // ─── Canvas ────────────────────────────────────────────────────────────────────
 
 export default function Canvas({ openPickerRef }) {
@@ -674,6 +752,9 @@ export default function Canvas({ openPickerRef }) {
   const [view, setView] = useState(null)
   // snapGuides: { xs: number[], ys: number[] } — all active guide positions this frame
   const [snapGuides, setSnapGuides] = useState({ xs: [], ys: [] })
+  // True while a drag/resize/rotate gesture is actively moving — hides the
+  // floating quick-action toolbar so it doesn't get in the way.
+  const [gestureActive, setGestureActive] = useState(false)
 
   const setViewSync = useCallback((updater) => {
     setView(prev => {
@@ -1081,6 +1162,7 @@ export default function Canvas({ openPickerRef }) {
     const dx = pt.clientX - p.startX
     const dy = pt.clientY - p.startY
     if (!p.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return
+    if (!p.moved) setGestureActive(true)  // first movement of this gesture
     p.moved = true
 
     const vs = viewRef.current.scale
@@ -1242,6 +1324,7 @@ export default function Canvas({ openPickerRef }) {
     if (!p) return
     panRef.current = null
     setSnapGuides({ xs: [], ys: [] })
+    setGestureActive(false)
 
     if (p.type === 'addslide' && !p.moved) {
       fresh.current.addSlide()
@@ -1377,8 +1460,15 @@ export default function Canvas({ openPickerRef }) {
   const vs = view.scale
   const activeLayer = layers.find(l => l.id === activeLayerId)
 
+  // Show the floating quick-action toolbar for a selected free-floating element
+  // (text/shape/standalone image) — not for template groups, cell sub-selection,
+  // crop mode, text editing, or mid-gesture.
+  const showQuickToolbar = activeLayer && !activeLayer.locked && !activeCellId &&
+    !cropMode && textEditId !== activeLayerId && !gestureActive &&
+    (activeLayer.type === 'text' || activeLayer.type === 'shape' || activeLayer.src)
+
   return (
-    <div ref={containerRef} className="flex-1 w-full overflow-hidden">
+    <div ref={containerRef} className="flex-1 w-full overflow-hidden relative">
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
       <Stage
         width={containerSize.w} height={containerSize.h}
@@ -1565,6 +1655,9 @@ export default function Canvas({ openPickerRef }) {
         </Layer>
       </Stage>
 
+      {showQuickToolbar && (
+        <QuickToolbar layer={activeLayer} view={view} containerH={containerSize.h} />
+      )}
     </div>
   )
 }
