@@ -41,10 +41,18 @@ export default function Editor() {
   useEffect(() => {
     if (!currentProjectId) return
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    // Show "Saving…" immediately so the user knows their work isn't yet
+    // persisted (the 2s debounce is invisible to them).
+    useStore.setState({ saveStatus: 'saving' })
     saveTimerRef.current = setTimeout(async () => {
       const state = useStore.getState()
-      await saveProject(state.currentProjectId, state.projectName, state)
-      useStore.setState({ savedAt: Date.now() })
+      try {
+        await saveProject(state.currentProjectId, state.projectName, state)
+        useStore.setState({ savedAt: Date.now(), saveStatus: 'saved' })
+      } catch (err) {
+        console.error('Save failed:', err)
+        useStore.setState({ saveStatus: 'error' })
+      }
     }, 2000)
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)

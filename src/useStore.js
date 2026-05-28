@@ -51,6 +51,8 @@ export const useStore = create((set, get) => ({
   projectName: 'Untitled',
   recentColors: [],
   savedAt: 0,
+  // 'idle' | 'saving' | 'saved' | 'error' — drives the TopBar save indicator
+  saveStatus: 'idle',
 
   _snapshot() {
     const s = get()

@@ -4,6 +4,45 @@ import ExportScreen from './ExportScreen'
 import { IconUndo, IconRedo } from './icons'
 import { saveProject } from '../projectStorage'
 
+// ─── Save indicator ───────────────────────────────────────────────────────────
+
+function formatRelative(ms) {
+  const s = Math.round(ms / 1000)
+  if (s < 5) return 'just now'
+  if (s < 60) return `${s}s ago`
+  const m = Math.round(s / 60)
+  if (m < 60) return `${m}m ago`
+  const h = Math.round(m / 60)
+  return `${h}h ago`
+}
+
+function SaveIndicator() {
+  const saveStatus = useStore(s => s.saveStatus)
+  const savedAt    = useStore(s => s.savedAt)
+
+  // Re-render every 10s so relative time stays current
+  const [, force] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => force(n => n + 1), 10000)
+    return () => clearInterval(t)
+  }, [])
+
+  if (saveStatus === 'saving') {
+    return <span className="text-[10px] text-white/40 leading-none">Saving…</span>
+  }
+  if (saveStatus === 'error') {
+    return <span className="text-[10px] text-red-400 leading-none">Save failed · tap to retry</span>
+  }
+  if (saveStatus === 'saved' && savedAt) {
+    const ago = Date.now() - savedAt
+    const label = ago < 5000 ? 'Saved' : `Saved ${formatRelative(ago)}`
+    return <span className="text-[10px] text-white/40 leading-none">{label}</span>
+  }
+  return <span className="text-[10px] text-white/20 leading-none">Unsaved</span>
+}
+
+// ─── TopBar ──────────────────────────────────────────────────────────────────
+
 export default function TopBar() {
   const goHome = useStore(s => s.goHome)
   const undo = useStore(s => s.undo)
@@ -13,26 +52,37 @@ export default function TopBar() {
   const projectName = useStore(s => s.projectName)
   const setProjectName = useStore(s => s.setProjectName)
   const currentProjectId = useStore(s => s.currentProjectId)
-  const savedAt = useStore(s => s.savedAt)
+  const saveStatus = useStore(s => s.saveStatus)
   const [exporting, setExporting] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState('')
-  const [showSaved, setShowSaved] = useState(false)
   const nameInputRef = useRef(null)
 
-  useEffect(() => {
-    if (!savedAt) return
-    setShowSaved(true)
-    const t = setTimeout(() => setShowSaved(false), 2000)
-    return () => clearTimeout(t)
-  }, [savedAt])
-
-  const handleBackClick = () => {
+  const handleBackClick = async () => {
     if (currentProjectId) {
       const state = useStore.getState()
-      saveProject(state.currentProjectId, state.projectName, state)
+      useStore.setState({ saveStatus: 'saving' })
+      try {
+        await saveProject(state.currentProjectId, state.projectName, state)
+        useStore.setState({ savedAt: Date.now(), saveStatus: 'saved' })
+      } catch {
+        useStore.setState({ saveStatus: 'error' })
+      }
     }
     goHome()
+  }
+
+  // Tap the indicator/name area to force a save if last attempt errored
+  const handleStatusTap = async () => {
+    if (saveStatus !== 'error') return
+    const state = useStore.getState()
+    useStore.setState({ saveStatus: 'saving' })
+    try {
+      await saveProject(state.currentProjectId, state.projectName, state)
+      useStore.setState({ savedAt: Date.now(), saveStatus: 'saved' })
+    } catch {
+      useStore.setState({ saveStatus: 'error' })
+    }
   }
 
   const handleNameTap = () => {
@@ -59,7 +109,7 @@ export default function TopBar() {
           ‹ Back
         </button>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={undo}
             disabled={!history.length}
@@ -68,26 +118,27 @@ export default function TopBar() {
             <IconUndo size={22} />
           </button>
 
-          {showSaved ? (
-            <span className="text-xs text-white/50 transition-opacity px-1">Saved ✓</span>
-          ) : editingName ? (
-            <input
-              ref={nameInputRef}
-              value={nameInput}
-              onChange={e => setNameInput(e.target.value)}
-              onBlur={handleNameCommit}
-              onKeyDown={handleNameKeyDown}
-              className="bg-white/10 text-white text-sm text-center rounded-lg px-2 py-1 outline-none w-28"
-              style={{ minWidth: 80 }}
-            />
-          ) : (
-            <button
-              onClick={handleNameTap}
-              className="text-white/60 text-sm active:text-white/90 px-1 truncate max-w-[100px]"
-            >
-              {projectName}
-            </button>
-          )}
+          <div className="flex flex-col items-center min-w-0" onClick={handleStatusTap}>
+            {editingName ? (
+              <input
+                ref={nameInputRef}
+                value={nameInput}
+                onChange={e => setNameInput(e.target.value)}
+                onBlur={handleNameCommit}
+                onKeyDown={handleNameKeyDown}
+                className="bg-white/10 text-white text-sm text-center rounded-lg px-2 py-0.5 outline-none w-28"
+                style={{ minWidth: 80 }}
+              />
+            ) : (
+              <button
+                onClick={handleNameTap}
+                className="text-white/70 text-sm active:text-white/95 px-1 truncate max-w-[140px] leading-tight"
+              >
+                {projectName}
+              </button>
+            )}
+            <SaveIndicator />
+          </div>
 
           <button
             onClick={redo}
