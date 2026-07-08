@@ -1,5 +1,6 @@
-import { dbGet, dbPut, dbDelete, dbGetAll, dbPutBlob, dbDeleteBlob } from './db'
+import { dbGet, dbPut, dbDelete, dbGetAll, dbGetBlob, dbPutBlob, dbDeleteBlob } from './db'
 import { blobCache } from './blobCache'
+import { renderSlide } from './renderSlide'
 
 const THUMB_W = 240
 
@@ -143,46 +144,19 @@ async function serializeLayers(layers, projectId) {
 
 // ─── Thumbnail ─────────────────────────────────────────────────────────────────
 
-async function renderThumbnail(layers, slides, ratio, bgColor) {
-  const thumbH = Math.round(THUMB_W * ratio.h / ratio.w)
-  const canvas = document.createElement('canvas')
-  canvas.width = THUMB_W; canvas.height = thumbH
-  const ctx = canvas.getContext('2d')
-  ctx.fillStyle = slides[0]?.bgColor ?? bgColor
-  ctx.fillRect(0, 0, THUMB_W, thumbH)
-
-  const scale = THUMB_W / ratio.w
-  const sliceEnd = ratio.w
-  const slide0Layers = layers.filter(l => l.src && l.x < sliceEnd && l.x + l.w > 0)
-
-  for (const layer of slide0Layers) {
-    if (!layer.src) continue
-    await new Promise(resolve => {
-      const img = new Image()
-      img.onload = () => {
-        const gap = (layer.cellGap ?? 0) * scale
-        const inset = gap / 2
-        const clipX = Math.max(layer.x, 0) * scale + inset
-        const clipW = (Math.min(layer.x + layer.w, sliceEnd) - Math.max(layer.x, 0)) * scale - gap
-        const clipY = layer.y * scale + inset
-        const clipH = layer.h * scale - gap
-        ctx.save()
-        ctx.beginPath(); ctx.rect(clipX, clipY, clipW, clipH); ctx.clip()
-        ctx.globalAlpha = layer.opacity ?? 1
-        const logW = layer.naturalW ?? img.naturalWidth
-        const logH = layer.naturalH ?? img.naturalHeight
-        const drawX = layer.x * scale + (layer.imgX ?? 0) * scale + inset
-        const drawY = layer.y * scale + (layer.imgY ?? 0) * scale + inset
-        const drawW = logW * (layer.imgScale ?? 1) * scale
-        const drawH = logH * (layer.imgScale ?? 1) * scale
-        ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, drawX, drawY, drawW, drawH)
-        ctx.restore(); resolve()
-      }
-      img.onerror = resolve
-      img.src = layer.src
-    })
-  }
-  return canvas.toDataURL('image/jpeg', 0.75)
+// Render the project's first slide to a thumbnail data URL. Delegates to the
+// canonical slide renderer so thumbnails include everything the editor shows —
+// text, shapes, gradient backgrounds, crop shapes, rotation and flips — instead
+// of the old image-only pass that left text/gradient projects looking blank.
+// Uses the lightweight preview `src` (preferOriginal:false); full-res originals
+// aren't worth fetching at thumbnail scale.
+async function renderThumbnail(layers, slides, ratio, bgColor, bgGradient) {
+  return renderSlide(0, {
+    slides, layers, ratio, bgColor, bgGradient,
+    scale: THUMB_W / ratio.w,
+    quality: 0.75,
+    preferOriginal: false,
+  })
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────────
@@ -202,7 +176,7 @@ export async function saveProject(id, name, storeState) {
     }
   }
 
-  const thumbnail = await renderThumbnail(serialized, slides, ratio, bgColor)
+  const thumbnail = await renderThumbnail(serialized, slides, ratio, bgColor, bgGradient)
   await dbPut('projects', {
     id, name, updatedAt: Date.now(), thumbnail, slideCount: slides.length,
     state: { ratio, bgColor, bgGradient, slides, layers: serialized },
@@ -245,13 +219,74 @@ export async function loadProject(id) {
 export async function listProjects() {
   const all = await dbGetAll('projects')
   return all
-    .map(r => ({
-      id: r.id, name: r.name, updatedAt: r.updatedAt,
-      thumbnail: r.thumbnail,
-      slideCount: r.slideCount ?? r.state?.slides?.length ?? 0,
-      ratio: r.state?.ratio,
-    }))
+    .map(projectSummary)
     .sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
+// The lightweight shape the home screen list works with.
+function projectSummary(r) {
+  return {
+    id: r.id, name: r.name, updatedAt: r.updatedAt,
+    thumbnail: r.thumbnail,
+    slideCount: r.slideCount ?? r.state?.slides?.length ?? 0,
+    ratio: r.state?.ratio,
+  }
+}
+
+// Rename a project in place. The name is the only thing that changes — the
+// thumbnail, layers and updatedAt are left untouched so the card keeps its
+// position in the Recent list.
+export async function renameProject(id, name) {
+  const record = await dbGet('projects', id)
+  if (!record) return null
+  const updated = { ...record, name }
+  await dbPut('projects', updated)
+  return projectSummary(updated)
+}
+
+// Deep-copy a project under a fresh id. Persisted originals (PR #30) are stored
+// in the 'blobs' store under keys scoped to the OLD project id
+// (`orig:<oldId>:<layerId>`), so a naive copy of the record would leave the
+// duplicate's layers pointing at the original's blobs — a later GC or delete of
+// the original would then strip the copy's originals too. We instead copy each
+// referenced blob to a key scoped to the NEW project id and rewrite the layer's
+// `blob-ref://` pointer, so the duplicate owns an independent set of originals.
+export async function duplicateProject(id) {
+  const record = await dbGet('projects', id)
+  if (!record) return null
+
+  const newId = Math.random().toString(36).slice(2)
+
+  const layers = await Promise.all(
+    (record.state?.layers ?? []).map(async (layer) => {
+      const ref = persistedOriginalRef(layer)
+      if (!ref) return { ...layer }
+      const oldKey = ref.slice(ORIG_REF_PREFIX.length)
+      const newKey = originalKey(newId, layer.id)
+      try {
+        const data = await dbGetBlob(oldKey)
+        if (data) {
+          await dbPutBlob(newKey, data)
+          return { ...layer, srcOriginal: ORIG_REF_PREFIX + newKey }
+        }
+      } catch (e) {
+        console.warn('Failed to copy original for duplicated layer', layer.id, e)
+      }
+      // Original missing/unreadable — drop the ref so exports fall back to the
+      // inline preview src rather than pointing at the source project's blob.
+      return { ...layer, srcOriginal: undefined }
+    })
+  )
+
+  const duplicate = {
+    ...record,
+    id: newId,
+    name: `${record.name} copy`,
+    updatedAt: Date.now(),
+    state: { ...record.state, layers },
+  }
+  await dbPut('projects', duplicate)
+  return projectSummary(duplicate)
 }
 
 export async function deleteProject(id) {
