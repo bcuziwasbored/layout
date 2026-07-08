@@ -390,11 +390,20 @@ export const useStore = create((set, get) => ({
       return l
     })
 
-    // Copy layers from idx into newSlideIdx
+    // Copy layers from idx into newSlideIdx, remapping each distinct groupId
+    // to a fresh id so the duplicated grid(s) don't merge with the original
     const srcStart = idx * ratio.w
+    const groupIdMap = {}
     const copiedLayers = layers
       .filter(l => Math.floor(l.x / ratio.w) === idx)
-      .map(l => ({ ...l, id: uid(), x: l.x + ratio.w }))
+      .map(l => {
+        const copy = { ...l, id: uid(), x: l.x + ratio.w }
+        if (l.groupId != null) {
+          if (!groupIdMap[l.groupId]) groupIdMap[l.groupId] = uid()
+          copy.groupId = groupIdMap[l.groupId]
+        }
+        return copy
+      })
 
     const newSlides = [...slides]
     newSlides.splice(newSlideIdx, 0, newSlide)
