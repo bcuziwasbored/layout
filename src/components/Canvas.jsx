@@ -299,7 +299,7 @@ const dataURLCache = new Map()
 //   Data URLs are used directly as img.src — no blob: URL is created so
 //   iOS Safari background eviction can't affect loaded images.
 function useBlobSrc(src) {
-  const blobId = src?.startsWith('blob-ref://') ? src.slice(10) : null
+  const blobId = src?.startsWith('blob-ref://') ? src.slice('blob-ref://'.length) : null
   const [resolved, setResolved] = React.useState(() => {
     if (!blobId) return src ?? null
     return dataURLCache.get(blobId) ?? null   // serve from cache if already loaded

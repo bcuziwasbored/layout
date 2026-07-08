@@ -139,6 +139,11 @@ export default function LayersPanel() {
       overIdxRef.current = next
       setOverIdx(next)
     }
+    function cleanup() {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onCancel)
+    }
     function onUp() {
       const from = dragIdxRef.current
       const to   = overIdxRef.current
@@ -149,11 +154,21 @@ export default function LayersPanel() {
       overIdxRef.current = null
       setDragIdx(null)
       setOverIdx(null)
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
+      cleanup()
+    }
+    // iOS can cancel an in-flight pointer (edge swipe, incoming notification).
+    // Reset drag state and tear down listeners WITHOUT committing a reorder, so the
+    // stale listeners can't leak and fire on a later tap (phantom reorder).
+    function onCancel() {
+      dragIdxRef.current = null
+      overIdxRef.current = null
+      setDragIdx(null)
+      setOverIdx(null)
+      cleanup()
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
   }
 
   function commitReorder(fromDisplay, toDisplay) {

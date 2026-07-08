@@ -33,12 +33,15 @@ function SaveIndicator() {
   if (saveStatus === 'error') {
     return <span className="text-[10px] text-red-400 leading-none">Save failed · tap to retry</span>
   }
-  if (saveStatus === 'saved' && savedAt) {
+  if ((saveStatus === 'saved' || saveStatus === 'idle') && savedAt) {
     const ago = Date.now() - savedAt
     const label = ago < 5000 ? 'Saved' : `Saved ${formatRelative(ago)}`
     return <span className="text-[10px] text-white/40 leading-none">{label}</span>
   }
-  return <span className="text-[10px] text-white/20 leading-none">Unsaved</span>
+  // 'idle' with no prior save — a freshly opened project (already saved on disk) or
+  // a brand-new one. Show nothing rather than a misleading "Unsaved"; the indicator
+  // switches to "Saving…"/"Saved" as soon as the first autosave runs.
+  return null
 }
 
 // ─── TopBar ──────────────────────────────────────────────────────────────────
