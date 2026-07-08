@@ -106,6 +106,9 @@ export default function LayersPanel() {
   // We track dragging over a display-index (0 = top of list)
   const displayLayers = [...slideLayers].reverse()
 
+  // Group deletion is guarded by a confirmation dialog; this holds the pending groupId.
+  const [confirmGroupId, setConfirmGroupId] = useState(null)
+
   // ─── Drag-to-reorder ────────────────────────────────────────────────────────
   // Use refs for drag/over indices so the pointerup closure always sees fresh values
   const [dragIdx, setDragIdx] = useState(null)
@@ -194,9 +197,16 @@ export default function LayersPanel() {
 
   function handleDelete(e, layer) {
     e.stopPropagation()
-    if (layer.groupId) deleteGroup(layer.groupId)
+    // Group deletion wipes the whole collage grid, so confirm first. Single-layer
+    // deletes are low-blast-radius (and undoable), so they go through immediately.
+    if (layer.groupId) setConfirmGroupId(layer.groupId)
     else deleteLayer(layer.id)
   }
+
+  // Filled-photo count for the pending group (cells that actually hold an image).
+  const confirmPhotoCount = confirmGroupId
+    ? layers.filter(l => l.groupId === confirmGroupId && l.src).length
+    : 0
 
   // Build the list to render, applying drag preview swap
   const renderList = [...displayLayers]
@@ -273,6 +283,34 @@ export default function LayersPanel() {
       <p className="text-[10px] text-white/20 text-center px-5 mt-1 shrink-0">
         Drag ≡ to reorder · tap row to select
       </p>
+
+      {/* ── Delete-collage confirmation ────────────────────────────────────────── */}
+      {confirmGroupId && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[80] px-8" onClick={() => setConfirmGroupId(null)}>
+          <div className="w-full max-w-xs bg-[#1c1c1c] rounded-2xl p-5" onClick={e => e.stopPropagation()}>
+            <div className="text-[15px] font-semibold text-white">
+              {confirmPhotoCount > 0
+                ? `Delete this collage grid and its ${confirmPhotoCount} ${confirmPhotoCount === 1 ? 'photo' : 'photos'}?`
+                : 'Delete this collage grid?'}
+            </div>
+            <div className="text-sm text-white/50 mt-1.5">This removes the whole grid.</div>
+            <div className="flex gap-2.5 mt-5">
+              <button
+                onClick={() => setConfirmGroupId(null)}
+                className="flex-1 py-3 rounded-xl bg-white/10 text-white font-medium text-sm active:bg-white/15"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { deleteGroup(confirmGroupId); setConfirmGroupId(null) }}
+                className="flex-1 py-3 rounded-xl bg-red-500 text-white font-semibold text-sm active:bg-red-600"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

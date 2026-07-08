@@ -958,6 +958,9 @@ export default function LayerToolbar() {
   const setTextEditId  = useStore(s => s.setTextEditId)
   const openPickerRef  = useCanvasPicker()
 
+  // Group deletion is guarded by a confirmation dialog; this holds the pending groupId.
+  const [confirmGroupId, setConfirmGroupId] = useState(null)
+
   const layer = layers.find(l => l.id === activeLayerId)
   if (!layer || cropMode) return null
 
@@ -1075,7 +1078,7 @@ export default function LayerToolbar() {
         <div className="flex items-center justify-between px-1 py-1">
           <Btn label={pickLabel} onClick={() => openPickerRef?.current?.(layer.id, null, true, replaceMode)} />
           <Btn label="Position" active={elementPanel === 'position'} onClick={() => setElementPanel('position')} />
-          <Btn label="Delete" danger onClick={() => deleteGroup(layer.groupId)} />
+          <Btn label="Delete" danger onClick={() => setConfirmGroupId(layer.groupId)} />
           <button onClick={() => useStore.getState().setActiveLayer(null)} className="text-white/40 px-2">
             <IconClose size={18} />
           </button>
@@ -1088,6 +1091,34 @@ export default function LayerToolbar() {
             reorderLayer={reorderLayer} updateLayer={updateLayer}
             updateLayerWithHistory={updateLayerWithHistory}
             setElementPanel={setElementPanel} isGroup />
+        )}
+
+        {/* ── Delete-collage confirmation ─────────────────────────────────────── */}
+        {confirmGroupId && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[80] px-8" onClick={() => setConfirmGroupId(null)}>
+            <div className="w-full max-w-xs bg-[#1c1c1c] rounded-2xl p-5" onClick={e => e.stopPropagation()}>
+              <div className="text-[15px] font-semibold text-white">
+                {(totalCount - emptyCount) > 0
+                  ? `Delete this collage grid and its ${totalCount - emptyCount} ${(totalCount - emptyCount) === 1 ? 'photo' : 'photos'}?`
+                  : 'Delete this collage grid?'}
+              </div>
+              <div className="text-sm text-white/50 mt-1.5">This removes the whole grid.</div>
+              <div className="flex gap-2.5 mt-5">
+                <button
+                  onClick={() => setConfirmGroupId(null)}
+                  className="flex-1 py-3 rounded-xl bg-white/10 text-white font-medium text-sm active:bg-white/15"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => { deleteGroup(confirmGroupId); setConfirmGroupId(null) }}
+                  className="flex-1 py-3 rounded-xl bg-red-500 text-white font-semibold text-sm active:bg-red-600"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     )
