@@ -116,9 +116,18 @@ export default function ExportScreen({ onClose }) {
   const bgColor     = useStore(s => s.bgColor)
   const bgGradient  = useStore(s => s.bgGradient)
 
+  // `rendered` grows one entry at a time, in slide order, as each slide
+  // finishes; `renderDone` flips true once every slide is rendered.
   const [rendered, setRendered] = useState([])
+  const [renderDone, setRenderDone] = useState(false)
   const [error, setError] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
+
+  // Image-load failures surfaced by renderSlide during this run. `failedCount`
+  // counts unique photos (by layer id); `failedSlides` marks which slides are
+  // affected so we can flag their thumbnails before the user shares/saves.
+  const [failedCount, setFailedCount] = useState(0)
+  const [failedSlides, setFailedSlides] = useState(() => new Set())
 
   const [renderKey, setRenderKey] = useState(0)
 
@@ -127,29 +136,57 @@ export default function ExportScreen({ onClose }) {
 
   useEffect(() => {
     let cancelled = false
-    // Share image loads across all slides via imgCache (avoids reloading the
-    // same blob for layers that appear on multiple slides).
+    // One image cache per export run: it dedupes decodes so each unique
+    // original is decoded exactly once (a layer shared across slides isn't
+    // re-decoded), and it's discarded when the run ends so nothing is pinned in
+    // memory across runs. Slides render serially rather than all at once so we
+    // never hold many full-res decodes concurrently — the failure mode that
+    // crashes iOS Safari on many-slide projects of large photos.
     const imgCache = new Map()
-    Promise.all(
-      slides.map((_, i) =>
-        renderSlide(i, { slides, layers, ratio, bgColor, bgGradient, imgCache })
-      )
-    )
-      .then(results => { if (!cancelled) setRendered(results) })
-      .catch(err => {
-        console.error('Export render failed:', err)
-        if (!cancelled) setError(true)
-      })
+    const failedLayerIds = new Set()
+    const affectedSlides = new Set()
+    const acc = []
+
+    async function run() {
+      for (let i = 0; i < slides.length; i++) {
+        if (cancelled) return
+        try {
+          const url = await renderSlide(i, {
+            slides, layers, ratio, bgColor, bgGradient, imgCache,
+            onImageError: (layer) => {
+              failedLayerIds.add(layer.id)
+              affectedSlides.add(i)
+            },
+          })
+          if (cancelled) return
+          acc[i] = url
+          setRendered(acc.slice())
+          if (failedLayerIds.size > 0) {
+            setFailedCount(failedLayerIds.size)
+            setFailedSlides(new Set(affectedSlides))
+          }
+        } catch (err) {
+          console.error('Export render failed:', err)
+          if (!cancelled) setError(true)
+          return
+        }
+      }
+      if (!cancelled) setRenderDone(true)
+    }
+    run()
     return () => { cancelled = true }
   }, [renderKey])
 
   const retry = () => {
     setError(false)
     setRendered([])
+    setRenderDone(false)
+    setFailedCount(0)
+    setFailedSlides(new Set())
     setRenderKey(k => k + 1)
   }
 
-  const isRendering = !error && rendered.length === 0
+  const isRendering = !error && !renderDone
 
   // Preview size: fit within screen on both axes, maintain aspect ratio
   const maxW = window.innerWidth - 48
@@ -212,7 +249,14 @@ export default function ExportScreen({ onClose }) {
                 }}
               >
                 {rendered[i] ? (
-                  <img src={rendered[i]} className="w-full h-full object-cover" alt="" />
+                  <div className="relative w-full h-full">
+                    <img src={rendered[i]} className="w-full h-full object-cover" alt="" />
+                    {failedSlides.has(i) && (
+                      <div className="absolute top-2 left-2 flex items-center gap-1 bg-amber-500 text-black text-[11px] font-semibold px-2 py-1 rounded-full shadow">
+                        <span aria-hidden>⚠</span> Photo missing
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center gap-3">
                     <span className="text-black/30 text-sm">Rendering…</span>
@@ -240,17 +284,23 @@ export default function ExportScreen({ onClose }) {
         {/* Thumbnail strip — each tile saves its own slide */}
         <div className="flex gap-2 overflow-x-auto pb-3">
           {rendered.map((src, i) => {
+            const isFailed = failedSlides.has(i)
             const thumb = (
               <>
                 <img
                   src={src}
-                  className="rounded-lg object-cover"
+                  className={`rounded-lg object-cover ${isFailed ? 'ring-2 ring-amber-500' : ''}`}
                   style={{ height: 72, width: Math.round(72 * ratio.w / ratio.h) }}
-                  alt={`Slide ${i + 1}`}
+                  alt={`Slide ${i + 1}${isFailed ? ' (photo missing)' : ''}`}
                 />
                 <div className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded-full font-medium">
                   {i + 1}
                 </div>
+                {isFailed && (
+                  <div className="absolute top-1 right-1 bg-amber-500 text-black text-[10px] w-4 h-4 flex items-center justify-center rounded-full font-bold shadow">
+                    !
+                  </div>
+                )}
               </>
             )
             // Desktop: real download link (works natively). Elsewhere: a button
@@ -285,6 +335,22 @@ export default function ExportScreen({ onClose }) {
             </div>
           )}
         </div>
+
+        {/* Missing-photo warning — shown before the user shares/saves so an
+            incomplete export is never a silent surprise. */}
+        {failedCount > 0 && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 mb-3 px-3 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40"
+          >
+            <span className="text-amber-400 text-base leading-none mt-0.5" aria-hidden>⚠</span>
+            <div className="text-amber-200 text-xs leading-snug">
+              {failedCount === 1 ? '1 photo couldn’t be loaded' : `${failedCount} photos couldn’t be loaded`}
+              {' '}and {failedCount === 1 ? 'is' : 'are'} missing from the marked {failedSlides.size === 1 ? 'slide' : 'slides'}.
+              You can still export, or go back and re-add {failedCount === 1 ? 'it' : 'them'}.
+            </div>
+          </div>
+        )}
 
         {mode === 'open' ? (
           // No share sheet and no download manager: the grid above is the

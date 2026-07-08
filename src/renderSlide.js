@@ -228,11 +228,16 @@ async function resolveLayerSrc(layer, preferOriginal) {
 }
 
 // Load an image, with optional cache. Cache key is the resolved URL.
+// The cache stores the *in-flight* decode promise (not just the resolved
+// Image), so when several slides reference the same original within one export
+// run it is fetched and decoded exactly once — concurrent callers await the
+// same promise instead of each kicking off their own full-res decode. The
+// caller owns the cache's lifetime (one Map per export run), so nothing is
+// pinned in memory across runs.
 function loadImage(src, imgCache) {
   if (imgCache && imgCache.has(src)) {
-    const cached = imgCache.get(src)
-    // cached may be the Image or a pending promise
-    return Promise.resolve(cached)
+    // Value may be a pending promise or an already-resolved Image/null.
+    return Promise.resolve(imgCache.get(src))
   }
   const promise = new Promise(resolve => {
     const img = new Image()
@@ -243,9 +248,9 @@ function loadImage(src, imgCache) {
     img.onerror = () => resolve(null)
     img.src = src
   })
-  if (imgCache) {
-    promise.then(img => { if (img) imgCache.set(src, img) })
-  }
+  // Cache the promise immediately (before it resolves) so simultaneous requests
+  // for the same src dedupe onto this single decode.
+  if (imgCache) imgCache.set(src, promise)
   return promise
 }
 
@@ -262,12 +267,15 @@ function loadImage(src, imgCache) {
  * @param {number} [args.quality=0.95] - JPEG quality (0..1)
  * @param {boolean} [args.preferOriginal=true] - use srcOriginal when available
  * @param {Map} [args.imgCache] - shared cache to reuse images across calls
+ * @param {(layer:Object)=>void} [args.onImageError] - called for each image
+ *   layer whose source can't be resolved or fails to decode (so callers can
+ *   warn the user instead of silently exporting a slide with a photo missing)
  * @returns {Promise<string>} data URL
  */
 export async function renderSlide(slideIdx, args) {
   const {
     slides, layers, ratio, bgColor, bgGradient,
-    scale = 1, quality = 0.95, preferOriginal = true, imgCache,
+    scale = 1, quality = 0.95, preferOriginal = true, imgCache, onImageError,
   } = args
 
   const canvas = document.createElement('canvas')
@@ -306,14 +314,20 @@ export async function renderSlide(slideIdx, args) {
     return cx - extHalfW < sliceEnd && cx + extHalfW > sliceStart
   })
 
-  // Resolve and load all image layers in parallel, sharing imgCache if given
+  // Resolve and load all image layers for this slide. Loads run concurrently,
+  // but imgCache dedupes decodes so a src shared across slides is only decoded
+  // once per export run. A layer whose source can't be resolved (e.g. an evicted
+  // blob: URL or a failed IDB read) or that fails to decode is reported via
+  // onImageError and then skipped, so the export completes but the caller can
+  // warn the user rather than shipping a silently incomplete slide.
   const imgByLayer = new Map()
   await Promise.all(
     relevant.filter(l => l.src).map(async layer => {
       const src = await resolveLayerSrc(layer, preferOriginal)
-      if (!src) return
+      if (!src) { onImageError?.(layer); return }
       const img = await loadImage(src, imgCache)
       if (img) imgByLayer.set(layer.id, img)
+      else onImageError?.(layer)
     })
   )
 
