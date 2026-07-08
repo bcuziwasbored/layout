@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useStore } from '../useStore'
 import { RATIOS, TEMPLATES } from '../templates'
 import { IconClose } from './icons'
-import { listProjects, loadProject, deleteProject } from '../projectStorage'
+import { listProjects, loadProject, deleteProject, renameProject, duplicateProject } from '../projectStorage'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -24,11 +24,39 @@ function formatRelativeTime(timestamp) {
 
 function TrashIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="3 6 5 6 21 6" />
       <path d="M19 6l-1 14H6L5 6" />
       <path d="M10 11v6M14 11v6" />
       <path d="M9 6V4h6v2" />
+    </svg>
+  )
+}
+
+function DotsIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="19" cy="12" r="2" />
+    </svg>
+  )
+}
+
+function PencilIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  )
+}
+
+function CopyIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15V5a2 2 0 0 1 2-2h10" />
     </svg>
   )
 }
@@ -249,22 +277,93 @@ export default function HomeScreen() {
   const [selectedRatio, setSelectedRatio] = useState(null)
   const [projects, setProjects]           = useState([])
   const [projectsLoading, setProjectsLoading] = useState(true)
+  const [projectsError, setProjectsError] = useState(false)
 
-  useEffect(() => {
-    listProjects()
-      .then(setProjects)
-      .finally(() => setProjectsLoading(false))
-  }, [])
+  // Per-card action sheet / dialogs. Each holds the target project (or null).
+  const [menuProject, setMenuProject]       = useState(null)  // "…" action sheet
+  const [confirmDelete, setConfirmDelete]   = useState(null)  // delete confirmation
+  const [renameTarget, setRenameTarget]     = useState(null)  // rename sheet
+  const [renameValue, setRenameValue]       = useState('')
+  const [errorToast, setErrorToast]         = useState(null)  // transient error banner
 
-  const handleOpenProject = async (id) => {
-    const savedState = await loadProject(id)
-    if (savedState) openProject(savedState)
+  // Fetch the project list. State updates happen only in async callbacks, so this
+  // is safe to call from an effect body without triggering a synchronous cascade.
+  const fetchProjects = () => listProjects()
+    .then(list => { setProjects(list); setProjectsError(false) })
+    .catch(err => { console.error('Failed to list projects', err); setProjectsError(true) })
+    .finally(() => setProjectsLoading(false))
+
+  // Retry entry point for the error state — shows the loading skeleton again.
+  const retryLoadProjects = () => {
+    setProjectsLoading(true)
+    setProjectsError(false)
+    fetchProjects()
   }
 
-  const handleDeleteProject = async (e, id) => {
-    e.stopPropagation()
-    await deleteProject(id)
-    setProjects(prev => prev.filter(p => p.id !== id))
+  useEffect(() => { fetchProjects() }, [])
+
+  // Auto-dismiss the error toast.
+  useEffect(() => {
+    if (!errorToast) return
+    const t = setTimeout(() => setErrorToast(null), 3500)
+    return () => clearTimeout(t)
+  }, [errorToast])
+
+  const handleOpenProject = async (id) => {
+    try {
+      const savedState = await loadProject(id)
+      if (savedState) openProject(savedState)
+      else setErrorToast("Couldn't open this project — it may have been deleted.")
+    } catch (err) {
+      console.error('Failed to load project', err)
+      setErrorToast("Couldn't open this project. Please try again.")
+    }
+  }
+
+  const handleDeleteConfirmed = async () => {
+    const target = confirmDelete
+    setConfirmDelete(null)
+    if (!target) return
+    try {
+      await deleteProject(target.id)
+      setProjects(prev => prev.filter(p => p.id !== target.id))
+    } catch (err) {
+      console.error('Failed to delete project', err)
+      setErrorToast("Couldn't delete this project. Please try again.")
+    }
+  }
+
+  const startRename = (project) => {
+    setMenuProject(null)
+    setRenameValue(project.name ?? '')
+    setRenameTarget(project)
+  }
+
+  const handleRenameSave = async () => {
+    const target = renameTarget
+    const name = renameValue.trim()
+    if (!target || !name) return
+    setRenameTarget(null)
+    // Optimistically reflect the new name; the card keeps its list position.
+    setProjects(prev => prev.map(p => p.id === target.id ? { ...p, name } : p))
+    try {
+      await renameProject(target.id, name)
+    } catch (err) {
+      console.error('Failed to rename project', err)
+      setErrorToast("Couldn't rename this project. Please try again.")
+      fetchProjects()  // resync from IDB on failure
+    }
+  }
+
+  const handleDuplicate = async (project) => {
+    setMenuProject(null)
+    try {
+      const dup = await duplicateProject(project.id)
+      if (dup) setProjects(prev => [dup, ...prev].sort((a, b) => b.updatedAt - a.updatedAt))
+    } catch (err) {
+      console.error('Failed to duplicate project', err)
+      setErrorToast("Couldn't duplicate this project. Please try again.")
+    }
   }
 
   const handleRatio = (r) => {
@@ -286,7 +385,7 @@ export default function HomeScreen() {
   const singlePageTemplates = TEMPLATES.filter(t => !t.pageSpan || t.pageSpan === 1)
   const multiPageTemplates  = TEMPLATES.filter(t => t.pageSpan && t.pageSpan > 1)
 
-  const isFirstTime = !projectsLoading && projects.length === 0
+  const isFirstTime = !projectsLoading && !projectsError && projects.length === 0
 
   if (isFirstTime && step === null) {
     return <OnboardingScreen onStart={() => setStep('ratio')} />
@@ -317,15 +416,36 @@ export default function HomeScreen() {
               <div key={i} className="rounded-2xl bg-white/6 animate-pulse" style={{ aspectRatio: '1/1.25' }} />
             ))}
           </div>
+        ) : projectsError ? (
+          <div className="flex flex-col items-center justify-center text-center py-16 px-6">
+            <div className="text-sm font-semibold text-white">Couldn't load your projects</div>
+            <div className="text-[13px] text-white/45 mt-1.5 leading-relaxed">
+              Something went wrong reading your saved projects. Your data is still safe.
+            </div>
+            <button
+              onClick={retryLoadProjects}
+              className="mt-5 bg-white/10 text-white font-medium text-sm px-5 py-2.5 rounded-xl active:bg-white/15"
+            >
+              Try again
+            </button>
+          </div>
         ) : projects.length > 0 ? (
           <>
             <div className="text-xs text-white/30 uppercase tracking-wider mb-3">Recent</div>
             <div className="grid grid-cols-2 gap-3">
               {projects.map(project => (
-                <button
+                <div
                   key={project.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => handleOpenProject(project.id)}
-                  className="relative text-left rounded-2xl overflow-hidden bg-white/6 active:opacity-70 transition-opacity"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      handleOpenProject(project.id)
+                    }
+                  }}
+                  className="relative text-left rounded-2xl overflow-hidden bg-white/6 cursor-pointer active:opacity-70 transition-opacity"
                 >
                   <div
                     className="w-full bg-zinc-900"
@@ -342,12 +462,13 @@ export default function HomeScreen() {
                     <div className="text-[11px] text-white/40 mt-0.5">{formatRelativeTime(project.updatedAt)}</div>
                   </div>
                   <button
-                    onClick={(e) => handleDeleteProject(e, project.id)}
-                    className="absolute top-2 right-2 bg-black/60 text-white/60 rounded-full p-1.5 active:text-white"
+                    aria-label="Project options"
+                    onClick={(e) => { e.stopPropagation(); setMenuProject(project) }}
+                    className="absolute top-2 right-2 bg-black/60 text-white/70 rounded-full p-1.5 active:text-white"
                   >
-                    <TrashIcon />
+                    <DotsIcon />
                   </button>
-                </button>
+                </div>
               ))}
             </div>
           </>
@@ -438,6 +559,108 @@ export default function HomeScreen() {
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Per-card "…" action sheet ──────────────────────────────────────────── */}
+      {menuProject && (
+        <div className="fixed inset-0 bg-black/80 flex items-end z-50" onClick={() => setMenuProject(null)}>
+          <div
+            className="w-full bg-[#161616] rounded-t-2xl p-3"
+            style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-3 pt-1 pb-2 text-xs text-white/40 truncate">{menuProject.name}</div>
+            <button
+              onClick={() => startRename(menuProject)}
+              className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-white active:bg-white/10"
+            >
+              <PencilIcon /> Rename
+            </button>
+            <button
+              onClick={() => handleDuplicate(menuProject)}
+              className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-white active:bg-white/10"
+            >
+              <CopyIcon /> Duplicate
+            </button>
+            <button
+              onClick={() => { const p = menuProject; setMenuProject(null); setConfirmDelete(p) }}
+              className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-red-400 active:bg-white/10"
+            >
+              <TrashIcon /> Delete
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Rename sheet ───────────────────────────────────────────────────────── */}
+      {renameTarget && (
+        <div className="fixed inset-0 bg-black/80 flex items-end z-[60]" onClick={() => setRenameTarget(null)}>
+          <div
+            className="w-full bg-[#161616] rounded-t-2xl p-6"
+            style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="text-base font-semibold mb-4">Rename project</div>
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={e => setRenameValue(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleRenameSave() }}
+              className="w-full bg-white/8 border border-white/12 rounded-xl px-4 py-3 text-white text-[15px] outline-none focus:border-white/30"
+              placeholder="Project name"
+            />
+            <div className="flex gap-2.5 mt-4">
+              <button
+                onClick={() => setRenameTarget(null)}
+                className="flex-1 py-3 rounded-xl bg-white/10 text-white font-medium text-sm active:bg-white/15"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRenameSave}
+                disabled={!renameValue.trim()}
+                className="flex-1 py-3 rounded-xl bg-white text-black font-semibold text-sm active:scale-[0.98] transition-transform disabled:opacity-40"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete confirmation ────────────────────────────────────────────────── */}
+      {confirmDelete && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] px-8" onClick={() => setConfirmDelete(null)}>
+          <div className="w-full max-w-xs bg-[#1c1c1c] rounded-2xl p-5" onClick={e => e.stopPropagation()}>
+            <div className="text-[15px] font-semibold text-white">Delete “{confirmDelete.name}”?</div>
+            <div className="text-sm text-white/50 mt-1.5">This can’t be undone.</div>
+            <div className="flex gap-2.5 mt-5">
+              <button
+                onClick={() => setConfirmDelete(null)}
+                className="flex-1 py-3 rounded-xl bg-white/10 text-white font-medium text-sm active:bg-white/15"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteConfirmed}
+                className="flex-1 py-3 rounded-xl bg-red-500 text-white font-semibold text-sm active:bg-red-600"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Transient error toast ──────────────────────────────────────────────── */}
+      {errorToast && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 bottom-8 z-[70] bg-red-500/95 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg max-w-[90%] text-center"
+          style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
+          role="alert"
+        >
+          {errorToast}
         </div>
       )}
     </div>
