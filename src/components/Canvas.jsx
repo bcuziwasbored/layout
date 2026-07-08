@@ -1095,27 +1095,60 @@ export default function Canvas({ openPickerRef }) {
       const mid = { x: (t1.clientX + t2.clientX) / 2 - rect.left, y: (t1.clientY + t2.clientY) / 2 - rect.top }
 
       if (!pinchRef.current.active) {
-        const { activeCellId: cellId, layers: curLayers } = fresh.current
+        const { activeCellId: cellId, activeLayerId: activeId, layers: curLayers } = fresh.current
+        const v = viewRef.current
+        const toCanvas = (t) => ({
+          x: (t.clientX - rect.left - v.x) / v.scale,
+          y: (t.clientY - rect.top  - v.y) / v.scale,
+        })
+        const p1 = toCanvas(t1), p2 = toCanvas(t2)
+
         const cell = cellId ? curLayers.find(l => l.id === cellId) : null
         // Decide at gesture start if both fingers land inside the cell
         let cellPinch = false
         if (cell) {
-          const v = viewRef.current
-          const toCanvas = (t) => ({
-            x: (t.clientX - rect.left - v.x) / v.scale,
-            y: (t.clientY - rect.top  - v.y) / v.scale,
-          })
-          const p1 = toCanvas(t1), p2 = toCanvas(t2)
           const inside = (p) => p.x >= cell.x && p.x <= cell.x + cell.w && p.y >= cell.y && p.y <= cell.y + cell.h
           cellPinch = inside(p1) && inside(p2)
         }
+
+        // Layer pinch: both fingers start on the currently selected standalone
+        // layer (text / shape / free image — NOT a locked template cell, NOT a
+        // group). Cell sub-selection pinch takes priority (handled above). Uses
+        // pointInLayer so an already-rotated layer is hit-tested against its
+        // rendered box (PR #29).
+        let layerPinch = false
+        let startLayer = null
+        const selLayer = (!cellPinch && activeId) ? curLayers.find(l => l.id === activeId) : null
+        const isStandalone = selLayer && !selLayer.locked &&
+          (selLayer.type === 'text' || selLayer.type === 'shape' || selLayer.src)
+        if (isStandalone && pointInLayer(p1.x, p1.y, selLayer) && pointInLayer(p2.x, p2.y, selLayer)) {
+          layerPinch = true
+          startLayer = { ...selLayer }
+        }
+
         pinchRef.current = {
-          active: true, lastDist: newDist, cellPinch,
+          active: true, lastDist: newDist, cellPinch, layerPinch,
+          startDist: newDist,
+          // Twist tracking: accumulate per-move wrapped deltas so rotation stays
+          // continuous when the raw atan2 angle wraps at ±180°.
+          lastAngle: Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX),
+          accumDeg: 0,
+          layerId: layerPinch ? activeId : null,
+          startLayer,
           cellScale: cell?.imgScale ?? null,
           imgX: cell?.imgX ?? null,
           imgY: cell?.imgY ?? null,
         }
-        if (cellPinch) useStore.getState()._captureUndo()
+        if (cellPinch) {
+          useStore.getState()._captureUndo()
+        } else if (layerPinch) {
+          // A 1-finger drag that escalates into this pinch leaves its captured
+          // snapshot dangling (its panRef is nulled without commit/discard).
+          // Reuse it so the whole physical gesture is one history entry;
+          // otherwise capture the pre-pinch state now.
+          if (useStore.getState()._undoSnap == null) useStore.getState()._captureUndo()
+          setGestureActive(true)  // hide the quick toolbar while pinching the layer
+        }
         panRef.current = null
         return
       }
@@ -1160,6 +1193,57 @@ export default function Canvas({ openPickerRef }) {
         return
       }
 
+      if (pinchRef.current.layerPinch) {
+        const sl = pinchRef.current.startLayer
+        // Update the accumulated twist even if the layer vanished mid-gesture
+        const curAngle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX)
+        let stepDeg = (curAngle - pinchRef.current.lastAngle) * 180 / Math.PI
+        // Wrap the per-move step into (-180, 180] so crossing atan2's ±180°
+        // seam doesn't produce a 360° jump.
+        stepDeg = ((stepDeg + 180) % 360 + 360) % 360 - 180
+        pinchRef.current.accumDeg += stepDeg
+        pinchRef.current.lastAngle = curAngle
+        if (!sl || !curLayers.some(l => l.id === pinchRef.current.layerId)) return
+
+        // ── Scale about the layer center ──
+        // Absolute factor from gesture-start geometry (no per-frame compounding
+        // drift). Clamped so w/h never go below 20 and text fontSize never
+        // below 8 — same floors as the handle-resize paths.
+        let factor = newDist / pinchRef.current.startDist
+        let minFactor = Math.max(20 / sl.w, 20 / sl.h)
+        if (sl.type === 'text') minFactor = Math.max(minFactor, 8 / (sl.fontSize ?? 72))
+        factor = Math.max(factor, minFactor)
+        const nw = sl.w * factor
+        const nh = sl.h * factor
+        const cx = sl.x + sl.w / 2
+        const cy = sl.y + sl.h / 2
+        const patch = { x: cx - nw / 2, y: cy - nh / 2, w: nw, h: nh }
+        if (sl.type === 'text') {
+          // Text scales via fontSize so the glyphs grow with the box
+          patch.fontSize = Math.max(8, Math.round((sl.fontSize ?? 72) * factor * 10) / 10)
+        } else if (sl.type !== 'shape') {
+          // Free image: uniform scale, so scaling the fitted image params by the
+          // same factor preserves the current crop exactly (cover still holds).
+          patch.imgScale = (sl.imgScale ?? 1) * factor
+          patch.imgX = (sl.imgX ?? 0) * factor
+          patch.imgY = (sl.imgY ?? 0) * factor
+        }
+
+        // ── Two-finger twist → freeRotation delta ──
+        let deg = (sl.freeRotation ?? 0) + pinchRef.current.accumDeg
+        let nr = ((deg % 360) + 360) % 360
+        if (nr > 180) nr -= 360
+        // Soft-snap the RESULT to the nearest key angle when within 3°
+        // (-180 is the same pose as 180 — snap it to the canonical 180)
+        for (const s of [0, 45, 90, 135, 180, -45, -90, -135, -180]) {
+          if (Math.abs(nr - s) < 3) { nr = s === -180 ? 180 : s; break }
+        }
+        patch.freeRotation = Math.round(nr * 10) / 10
+
+        upd(pinchRef.current.layerId, patch)
+        return
+      }
+
       setViewSync(v => {
         const ns = clamp(v.scale * factor, 0.1, 10)
         return { scale: ns, x: mid.x - (mid.x - v.x) * (ns / v.scale), y: mid.y - (mid.y - v.y) * (ns / v.scale) }
@@ -1171,12 +1255,14 @@ export default function Canvas({ openPickerRef }) {
       // than once. Only finalize when the pinch can no longer continue.
       if (e.touches && e.touches.length >= 2) return
       if (pinchRef.current.active) {
-        // Exactly one outcome per pinch: commit the cell-pinch's captured snapshot
-        // (skipped automatically if nothing moved), otherwise discard any captured
-        // snapshot — including one left dangling by a 1-finger drag that escalated
-        // into this pinch (its panRef was nulled without a commit/discard).
-        if (pinchRef.current.cellPinch) useStore.getState()._commitUndo()
+        // Exactly one outcome per pinch: commit the cell-pinch's or layer-pinch's
+        // captured snapshot (skipped automatically if nothing moved), otherwise
+        // discard any captured snapshot — including one left dangling by a
+        // 1-finger drag that escalated into this pinch (its panRef was nulled
+        // without a commit/discard).
+        if (pinchRef.current.cellPinch || pinchRef.current.layerPinch) useStore.getState()._commitUndo()
         else useStore.getState()._discardUndo()
+        if (pinchRef.current.layerPinch) setGestureActive(false)
       }
       pinchRef.current = { active: false, lastDist: 0 }
     }
