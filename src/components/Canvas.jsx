@@ -3,7 +3,7 @@ import { Stage, Layer, Rect, Circle, Ellipse, Image as KImage, Group, Text, Line
 import { useStore, fitInCell } from '../useStore'
 import useImage from 'use-image'
 import { dbGetBlob } from '../db'
-import { blobCache } from '../blobCache'
+import { blobCache, dataURLCache } from '../blobCache'
 import { drawShapePath } from '../shapes'
 
 // ─── Image downscaling ─────────────────────────────────────────────────────────
@@ -301,10 +301,8 @@ function ShapedBorder({ shape, x, y, w, h, cornerRadius, stroke, strokeWidth }) 
   )
 }
 
-// In-memory cache: blobId → data URL string.
-// Populated the first time each image is read from IDB so subsequent renders
-// (including after iOS backgrounding) don't hit IDB again.
-const dataURLCache = new Map()
+// dataURLCache (blobId → data URL) lives in ../blobCache so the store can clear
+// it on project switch. See useBlobSrc below.
 
 // Resolves src to something useImage can load:
 // - blob: and data: URLs pass through directly (same-session picks)
@@ -343,17 +341,31 @@ function useAdjustedImage(src, brightness, contrast, saturation) {
   const resolvedSrc = useBlobSrc(src)
   const [img] = useImage(resolvedSrc ?? undefined)
   const [adjusted, setAdjusted] = React.useState(null)
+  // One reusable canvas per hook instance. Every brightness/contrast/saturation
+  // tick used to allocate a fresh full-res canvas (up to 2048²≈16MB RGBA); while
+  // scrubbing a slider that churned a new 16MB buffer per frame. We now redraw
+  // onto the same canvas and only reallocate its backing store when the source
+  // image dimensions change. See issue #16 (b).
+  const canvasRef = React.useRef(null)
   React.useEffect(() => {
     if (!img) { setAdjusted(null); return }
     const b = brightness ?? 0, c = contrast ?? 0, s = saturation ?? 0
     if (!b && !c && !s) { setAdjusted(img); return }
-    const canvas = document.createElement('canvas')
-    canvas.width = img.naturalWidth; canvas.height = img.naturalHeight
+    let canvas = canvasRef.current
+    if (!canvas) { canvas = document.createElement('canvas'); canvasRef.current = canvas }
+    if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
+      // Assigning width/height also clears the canvas; only do it on a real change.
+      canvas.width = img.naturalWidth; canvas.height = img.naturalHeight
+    }
     // Stamp naturalWidth/naturalHeight so FilledCell's dimension math works the same as with HTMLImageElement
     canvas.naturalWidth = img.naturalWidth; canvas.naturalHeight = img.naturalHeight
     const ctx = canvas.getContext('2d')
     ctx.filter = `brightness(${1 + b/100}) contrast(${1 + c/100}) saturate(${1 + s/100})`
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.drawImage(img, 0, 0)
+    // The canvas object reference is stable across ticks, so a setAdjusted with the
+    // same ref would bail out of re-render and Konva would never repaint the new
+    // pixels. FilledCell forces a layer batchDraw on adjustment change (see below).
     setAdjusted(canvas)
   }, [img, brightness, contrast, saturation])
   return adjusted
@@ -500,6 +512,13 @@ function EmptyCell({ layer, onTap, vs }) {
 // handleStageDown/Move/Up — FilledCell is purely visual.
 function FilledCell({ layer, vs }) {
   const img = useAdjustedImage(layer.src, layer.brightness, layer.contrast, layer.saturation)
+  // useAdjustedImage redraws onto a REUSED canvas, so its object reference is
+  // stable between slider ticks and react-konva won't auto-repaint. Force the
+  // layer to redraw whenever an adjustment (or the resolved image) changes.
+  const imgNodeRef = useRef(null)
+  useEffect(() => {
+    imgNodeRef.current?.getLayer()?.batchDraw()
+  }, [img, layer.brightness, layer.contrast, layer.saturation])
   const gap = layer.cellGap ?? 0
   const inset = gap / 2
   const innerW = layer.w - gap
@@ -533,10 +552,10 @@ function FilledCell({ layer, vs }) {
         {img && (hasTransform ? (
           // All transforms (rotation + flip) around frame center
           <Group x={layer.w / 2} y={layer.h / 2} rotation={rotation} scaleX={scaleX} scaleY={scaleY}>
-            <KImage image={img} x={imgX - layer.w / 2} y={imgY - layer.h / 2} width={imgW} height={imgH} />
+            <KImage ref={imgNodeRef} image={img} x={imgX - layer.w / 2} y={imgY - layer.h / 2} width={imgW} height={imgH} />
           </Group>
         ) : (
-          <KImage image={img} x={imgX} y={imgY} width={imgW} height={imgH} />
+          <KImage ref={imgNodeRef} image={img} x={imgX} y={imgY} width={imgW} height={imgH} />
         ))}
       </Group>
       {/* Border overlay (outside clip so full stroke is visible) */}
@@ -953,6 +972,12 @@ export default function Canvas({ openPickerRef }) {
     }
     animFrameRef.current = requestAnimationFrame(tick)
   }, [setViewSync])
+
+  // Cancel any in-flight view-pan animation on unmount so its rAF callback can't
+  // fire setViewSync after the component is gone (setState-after-unmount). See #16 (d).
+  useEffect(() => () => {
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
+  }, [])
 
   // Re-runs when any panel opens/closes, textEditId changes, or containerSize.h changes
   useEffect(() => {
