@@ -157,35 +157,80 @@ function findGroupSeams(groupLayers) {
   return { vertical: [...vMap.values()], horizontal: [...hMap.values()] }
 }
 
+// Transform a canvas-space point into a (possibly freeRotation'd) layer's local
+// unrotated space, rotating about the layer center by -rotation. The result is
+// in the same units as layer.x/y/w/h, so the standard AABB test applies. Mirrors
+// the forward corner math in QuickToolbar. No-op (returns the point unchanged)
+// when the layer has no rotation.
+function toLayerLocal(px, py, layer) {
+  const rot = (layer.freeRotation ?? 0) * Math.PI / 180
+  if (!rot) return { x: px, y: py }
+  const cx = layer.x + layer.w / 2
+  const cy = layer.y + layer.h / 2
+  const cos = Math.cos(rot), sin = Math.sin(rot)
+  const ddx = px - cx, ddy = py - cy
+  return {
+    x: cx + ddx * cos + ddy * sin,
+    y: cy - ddx * sin + ddy * cos,
+  }
+}
+
+// True when the canvas-space point lands inside the layer's rendered (rotated) box.
+function pointInLayer(px, py, layer) {
+  const { x, y } = toLayerLocal(px, py, layer)
+  return x >= layer.x && x <= layer.x + layer.w &&
+         y >= layer.y && y <= layer.y + layer.h
+}
+
 function computeResize(sl, handle, ddx, ddy, aspectOverride) {
   const ar = aspectOverride ?? (sl.w / sl.h)
   const isCorner = handle.length === 2
-  let x = sl.x, y = sl.y, w = sl.w, h = sl.h
+  // Rotate the screen-space pointer delta into the layer's local (unrotated)
+  // axes so the resize happens along the axes the user visually sees.
+  const rot = (sl.freeRotation ?? 0) * Math.PI / 180
+  const cos = Math.cos(rot), sin = Math.sin(rot)
+  const ldx = ddx * cos + ddy * sin
+  const ldy = -ddx * sin + ddy * cos
+
+  let w = sl.w, h = sl.h
   if (isCorner) {
-    if (Math.abs(ddx) >= Math.abs(ddy)) {
-      w = Math.max(20, handle.includes('r') ? sl.w + ddx : sl.w - ddx)
+    if (Math.abs(ldx) >= Math.abs(ldy)) {
+      w = Math.max(20, handle.includes('r') ? sl.w + ldx : sl.w - ldx)
       h = w / ar
-      if (handle.includes('l')) x = sl.x + sl.w - w
-      if (handle.includes('t')) y = sl.y + sl.h - h
     } else {
-      h = Math.max(20, handle.includes('b') ? sl.h + ddy : sl.h - ddy)
+      h = Math.max(20, handle.includes('b') ? sl.h + ldy : sl.h - ldy)
       w = h * ar
-      if (handle.includes('l')) x = sl.x + sl.w - w
-      if (handle.includes('t')) y = sl.y + sl.h - h
     }
   } else if (aspectOverride) {
     // With aspect constraint: edge handles adjust both dims to maintain ratio
-    if (handle === 'r') { w = Math.max(20, sl.w + ddx); h = w / ar; y = sl.y + (sl.h - h) / 2 }
-    if (handle === 'l') { w = Math.max(20, sl.w - ddx); x = sl.x + sl.w - w; h = w / ar; y = sl.y + (sl.h - h) / 2 }
-    if (handle === 'b') { h = Math.max(20, sl.h + ddy); w = h * ar; x = sl.x + (sl.w - w) / 2 }
-    if (handle === 't') { h = Math.max(20, sl.h - ddy); y = sl.y + sl.h - h; w = h * ar; x = sl.x + (sl.w - w) / 2 }
+    if (handle === 'r') { w = Math.max(20, sl.w + ldx); h = w / ar }
+    if (handle === 'l') { w = Math.max(20, sl.w - ldx); h = w / ar }
+    if (handle === 'b') { h = Math.max(20, sl.h + ldy); w = h * ar }
+    if (handle === 't') { h = Math.max(20, sl.h - ldy); w = h * ar }
   } else {
-    if (handle === 'r') w = Math.max(20, sl.w + ddx)
-    if (handle === 'l') { w = Math.max(20, sl.w - ddx); x = sl.x + sl.w - w }
-    if (handle === 'b') h = Math.max(20, sl.h + ddy)
-    if (handle === 't') { h = Math.max(20, sl.h - ddy); y = sl.y + sl.h - h }
+    if (handle === 'r') w = Math.max(20, sl.w + ldx)
+    if (handle === 'l') w = Math.max(20, sl.w - ldx)
+    if (handle === 'b') h = Math.max(20, sl.h + ldy)
+    if (handle === 't') h = Math.max(20, sl.h - ldy)
   }
-  return { x, y, w, h }
+
+  // Reposition so the OPPOSITE corner/edge stays pinned in rotated screen space.
+  // signX/signY select which local edge is held fixed:
+  //   'r'/'b' handle → hold the left/top edge  (sign -1)
+  //   'l'/'t' handle → hold the right/bottom edge (sign +1)
+  //   axis untouched by the handle stays centered (sign 0).
+  const signX = handle.includes('r') ? -1 : handle.includes('l') ? 1 : 0
+  const signY = handle.includes('b') ? -1 : handle.includes('t') ? 1 : 0
+  const cx0 = sl.x + sl.w / 2, cy0 = sl.y + sl.h / 2
+  // Anchor's canvas position from the ORIGINAL geometry (rotate local → canvas).
+  const ax0 = signX * sl.w / 2, ay0 = signY * sl.h / 2
+  const anchorX = cx0 + ax0 * cos - ay0 * sin
+  const anchorY = cy0 + ax0 * sin + ay0 * cos
+  // New center so that same anchor keeps its canvas position under the new size.
+  const ax1 = signX * w / 2, ay1 = signY * h / 2
+  const cx1 = anchorX - (ax1 * cos - ay1 * sin)
+  const cy1 = anchorY - (ax1 * sin + ay1 * cos)
+  return { x: cx1 - w / 2, y: cy1 - h / 2, w, h }
 }
 
 // ─── Layer visuals ─────────────────────────────────────────────────────────────
@@ -1196,8 +1241,7 @@ export default function Canvas({ openPickerRef }) {
     // In crop mode: touch outside layer bounds exits crop; inside pans the image
     if (isCrop && activeId) {
       const layer = curLayers.find(l => l.id === activeId)
-      if (!layer || canvasX < layer.x || canvasX > layer.x + layer.w ||
-          canvasY < layer.y || canvasY > layer.y + layer.h) {
+      if (!layer || !pointInLayer(canvasX, canvasY, layer)) {
         fresh.current.setCropMode(false)
         return
       }
@@ -1209,8 +1253,7 @@ export default function Canvas({ openPickerRef }) {
 
     const hitLayer = [...curLayers].reverse().find(l =>
       (l.src || l.locked || l.type === 'text' || l.type === 'shape') &&
-      canvasX >= l.x && canvasX <= l.x + l.w &&
-      canvasY >= l.y && canvasY <= l.y + l.h
+      pointInLayer(canvasX, canvasY, l)
     )
 
     if (hitLayer) {
@@ -1230,8 +1273,7 @@ export default function Canvas({ openPickerRef }) {
         } else {
           // A cell is sub-selected — pan its image or clear sub-selection
           const cell = curLayers.find(l => l.id === curCellId)
-          if (cell && canvasX >= cell.x && canvasX <= cell.x + cell.w &&
-              canvasY >= cell.y && canvasY <= cell.y + cell.h) {
+          if (cell && pointInLayer(canvasX, canvasY, cell)) {
             panRef.current = { type: 'crop-pan', layerId: curCellId,
               startLayer: { ...cell }, startX: pt.clientX, startY: pt.clientY, moved: false }
             useStore.getState()._captureUndo()
@@ -1304,15 +1346,19 @@ export default function Canvas({ openPickerRef }) {
       const sl = p.startLayer
       let { x: nx, y: ny, w: nw, h: nh } = computeResize(sl, p.handle, dx / vs, dy / vs)
       if (nw > 20 && nh > 20) {
+        // Edge snapping assumes axis-aligned edges; for a rotated layer nx/nw are
+        // the local (unrotated) AABB, not the visible edges, so snapping them
+        // would translate the layer — skip snapping while rotated.
+        const rotated = (sl.freeRotation ?? 0) !== 0
         const lines = getSnapLines(curLayers, sl.id, r, curSlides.length)
         const thr = SNAP_THRESHOLD_PX / vs
         let sgx = null, sgy = null
-        if (p.handle === 'r')  { const s = snapEdge(nx + nw, lines.xs, thr); if (s !== null) { nw = s - nx; sgx = s } }
-        if (p.handle === 'l')  { const s = snapEdge(nx, lines.xs, thr);      if (s !== null) { nw += nx - s; nx = s; sgx = s } }
-        if (p.handle === 'b')  { const s = snapEdge(ny + nh, lines.ys, thr); if (s !== null) { nh = s - ny; sgy = s } }
-        if (p.handle === 't')  { const s = snapEdge(ny, lines.ys, thr);      if (s !== null) { nh += ny - s; ny = s; sgy = s } }
+        if (!rotated && p.handle === 'r')  { const s = snapEdge(nx + nw, lines.xs, thr); if (s !== null) { nw = s - nx; sgx = s } }
+        if (!rotated && p.handle === 'l')  { const s = snapEdge(nx, lines.xs, thr);      if (s !== null) { nw += nx - s; nx = s; sgx = s } }
+        if (!rotated && p.handle === 'b')  { const s = snapEdge(ny + nh, lines.ys, thr); if (s !== null) { nh = s - ny; sgy = s } }
+        if (!rotated && p.handle === 't')  { const s = snapEdge(ny, lines.ys, thr);      if (s !== null) { nh += ny - s; ny = s; sgy = s } }
         // corners: snap each moving edge independently
-        if (p.handle === 'tr' || p.handle === 'br' || p.handle === 'tl' || p.handle === 'bl') {
+        if (!rotated && (p.handle === 'tr' || p.handle === 'br' || p.handle === 'tl' || p.handle === 'bl')) {
           const snapX = p.handle.includes('r')
             ? snapEdge(nx + nw, lines.xs, thr) : snapEdge(nx, lines.xs, thr)
           const snapY = p.handle.includes('b')
