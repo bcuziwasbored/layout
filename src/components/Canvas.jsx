@@ -14,6 +14,10 @@ import { drawShapePath } from '../shapes'
 const MAX_DIM = 2048
 
 function processImageFile(file) {
+  // Stable content id for this imported image. Travels with the image onto the
+  // layer (as layer.imgId) so undo/redo can restore the exact image a snapshot
+  // saw, even after the layer's image is later replaced. See useStore.js.
+  const imgId = Math.random().toString(36).slice(2)
   return new Promise((resolve, reject) => {
     const rawUrl = URL.createObjectURL(file)
     const img = new Image()
@@ -22,7 +26,7 @@ function processImageFile(file) {
       if (nW <= MAX_DIM && nH <= MAX_DIM) {
         // Already small enough — use same URL for both display and export
         blobCache.set(rawUrl, null)  // sentinel: fetch from rawUrl directly
-        resolve({ src: rawUrl, srcOriginal: rawUrl, naturalW: nW, naturalH: nH })
+        resolve({ src: rawUrl, srcOriginal: rawUrl, naturalW: nW, naturalH: nH, imgId })
         return
       }
       // Downscale for display — keep rawUrl alive as srcOriginal for export
@@ -41,7 +45,7 @@ function processImageFile(file) {
           // Cache the original File too (a Blob) so serializeLayers can persist the
           // full-res original without fetch(blob:), unreliable on iOS Safari PWA.
           blobCache.set(rawUrl, file)
-          resolve({ src: url, srcOriginal: rawUrl, naturalW: w, naturalH: h })
+          resolve({ src: url, srcOriginal: rawUrl, naturalW: w, naturalH: h, imgId })
         },
         'image/jpeg', 0.92,
       )
@@ -1599,17 +1603,19 @@ export default function Canvas({ openPickerRef }) {
       pendingLayerId.current = null
       pendingReplaceFilled.current = false
     } else {
-      const { src, srcOriginal, naturalW, naturalH } = await processImageFile(files[0])
+      const { src, srcOriginal, naturalW, naturalH, imgId } = await processImageFile(files[0])
       if (pendingLayerId.current) {
         const layer = curLayers.find(l => l.id === pendingLayerId.current)
         if (layer) {
           const gap = layer.cellGap ?? 0
           const fit = fitInCell(naturalW, naturalH, layer.w - gap, layer.h - gap)
-          upd(pendingLayerId.current, { src, srcOriginal, naturalW, naturalH, ...fit })
+          // imgId identifies this replacement image so undo restores it (and the
+          // previous image) exactly — see the replace-undo fix in useStore.js.
+          upd(pendingLayerId.current, { src, srcOriginal, imgId, naturalW, naturalH, ...fit })
         }
         pendingLayerId.current = null
       } else {
-        addImg(src, srcOriginal, naturalW, naturalH, pendingSlideIdx.current ?? asi)
+        addImg(src, srcOriginal, naturalW, naturalH, imgId, pendingSlideIdx.current ?? asi)
       }
     }
   }
