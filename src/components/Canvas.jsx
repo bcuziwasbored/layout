@@ -1140,9 +1140,18 @@ export default function Canvas({ openPickerRef }) {
         return { scale: ns, x: mid.x - (mid.x - v.x) * (ns / v.scale), y: mid.y - (mid.y - v.y) * (ns / v.scale) }
       })
     }
-    const onEnd = () => {
-      if (pinchRef.current.cellPinch && pinchRef.current.active) {
-        useStore.getState()._commitUndo()
+    const onEnd = (e) => {
+      // A pinch can still continue while 2+ fingers remain down, so don't finalize
+      // on an intermediate finger lift — that let one physical pinch commit more
+      // than once. Only finalize when the pinch can no longer continue.
+      if (e.touches && e.touches.length >= 2) return
+      if (pinchRef.current.active) {
+        // Exactly one outcome per pinch: commit the cell-pinch's captured snapshot
+        // (skipped automatically if nothing moved), otherwise discard any captured
+        // snapshot — including one left dangling by a 1-finger drag that escalated
+        // into this pinch (its panRef was nulled without a commit/discard).
+        if (pinchRef.current.cellPinch) useStore.getState()._commitUndo()
+        else useStore.getState()._discardUndo()
       }
       pinchRef.current = { active: false, lastDist: 0 }
     }

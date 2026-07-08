@@ -44,6 +44,25 @@ function ownerSlide(layer, ratio) {
   return Math.max(0, best)
 }
 
+// After undo/redo restores slides/layers, the UI selection/viewport fields
+// (activeLayerId, activeCellId, activeSlideIdx, cropMode) are NOT part of the
+// snapshot, so they can point at content the restored state no longer has:
+// a stale activeLayerId makes LayerToolbar render null (bottom bar vanishes),
+// a stale activeSlideIdx strands the viewport on a removed slide, and a stale
+// activeCellId silently drops picked photos. Drop selection ids that no longer
+// exist, clamp the slide index, and exit crop mode when its target is gone.
+function sanitizeSelection(s, restoredLayers, restoredSlides) {
+  const has = id => id != null && restoredLayers.some(l => l.id === id)
+  const activeLayerId = has(s.activeLayerId) ? s.activeLayerId : null
+  const activeCellId = has(s.activeCellId) ? s.activeCellId : null
+  const activeSlideIdx = Math.max(0, Math.min(s.activeSlideIdx, restoredSlides.length - 1))
+  // Crop mode targets the active layer; leave it (and its aspect) only if that
+  // layer survived the restore, otherwise fall back to the not-cropping state.
+  const cropMode = s.cropMode && has(activeLayerId) ? s.cropMode : false
+  const cropAspect = cropMode ? s.cropAspect : null
+  return { activeLayerId, activeCellId, activeSlideIdx, cropMode, cropAspect }
+}
+
 function fitInCell(naturalW, naturalH, cellW, cellH) {
   const scale = Math.max(cellW / naturalW, cellH / naturalH)
   const imgW = naturalW * scale
@@ -150,10 +169,16 @@ export const useStore = create((set, get) => ({
     set({ _undoSnap: get()._snapshot() })
   },
 
-  // Commit the captured pre-gesture snapshot to history
+  // Commit the captured pre-gesture snapshot to history. Skip the commit when the
+  // gesture/slider made no actual change — the captured snapshot equals the current
+  // one (both are canonical JSON strings from _snapshot, so a cheap === compares
+  // them). This drops ALL no-op commit sites at once (a slider tapped without a
+  // drag, a pinch that didn't move) so they don't push empty history entries that
+  // also wipe redo. The captured snapshot is still cleared either way.
   _commitUndo() {
     const snap = get()._undoSnap
     if (!snap) return
+    if (snap === get()._snapshot()) { set({ _undoSnap: null }); return }
     set(s => ({ history: [...s.history.slice(-30), snap], future: [], _undoSnap: null, dirtyCounter: s.dirtyCounter + 1 }))
   },
 
@@ -167,17 +192,22 @@ export const useStore = create((set, get) => ({
     if (!history.length) return
     const prev = history[history.length - 1]
     const parsed = JSON.parse(prev)
-    set(s => ({
-      history: s.history.slice(0, -1),
-      future: [s._snapshot(), ...s.future.slice(0, 30)],
-      textEditId: null,
-      ...parsed,
-      // Fall back to the current ratio for snapshots taken before ratio was
-      // captured (robustness only — history is in-memory, so this is belt-and-braces).
-      ratio: parsed.ratio ?? s.ratio,
-      layers: s._restoreSrcs(parsed.layers),
-      dirtyCounter: s.dirtyCounter + 1,
-    }))
+    set(s => {
+      const restoredLayers = s._restoreSrcs(parsed.layers)
+      return {
+        history: s.history.slice(0, -1),
+        future: [s._snapshot(), ...s.future.slice(0, 30)],
+        textEditId: null,
+        ...parsed,
+        // Fall back to the current ratio for snapshots taken before ratio was
+        // captured (robustness only — history is in-memory, so this is belt-and-braces).
+        ratio: parsed.ratio ?? s.ratio,
+        layers: restoredLayers,
+        dirtyCounter: s.dirtyCounter + 1,
+        // Drop stale selection ids / clamp viewport against the restored content.
+        ...sanitizeSelection(s, restoredLayers, parsed.slides),
+      }
+    })
   },
 
   redo() {
@@ -185,15 +215,19 @@ export const useStore = create((set, get) => ({
     if (!future.length) return
     const next = future[0]
     const parsed = JSON.parse(next)
-    set(s => ({
-      future: s.future.slice(1),
-      history: [...s.history.slice(-30), s._snapshot()],
-      textEditId: null,
-      ...parsed,
-      ratio: parsed.ratio ?? s.ratio,
-      layers: s._restoreSrcs(parsed.layers),
-      dirtyCounter: s.dirtyCounter + 1,
-    }))
+    set(s => {
+      const restoredLayers = s._restoreSrcs(parsed.layers)
+      return {
+        future: s.future.slice(1),
+        history: [...s.history.slice(-30), s._snapshot()],
+        textEditId: null,
+        ...parsed,
+        ratio: parsed.ratio ?? s.ratio,
+        layers: restoredLayers,
+        dirtyCounter: s.dirtyCounter + 1,
+        ...sanitizeSelection(s, restoredLayers, parsed.slides),
+      }
+    })
   },
 
   startProject(ratio, template) {

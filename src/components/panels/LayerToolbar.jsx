@@ -629,16 +629,28 @@ function TextQuickBar({ layer, updateLayer, updateLayerWithHistory, moreActive, 
   const colorRef = useRef()
   const addRecentColor = useStore(s => s.addRecentColor)
   const colorScrub = useColorScrub()
+  const textEditId = useStore(s => s.textEditId)
   const size = layer.fontSize ?? 72
   const align = layer.align ?? 'center'
 
   // Keep the inline textarea focused when tapping formatting controls
   const keepFocus = e => e.preventDefault()
 
-  const bumpSize = (delta) => updateLayerWithHistory(layer.id, { fontSize: Math.max(8, Math.min(400, size + delta)) })
+  // While this layer is being inline-edited, InlineTextEditor has already captured
+  // ONE pre-edit snapshot that finishTextEdit commits — so the whole edit session
+  // (typing + these quick-bar tweaks) is a single, in-order history entry. Pushing
+  // history here mid-edit (updateLayerWithHistory) would interleave entries and make
+  // Undo walk backward-then-forward in time, so apply via plain updateLayer instead
+  // and let the tweak fold into that one session entry. When NOT editing, keep the
+  // normal one-tap-one-history behavior.
+  const editing = textEditId === layer.id
+  const applyText = (props) =>
+    editing ? updateLayer(layer.id, props) : updateLayerWithHistory(layer.id, props)
+
+  const bumpSize = (delta) => applyText({ fontSize: Math.max(8, Math.min(400, size + delta)) })
   const cycleAlign = () => {
     const order = ['left', 'center', 'right']
-    updateLayerWithHistory(layer.id, { align: order[(order.indexOf(align) + 1) % 3] })
+    applyText({ align: order[(order.indexOf(align) + 1) % 3] })
   }
   const AlignIcon = align === 'left' ? IconTextAlignLeft : align === 'right' ? IconTextAlignRight : IconTextAlignCenter
 
@@ -647,9 +659,9 @@ function TextQuickBar({ layer, updateLayer, updateLayerWithHistory, moreActive, 
 
   return (
     <div className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto scrollbar-hide">
-      <button onMouseDown={keepFocus} onClick={() => updateLayerWithHistory(layer.id, { bold: !layer.bold })}
+      <button onMouseDown={keepFocus} onClick={() => applyText({ bold: !layer.bold })}
         className={`${cell} w-10 ${toggle(layer.bold)}`}><IconBold size={18} /></button>
-      <button onMouseDown={keepFocus} onClick={() => updateLayerWithHistory(layer.id, { italic: !layer.italic })}
+      <button onMouseDown={keepFocus} onClick={() => applyText({ italic: !layer.italic })}
         className={`${cell} w-10 ${toggle(layer.italic)}`}><IconItalic size={18} /></button>
 
       <div className="w-px h-6 bg-white/15 mx-0.5 shrink-0" />
@@ -668,11 +680,14 @@ function TextQuickBar({ layer, updateLayer, updateLayerWithHistory, moreActive, 
         className={`${cell} w-10 bg-white/10 active:bg-white/20`}>
         <div className="w-5 h-5 rounded-full border-2 border-white/30" style={{ background: layer.color ?? '#000000' }} />
       </button>
+      {/* Mid-edit, skip the capture/commit scrub entirely: its _captureUndo would
+          clobber InlineTextEditor's pending pre-edit snapshot. Apply the color live
+          so it folds into the single edit-session entry. Off-edit, keep the scrub. */}
       <input ref={colorRef} type="color" value={layer.color ?? '#000000'}
-        onPointerDown={() => colorScrub.start(layer.color ?? '#000000')}
-        onFocus={() => colorScrub.start(layer.color ?? '#000000')}
-        onChange={e => { colorScrub.start(layer.color ?? '#000000'); updateLayer(layer.id, { color: e.target.value }) }}
-        onBlur={e => { colorScrub.end(e.target.value); addRecentColor(e.target.value) }}
+        onPointerDown={() => { if (!editing) colorScrub.start(layer.color ?? '#000000') }}
+        onFocus={() => { if (!editing) colorScrub.start(layer.color ?? '#000000') }}
+        onChange={e => { if (!editing) colorScrub.start(layer.color ?? '#000000'); updateLayer(layer.id, { color: e.target.value }) }}
+        onBlur={e => { if (!editing) colorScrub.end(e.target.value); addRecentColor(e.target.value) }}
         className="sr-only" />
 
       {/* Align cycle */}
