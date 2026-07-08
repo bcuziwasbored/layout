@@ -255,7 +255,7 @@ function loadImage(src, imgCache) {
 }
 
 /**
- * Render a single slide to a JPEG data URL.
+ * Render a single slide to an image data URL (JPEG by default, or PNG).
  * @param {number} slideIdx
  * @param {Object} args
  * @param {Array} args.slides
@@ -264,7 +264,8 @@ function loadImage(src, imgCache) {
  * @param {string} args.bgColor
  * @param {Object} [args.bgGradient]
  * @param {number} [args.scale=1] - output pixel scale (e.g. 0.25 for thumbnails)
- * @param {number} [args.quality=0.95] - JPEG quality (0..1)
+ * @param {'jpeg'|'png'} [args.format='jpeg'] - output encoding; PNG ignores quality
+ * @param {number} [args.quality=0.95] - JPEG quality (0..1), ignored for PNG
  * @param {boolean} [args.preferOriginal=true] - use srcOriginal when available
  * @param {Map} [args.imgCache] - shared cache to reuse images across calls
  * @param {(layer:Object)=>void} [args.onImageError] - called for each image
@@ -275,7 +276,7 @@ function loadImage(src, imgCache) {
 export async function renderSlide(slideIdx, args) {
   const {
     slides, layers, ratio, bgColor, bgGradient,
-    scale = 1, quality = 0.95, preferOriginal = true, imgCache, onImageError,
+    scale = 1, format = 'jpeg', quality = 0.95, preferOriginal = true, imgCache, onImageError,
   } = args
 
   const canvas = document.createElement('canvas')
@@ -438,5 +439,8 @@ export async function renderSlide(slideIdx, args) {
     if (freeRot) ctx.restore()
   }
 
-  return canvas.toDataURL('image/jpeg', quality)
+  // PNG is lossless and ignores the quality arg; JPEG honours it.
+  return format === 'png'
+    ? canvas.toDataURL('image/png')
+    : canvas.toDataURL('image/jpeg', quality)
 }
