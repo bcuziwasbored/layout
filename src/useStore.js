@@ -87,7 +87,10 @@ export const useStore = create((set, get) => ({
       delete rest.srcOriginal
       return rest
     })
-    return JSON.stringify({ slides: s.slides, layers, bgColor: s.bgColor, bgGradient: s.bgGradient })
+    // `ratio` is captured so undo/redo across a setRatio migration restore the
+    // canvas dimensions together with the (fraction-preserved) layer geometry —
+    // restoring migrated layers against the wrong ratio would corrupt slide math.
+    return JSON.stringify({ slides: s.slides, layers, bgColor: s.bgColor, bgGradient: s.bgGradient, ratio: s.ratio })
   },
 
   // Reattach image srcs to snapshot-restored layers by resolving each layer's
@@ -138,6 +141,9 @@ export const useStore = create((set, get) => ({
       future: [s._snapshot(), ...s.future.slice(0, 30)],
       textEditId: null,
       ...parsed,
+      // Fall back to the current ratio for snapshots taken before ratio was
+      // captured (robustness only — history is in-memory, so this is belt-and-braces).
+      ratio: parsed.ratio ?? s.ratio,
       layers: s._restoreSrcs(parsed.layers),
       dirtyCounter: s.dirtyCounter + 1,
     }))
@@ -153,6 +159,7 @@ export const useStore = create((set, get) => ({
       history: [...s.history.slice(-30), s._snapshot()],
       textEditId: null,
       ...parsed,
+      ratio: parsed.ratio ?? s.ratio,
       layers: s._restoreSrcs(parsed.layers),
       dirtyCounter: s.dirtyCounter + 1,
     }))
@@ -390,10 +397,53 @@ export const useStore = create((set, get) => ({
     }))
   },
 
-  setRatio(ratio) {
-    // Bump dirtyCounter so a ratio-only change triggers autosave. (Undo/history
-    // and layer migration for ratio are handled separately in issue #13.)
-    set(s => ({ ratio, panel: null, dirtyCounter: s.dirtyCounter + 1 }))
+  setRatio(newRatio) {
+    const oldRatio = get().ratio
+    // No-op when the ratio is unchanged — avoids a spurious history entry.
+    if (newRatio.value === oldRatio.value) return
+
+    // Push history BEFORE migrating so undo restores the pre-change geometry AND
+    // ratio together (see _snapshot / undo). _pushHistory also bumps dirtyCounter.
+    get()._pushHistory()
+
+    // Migrate every layer: each keeps its slide index and its intra-slide
+    // position/size as fractions of the slide box, re-expressed under the new
+    // ratio. Without this, layers keep absolute global coords while slide width
+    // changes, so slide N's boundary (N*w) moves and every layer past slide 0
+    // lands mid-slide or is reassigned to the wrong slide by floor(x/ratio.w).
+    const migrated = get().layers.map(l => {
+      // Slide ownership by the layer's left edge under the OLD ratio.
+      const si = Math.floor(l.x / oldRatio.w)
+      // Intra-slide geometry as fractions of the old slide box.
+      const fracX = (l.x - si * oldRatio.w) / oldRatio.w
+      const fracY = l.y / oldRatio.h
+      const fracW = l.w / oldRatio.w
+      const fracH = l.h / oldRatio.h
+      // Recreate at the same fractions under the NEW ratio.
+      const x = Math.round(si * newRatio.w + fracX * newRatio.w)
+      const y = Math.round(fracY * newRatio.h)
+      const w = Math.round(fracW * newRatio.w)
+      const h = Math.round(fracH * newRatio.h)
+      const next = { ...l, x, y, w, h }
+
+      // Scale text proportionally by the height ratio so it keeps relative size.
+      if (l.type === 'text' && typeof l.fontSize === 'number') {
+        next.fontSize = Math.round(l.fontSize * (newRatio.h / oldRatio.h))
+      }
+
+      // Refit cell images to the new cell box (minus gap) so photos still cover
+      // their cells. Preserves src/srcOriginal/imgId/naturalW/naturalH.
+      if (l.type === 'image' && l.src && l.naturalW && l.naturalH) {
+        const gap = l.cellGap ?? 0
+        const fit = fitInCell(l.naturalW, l.naturalH, w - gap, h - gap)
+        next.imgScale = fit.imgScale
+        next.imgX = fit.imgX
+        next.imgY = fit.imgY
+      }
+      return next
+    })
+
+    set(s => ({ ratio: newRatio, layers: migrated, panel: null, dirtyCounter: s.dirtyCounter + 1 }))
   },
 
   addSlide() {
