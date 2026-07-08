@@ -748,6 +748,32 @@ export const useStore = create((set, get) => ({
     get().updateLayer(id, props)
   },
 
+  // Manual per-layer lock. NOTE: distinct from `locked`, which flags a template
+  // cell — do NOT overload it. A userLocked layer is skipped by canvas tap
+  // hit-testing (taps fall through to layers beneath), can't be dragged/resized,
+  // is excluded from layer-pinch, but still renders and exports normally. Locking
+  // deselects the layer (it can then only be re-selected/unlocked from the
+  // LayersPanel row padlock — the escape hatch). Pushes NO history (a UI guard,
+  // not content) — but `userLocked` is a plain layer field, so it's captured by
+  // _snapshot and restored correctly through undo/redo of OTHER operations.
+  // Bumps dirtyCounter so the lock state persists via autosave.
+  toggleUserLock(id) {
+    set(s => {
+      const layer = s.layers.find(l => l.id === id)
+      if (!layer) return {}
+      const nowLocked = !layer.userLocked
+      return {
+        layers: s.layers.map(l => l.id === id ? { ...l, userLocked: nowLocked } : l),
+        dirtyCounter: s.dirtyCounter + 1,
+        // Locking a selected layer deselects it (it can't be interacted with on
+        // the canvas anymore). Unlocking leaves the current selection untouched.
+        ...(nowLocked && s.activeLayerId === id
+          ? { activeLayerId: null, activeCellId: null, textEditId: null, elementPanel: null, cropMode: false }
+          : {}),
+      }
+    })
+  },
+
   deleteLayer(id) {
     get()._pushHistory()
     set(s => ({

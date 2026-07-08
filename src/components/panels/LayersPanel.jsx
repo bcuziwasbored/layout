@@ -63,6 +63,18 @@ function IconTrash() {
   )
 }
 
+// Closed padlock when locked, open shackle when unlocked.
+function IconLock({ locked }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" />
+      {locked
+        ? <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        : <path d="M7 11V7a5 5 0 0 1 9.9-1" />}
+    </svg>
+  )
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function layerIcon(layer) {
@@ -96,6 +108,7 @@ export default function LayersPanel() {
   const setActiveLayer  = useStore(s => s.setActiveLayer)
   const deleteLayer     = useStore(s => s.deleteLayer)
   const deleteGroup     = useStore(s => s.deleteGroup)
+  const toggleUserLock  = useStore(s => s.toggleUserLock)
 
   // Layers belonging to the current slide, in render order (index 0 = bottom)
   const slideStart = activeSlideIdx * ratio.w
@@ -191,6 +204,10 @@ export default function LayersPanel() {
   }
 
   function handleSelectLayer(layer) {
+    // A userLocked layer can't be selected/edited — the row's padlock (which
+    // unlocks) is its only affordance. This keeps the panel the escape hatch:
+    // unlock here first, then the layer becomes selectable again.
+    if (layer.userLocked) return
     setActiveLayer(layer.id)
     setPanel(null)
   }
@@ -266,6 +283,21 @@ export default function LayersPanel() {
                 <span className="text-[10px] text-white/25 shrink-0 tabular-nums">
                   {i + 1}/{renderList.length}
                 </span>
+
+                {/* Lock toggle — the escape hatch. A locked layer shows a filled
+                    padlock here and can only be unlocked from this button (it's
+                    inert to canvas taps). Toggling pushes no history. Only offered
+                    for standalone layers; template-grid cells (locked/groupId) are
+                    managed as a group, matching the canvas quick toolbar. */}
+                {!layer.locked && !layer.groupId && (
+                  <button
+                    onClick={e => { e.stopPropagation(); toggleUserLock(layer.id) }}
+                    className={`shrink-0 p-1 ${layer.userLocked ? 'text-blue-400' : 'text-white/30 active:text-white'}`}
+                    aria-label={layer.userLocked ? 'Unlock layer' : 'Lock layer'}
+                  >
+                    <IconLock locked={!!layer.userLocked} />
+                  </button>
+                )}
 
                 {/* Delete */}
                 <button
