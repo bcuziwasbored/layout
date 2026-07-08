@@ -6,6 +6,7 @@
 
 import { dbGetBlob } from './db'
 import { drawShapePath } from './shapes'
+import { ensureLayerFontsLoaded } from './fonts'
 
 function linearGradientPoints(angleDeg, w, h) {
   const rad = (angleDeg * Math.PI) / 180
@@ -316,6 +317,13 @@ export async function renderSlide(slideIdx, args) {
     })
   )
 
+  // Inject + actually load the fonts this slice's text uses before rasterizing.
+  // On a freshly-opened project the stylesheet may not have been injected yet
+  // (or the FontFace is still downloading), so document.fonts.ready alone can
+  // resolve while glyphs are still the fallback. ensureLayerFontsLoaded awaits
+  // the used weight/style combos with an internal timeout so a hung fetch can't
+  // hang the export.
+  await ensureLayerFontsLoaded(relevant.filter(l => l.type === 'text'))
   await document.fonts.ready
 
   for (const layer of relevant) {

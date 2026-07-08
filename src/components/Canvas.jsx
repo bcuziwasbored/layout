@@ -345,6 +345,11 @@ function useAdjustedImage(src, brightness, contrast, saturation) {
 function TextCell({ layer, isEditing }) {
   const fontStyle = [layer.italic && 'italic', layer.bold && 'bold'].filter(Boolean).join(' ') || 'normal'
   const hasText = layer.text && layer.text.trim().length > 0
+  // Konva rasterizes text with whatever font is loaded at draw time and doesn't
+  // re-measure when a lazily-loaded web font arrives later. Subscribing to
+  // fontsVersion re-renders this cell on every 'loadingdone' batch, and keying
+  // the Text node on it remounts the node so it re-rasterizes in the real font.
+  const fontsVersion = useStore(s => s.fontsVersion)
   return (
     <Group
       x={layer.x + layer.w / 2} y={layer.y + layer.h / 2}
@@ -362,6 +367,7 @@ function TextCell({ layer, isEditing }) {
           (true WYSIWYG). We keep the textBg + hit area but hide the Konva text. */}
       {isEditing ? null : hasText ? (
         <Text
+          key={fontsVersion}
           x={0} y={0}
           width={layer.w} height={layer.h}
           text={layer.text}
