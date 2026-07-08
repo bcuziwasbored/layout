@@ -6,8 +6,10 @@ import { SQUARE_SHAPES } from '../../shapes'
 //   s ≥ max( (W|cosθ|+H|sinθ|)/nW, (W|sinθ|+H|cosθ|)/nH )
 function minScaleForRotation(deg, W, H, nW, nH) {
   const θ = Math.abs(deg % 180) * Math.PI / 180  // symmetry: use [0,90] range
-  const abscos = Math.cos(θ)
-  const abssin = Math.sin(θ)
+  // θ ∈ [0,180); cos/sin go negative past 90°, so take |·| — the cover-scale
+  // formula needs the magnitude of each projection, never a signed value.
+  const abscos = Math.abs(Math.cos(θ))
+  const abssin = Math.abs(Math.sin(θ))
   return Math.max(
     (W * abscos + H * abssin) / nW,
     (W * abssin + H * abscos) / nH,
