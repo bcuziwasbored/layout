@@ -10,9 +10,10 @@ import {
   IconFlipH, IconFlipV,
   IconBold, IconItalic,
   IconTextAlignLeft, IconTextAlignCenter, IconTextAlignRight,
-  IconShapeRect, IconShapeCircle,
 } from '../icons'
 import { FONTS, loadFont } from '../../fonts'
+import { SHAPE_LAYER_TYPES, STROKE_AWARE_SHAPES } from '../../shapes'
+import ShapePreview from '../ShapePreview'
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
@@ -716,28 +717,24 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
 
   const sw = layer.strokeWidth ?? 0
   const cr = layer.cornerRadius ?? 0
+  const strokeAware = STROKE_AWARE_SHAPES.has(layer.shapeType ?? 'rect')
 
   return (
     <div className="px-4 pb-6 pt-2 overflow-y-auto" style={{ maxHeight: '62vh' }}>
 
-      {/* Shape type toggle */}
+      {/* Shape type picker */}
       <div className="mb-4">
         <div className="text-xs text-white/35 uppercase tracking-wider mb-2">Shape</div>
-        <div className="flex bg-white/8 rounded-xl p-0.5">
-          <button
-            onClick={() => updateLayerWithHistory(layer.id, { shapeType: 'rect' })}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-[10px] text-sm font-medium transition-colors ${
-              (layer.shapeType ?? 'rect') === 'rect' ? 'bg-white/15 text-white' : 'text-white/45'
-            }`}>
-            <IconShapeRect size={18} /> Rect
-          </button>
-          <button
-            onClick={() => updateLayerWithHistory(layer.id, { shapeType: 'circle' })}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-[10px] text-sm font-medium transition-colors ${
-              layer.shapeType === 'circle' ? 'bg-white/15 text-white' : 'text-white/45'
-            }`}>
-            <IconShapeCircle size={18} /> Circle
-          </button>
+        <div className="grid grid-cols-5 gap-1.5">
+          {SHAPE_LAYER_TYPES.map(s => (
+            <button key={s.id} title={s.label}
+              onClick={() => updateLayerWithHistory(layer.id, { shapeType: s.id })}
+              className={`flex items-center justify-center py-2 rounded-[10px] transition-colors ${
+                (layer.shapeType ?? 'rect') === s.id ? 'bg-white/20' : 'bg-white/8 active:bg-white/15'
+              }`}>
+              <ShapePreview type={s.id} size={22} />
+            </button>
+          ))}
         </div>
       </div>
 
@@ -761,7 +758,7 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
       </div>
 
       {/* Corner radius — rect only */}
-      {(layer.shapeType ?? 'rect') !== 'circle' && (
+      {(layer.shapeType ?? 'rect') === 'rect' && (
         <div className="py-3 border-b border-white/8">
           <div className="text-sm font-semibold text-white mb-2.5">Corner Radius</div>
           <div className="flex items-center gap-3">
@@ -779,12 +776,19 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
         </div>
       )}
 
-      {/* Stroke width */}
+      {/* Stroke width — for line/arrow it sets the bar/shaft thickness */}
       <div className="py-3 border-b border-white/8">
-        <div className="text-sm font-semibold text-white mb-2.5">Stroke Width</div>
+        <div className="text-sm font-semibold text-white mb-2.5">{strokeAware ? 'Thickness' : 'Stroke Width'}</div>
         <div className="flex items-center gap-3">
-          <input type="range" min={0} max={30} step={1} value={sw}
-            onChange={e => updateLayer(layer.id, { strokeWidth: +e.target.value })}
+          <input type="range" min={0} max={strokeAware ? 120 : 30} step={1} value={sw}
+            onChange={e => {
+              const v = +e.target.value
+              // A stroke width without a stroke color draws nothing (editor and
+              // export both require a color) — default to black on first drag.
+              const props = { strokeWidth: v }
+              if (!strokeAware && v > 0 && !layer.stroke) props.stroke = '#000000'
+              updateLayer(layer.id, props)
+            }}
             onPointerDown={() => useStore.getState()._captureUndo()}
             onMouseUp={() => useStore.getState()._commitUndo()}
             onTouchEnd={() => useStore.getState()._commitUndo()}
@@ -796,8 +800,8 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
         </div>
       </div>
 
-      {/* Stroke color — only when stroke width > 0 */}
-      {sw > 0 && (
+      {/* Stroke color — only when stroke width > 0 (line/arrow have no outline pass) */}
+      {sw > 0 && !strokeAware && (
         <div className="py-3 border-b border-white/8">
           <div className="text-sm font-semibold text-white mb-2.5">Stroke Color</div>
           <button onClick={() => strokeRef.current?.click()}

@@ -5,7 +5,7 @@
 // editor's Konva canvas shows.
 
 import { dbGetBlob } from './db'
-import { drawShapePath } from './shapes'
+import { drawShapePath, STROKE_AWARE_SHAPES } from './shapes'
 import { ensureLayerFontsLoaded } from './fonts'
 
 function linearGradientPoints(angleDeg, w, h) {
@@ -175,28 +175,25 @@ function renderTextLayer(ctx, layer, sliceStart) {
 
 function renderShapeLayer(ctx, layer, sliceStart) {
   const x = layer.x - sliceStart, y = layer.y, w = layer.w, h = layer.h
+  // Same drawShapePath as the editor's ShapeCell sceneFunc (Canvas.jsx) — the
+  // single source of truth for every shape type. cornerRadius is gated to rect
+  // inside drawShapePath; strokeWidth feeds the stroke-aware line/arrow geometry.
+  const shapeType = layer.shapeType ?? 'rect'
+  const sw = layer.strokeWidth ?? 0
   ctx.save()
   ctx.globalAlpha = layer.opacity ?? 1
   // Editor falls back to #000000 (fill ?? '#000000'); a null-fill shape is black
   // in the editor, so it must be black in export too.
   ctx.fillStyle = layer.fill ?? '#000000'
   ctx.beginPath()
-  if (layer.shapeType === 'circle') {
-    ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
-  } else {
-    drawShapePath(ctx, x, y, w, h, 'rect', layer.cornerRadius ?? 0)
-  }
+  drawShapePath(ctx, x, y, w, h, shapeType, layer.cornerRadius ?? 0, false, sw)
   ctx.fill()
-  const sw = layer.strokeWidth ?? 0
-  if (sw > 0 && layer.stroke) {
+  // No outline pass for line/arrow — their strokeWidth is geometry thickness.
+  if (sw > 0 && layer.stroke && !STROKE_AWARE_SHAPES.has(shapeType)) {
     ctx.strokeStyle = layer.stroke
     ctx.lineWidth = sw
     ctx.beginPath()
-    if (layer.shapeType === 'circle') {
-      ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
-    } else {
-      drawShapePath(ctx, x, y, w, h, 'rect', layer.cornerRadius ?? 0)
-    }
+    drawShapePath(ctx, x, y, w, h, shapeType, layer.cornerRadius ?? 0, false, sw)
     ctx.stroke()
   }
   ctx.restore()

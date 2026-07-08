@@ -36,6 +36,58 @@ function diamondPath(ctx, x, y, w, h, reverse = false) {
   ctx.closePath()
 }
 
+function trianglePath(ctx, x, y, w, h, reverse = false) {
+  // Upward-pointing triangle filling the bounding box.
+  const cx = x + w / 2
+  if (reverse) {
+    ctx.moveTo(cx, y)
+    ctx.lineTo(x, y + h); ctx.lineTo(x + w, y + h)
+  } else {
+    ctx.moveTo(cx, y)
+    ctx.lineTo(x + w, y + h); ctx.lineTo(x, y + h)
+  }
+  ctx.closePath()
+}
+
+// Stroke-weight-aware "line" — a horizontal bar centred vertically in the box.
+// The bar thickness tracks the layer's strokeWidth (so the Stroke Width control
+// thickens the line), falling back to a fraction of the box height when there's
+// no stroke. Closed polygon so it fills identically in editor and export.
+function linePath(ctx, x, y, w, h, reverse = false, strokeWidth = 0) {
+  const t = Math.min(h, Math.max(strokeWidth > 0 ? strokeWidth : h * 0.16, 2))
+  const cy = y + h / 2
+  const top = cy - t / 2, bot = cy + t / 2
+  const pts = [[x, top], [x + w, top], [x + w, bot], [x, bot]]
+  const seq = reverse ? [...pts].reverse() : pts
+  ctx.moveTo(seq[0][0], seq[0][1])
+  for (let i = 1; i < seq.length; i++) ctx.lineTo(seq[i][0], seq[i][1])
+  ctx.closePath()
+}
+
+// Right-pointing arrow: rectangular shaft + triangular head, both scaled to the
+// box. Shaft thickness is stroke-weight-aware like linePath.
+function arrowPath(ctx, x, y, w, h, reverse = false, strokeWidth = 0) {
+  const t = Math.min(h * 0.9, Math.max(strokeWidth > 0 ? strokeWidth : h * 0.16, 2))
+  const cy = y + h / 2
+  const headW = Math.min(w * 0.5, h * 0.9)          // arrowhead length
+  const headH = Math.min(h, Math.max(t * 2.4, h * 0.55)) // arrowhead height
+  const shaftEnd = x + w - headW
+  const top = cy - t / 2, bot = cy + t / 2
+  const pts = [
+    [x, top],
+    [shaftEnd, top],
+    [shaftEnd, cy - headH / 2],
+    [x + w, cy],
+    [shaftEnd, cy + headH / 2],
+    [shaftEnd, bot],
+    [x, bot],
+  ]
+  const seq = reverse ? [...pts].reverse() : pts
+  ctx.moveTo(seq[0][0], seq[0][1])
+  for (let i = 1; i < seq.length; i++) ctx.lineTo(seq[i][0], seq[i][1])
+  ctx.closePath()
+}
+
 function starPath(ctx, x, y, w, h, reverse = false) {
   const cx = x + w / 2, cy = y + h / 2
   const outerR = Math.min(w, h) / 2
@@ -125,19 +177,43 @@ function blobPath(ctx, x, y, w, h, reverse = false) {
 }
 
 const PATHS = {
-  rect:    rectPath,
-  circle:  circlePath,
-  diamond: diamondPath,
-  star:    starPath,
-  heart:   heartPath,
-  blob:    blobPath,
+  rect:     rectPath,
+  circle:   circlePath,
+  triangle: trianglePath,
+  diamond:  diamondPath,
+  star:     starPath,
+  heart:    heartPath,
+  blob:     blobPath,
+  line:     linePath,
+  arrow:    arrowPath,
 }
 
-export function drawShapePath(ctx, x, y, w, h, shape = 'rect', cornerRadius = 0, reverse = false) {
+// Shapes whose geometry depends on the layer's stroke width (thickness of the
+// drawn bar/shaft) rather than just the bounding box. These are fill-only:
+// strokeWidth sets their thickness, and no outline-stroke pass is drawn for
+// them in the editor or export.
+export const STROKE_AWARE_SHAPES = new Set(['line', 'arrow'])
+
+export function drawShapePath(ctx, x, y, w, h, shape = 'rect', cornerRadius = 0, reverse = false, strokeWidth = 0) {
   const fn = PATHS[shape] ?? PATHS.rect
   if (shape === 'rect') return fn(ctx, x, y, w, h, cornerRadius)
+  if (STROKE_AWARE_SHAPES.has(shape)) return fn(ctx, x, y, w, h, reverse, strokeWidth)
   return fn(ctx, x, y, w, h, reverse)
 }
+
+// Full catalog of drawable shape-layer types, in display order for the
+// add-shape UI and shape-style panel.
+export const SHAPE_LAYER_TYPES = [
+  { id: 'rect',     label: 'Rectangle' },
+  { id: 'circle',   label: 'Circle' },
+  { id: 'triangle', label: 'Triangle' },
+  { id: 'diamond',  label: 'Diamond' },
+  { id: 'star',     label: 'Star' },
+  { id: 'heart',    label: 'Heart' },
+  { id: 'blob',     label: 'Blob' },
+  { id: 'line',     label: 'Line' },
+  { id: 'arrow',    label: 'Arrow' },
+]
 
 // Shapes that look bad on non-square frames — snap to a square when selected.
 // Rectangular shapes like rect, diamond, blob look fine on any aspect ratio.

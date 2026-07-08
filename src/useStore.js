@@ -393,8 +393,18 @@ export const useStore = create((set, get) => ({
     get()._pushHistory()
     const { ratio, activeSlideIdx } = get()
     const si = activeSlideIdx
-    const w = Math.round(ratio.w * 0.5)
-    const h = Math.round(ratio.h * 0.25)
+    // Default box per shape family: square for shapes that read best 1:1,
+    // wide-and-thin for line/arrow, wide rect otherwise.
+    let w, h
+    if (shapeType === 'line' || shapeType === 'arrow') {
+      w = Math.round(ratio.w * 0.6)
+      h = Math.round(ratio.h * 0.12)
+    } else if (['circle', 'triangle', 'diamond', 'star', 'heart', 'blob'].includes(shapeType)) {
+      w = h = Math.round(Math.min(ratio.w, ratio.h) * 0.4)
+    } else {
+      w = Math.round(ratio.w * 0.5)
+      h = Math.round(ratio.h * 0.25)
+    }
     const layer = {
       id: uid(), type: 'shape', shapeType,
       x: si * ratio.w + Math.round((ratio.w - w) / 2),
