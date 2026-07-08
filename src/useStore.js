@@ -837,7 +837,4 @@ useStore.subscribe(state => {
   }
 })
 
-// TEMP-VERIFY (remove before commit)
-if (typeof window !== 'undefined') window.__store = useStore
-
 export { fitInCell }
