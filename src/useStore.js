@@ -300,6 +300,25 @@ export const useStore = create((set, get) => ({
     set(s => ({ slides: s.slides.map((sl, i) => i === idx ? { ...sl, bgColor: color } : sl) }))
   },
 
+  // Live (no-history) variants for continuous scrubbing of the color picker /
+  // gradient controls. Pair with _captureUndo on interaction start and
+  // _commitUndo (or _discardUndo if unchanged) on release. See BackgroundPanel.
+  setBgColorLive(color) {
+    set({ bgColor: color })
+  },
+
+  setSlideBgColorLive(idx, color) {
+    set(s => ({ slides: s.slides.map((sl, i) => i === idx ? { ...sl, bgColor: color } : sl) }))
+  },
+
+  setBgGradientLive(gradient) {
+    set({ bgGradient: gradient })
+  },
+
+  setSlideBgGradientLive(idx, gradient) {
+    set(s => ({ slides: s.slides.map((sl, i) => i === idx ? { ...sl, bgGradient: gradient } : sl) }))
+  },
+
   clearSlideBgColor(idx) {
     get()._pushHistory()
     set(s => ({ slides: s.slides.map((sl, i) => i === idx ? { ...sl, bgColor: undefined } : sl) }))
