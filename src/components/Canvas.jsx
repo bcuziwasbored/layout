@@ -730,6 +730,7 @@ function QuickToolbar({ layer, view, containerH }) {
   const copyLayer      = useStore(s => s.copyLayer)
   const reorderLayer   = useStore(s => s.reorderLayer)
   const deleteLayer    = useStore(s => s.deleteLayer)
+  const toggleUserLock = useStore(s => s.toggleUserLock)
 
   // Compute the screen-space bounding box of the (possibly rotated) layer
   const cx = layer.x + layer.w / 2
@@ -792,6 +793,12 @@ function QuickToolbar({ layer, view, containerH }) {
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 21v-8" /><path d="M8.5 17.5 12 21l3.5-3.5" />
             <rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" />
+          </svg>)}
+        {btn('lock', 'Lock', () => toggleUserLock(layer.id),
+          // Open padlock — tapping locks the layer (and deselects it). To unlock,
+          // use the padlock on the layer's LayersPanel row (the escape hatch).
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" />
           </svg>)}
         <div className="w-px h-7 bg-white/15 mx-0.5" />
         {btn('del', 'Delete', () => deleteLayer(layer.id),
@@ -1128,7 +1135,7 @@ export default function Canvas({ openPickerRef }) {
         let layerPinch = false
         let startLayer = null
         const selLayer = (!cellPinch && activeId) ? curLayers.find(l => l.id === activeId) : null
-        const isStandalone = selLayer && !selLayer.locked &&
+        const isStandalone = selLayer && !selLayer.locked && !selLayer.userLocked &&
           (selLayer.type === 'text' || selLayer.type === 'shape' || selLayer.src)
         if (isStandalone && pointInLayer(p1.x, p1.y, selLayer) && pointInLayer(p2.x, p2.y, selLayer)) {
           layerPinch = true
@@ -1406,7 +1413,11 @@ export default function Canvas({ openPickerRef }) {
       return
     }
 
+    // userLocked layers are transparent to canvas taps/drags: skip them so the
+    // hit falls through to whatever renders beneath (or the empty canvas). They
+    // still render/export — only interaction is suppressed. Unlock from LayersPanel.
     const hitLayer = [...curLayers].reverse().find(l =>
+      !l.userLocked &&
       (l.src || l.locked || l.type === 'text' || l.type === 'shape') &&
       pointInLayer(canvasX, canvasY, l)
     )
