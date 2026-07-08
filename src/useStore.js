@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { RATIOS } from './templates'
+import { preloadLayerFonts } from './fonts'
 
 const uid = () => Math.random().toString(36).slice(2)
 
@@ -57,6 +58,17 @@ export const useStore = create((set, get) => ({
   // pushes, undo/redo, rename, ratio). The autosave effect keys on this so
   // edits that don't push undo history (rename, ratio) still trigger a save.
   dirtyCounter: 0,
+  // Monotonic counter bumped whenever a batch of web fonts finishes loading.
+  // Konva rasterizes text immediately with whatever font is available, so text
+  // drawn before its font arrives stays in the fallback until something forces a
+  // redraw. Components that render text subscribe to this so a bump re-renders
+  // (and re-rasterizes) them. Fed by the document.fonts 'loadingdone' listener
+  // wired via initFontReloader().
+  fontsVersion: 0,
+
+  bumpFontsVersion() {
+    set(s => ({ fontsVersion: s.fontsVersion + 1 }))
+  },
 
   _snapshot() {
     const s = get()
@@ -182,6 +194,9 @@ export const useStore = create((set, get) => ({
       currentProjectId: projectId,
       projectName,
     })
+    // Harmless for fresh templates (image-only), but keeps behaviour uniform if
+    // a starting template ever ships with text.
+    preloadLayerFonts(layers)
   },
 
   openProject(savedState) {
@@ -205,6 +220,10 @@ export const useStore = create((set, get) => ({
       currentProjectId: savedState.projectId,
       projectName: savedState.projectName,
     })
+    // Inject the Google Fonts stylesheets for every family used by this
+    // project's text layers. Without this, reopened projects render (and
+    // export) in the fallback font until the user opens the font picker.
+    preloadLayerFonts(savedState.layers)
   },
 
   setProjectName(name) {
