@@ -53,6 +53,10 @@ export const useStore = create((set, get) => ({
   savedAt: 0,
   // 'idle' | 'saving' | 'saved' | 'error' — drives the TopBar save indicator
   saveStatus: 'idle',
+  // Monotonic counter bumped by every change that should persist (history
+  // pushes, undo/redo, rename, ratio). The autosave effect keys on this so
+  // edits that don't push undo history (rename, ratio) still trigger a save.
+  dirtyCounter: 0,
 
   _snapshot() {
     const s = get()
@@ -85,7 +89,7 @@ export const useStore = create((set, get) => ({
 
   _pushHistory() {
     const snap = get()._snapshot()
-    set(s => ({ history: [...s.history.slice(-30), snap], future: [] }))
+    set(s => ({ history: [...s.history.slice(-30), snap], future: [], dirtyCounter: s.dirtyCounter + 1 }))
   },
 
   // Capture the current state BEFORE a gesture/slider begins
@@ -97,7 +101,7 @@ export const useStore = create((set, get) => ({
   _commitUndo() {
     const snap = get()._undoSnap
     if (!snap) return
-    set(s => ({ history: [...s.history.slice(-30), snap], future: [], _undoSnap: null }))
+    set(s => ({ history: [...s.history.slice(-30), snap], future: [], _undoSnap: null, dirtyCounter: s.dirtyCounter + 1 }))
   },
 
   // Discard a captured snapshot (gesture cancelled or didn't actually move)
@@ -116,6 +120,7 @@ export const useStore = create((set, get) => ({
       textEditId: null,
       ...parsed,
       layers: s._restoreSrcs(parsed.layers, s.layers),
+      dirtyCounter: s.dirtyCounter + 1,
     }))
   },
 
@@ -130,6 +135,7 @@ export const useStore = create((set, get) => ({
       textEditId: null,
       ...parsed,
       layers: s._restoreSrcs(parsed.layers, s.layers),
+      dirtyCounter: s.dirtyCounter + 1,
     }))
   },
 
@@ -202,7 +208,7 @@ export const useStore = create((set, get) => ({
   },
 
   setProjectName(name) {
-    set({ projectName: name })
+    set(s => ({ projectName: name, dirtyCounter: s.dirtyCounter + 1 }))
   },
 
   setPanel(panel) {
@@ -351,7 +357,9 @@ export const useStore = create((set, get) => ({
   },
 
   setRatio(ratio) {
-    set({ ratio, panel: null })
+    // Bump dirtyCounter so a ratio-only change triggers autosave. (Undo/history
+    // and layer migration for ratio are handled separately in issue #13.)
+    set(s => ({ ratio, panel: null, dirtyCounter: s.dirtyCounter + 1 }))
   },
 
   addSlide() {

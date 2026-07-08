@@ -19,10 +19,32 @@ export default function Editor() {
   const activeLayerId = useStore(s => s.activeLayerId)
   const cropMode = useStore(s => s.cropMode)
   const setPanel = useStore(s => s.setPanel)
-  const history = useStore(s => s.history)
+  const dirtyCounter = useStore(s => s.dirtyCounter)
   const currentProjectId = useStore(s => s.currentProjectId)
   const layers = useStore(s => s.layers)
   const saveTimerRef = useRef(null)
+  const savingRef = useRef(false)
+
+  // Persist the current project immediately, reading fresh state from the store.
+  // Guarded so overlapping saves (e.g. a debounce firing while a lifecycle flush
+  // is mid-write) can't clobber each other. Stable identity via useRef so the
+  // lifecycle listeners below never need to re-bind.
+  const saveNowRef = useRef(async () => {
+    if (savingRef.current) return
+    const state = useStore.getState()
+    if (!state.currentProjectId) return
+    savingRef.current = true
+    useStore.setState({ saveStatus: 'saving' })
+    try {
+      await saveProject(state.currentProjectId, state.projectName, state)
+      useStore.setState({ savedAt: Date.now(), saveStatus: 'saved' })
+    } catch (err) {
+      console.error('Save failed:', err)
+      useStore.setState({ saveStatus: 'error' })
+    } finally {
+      savingRef.current = false
+    }
+  })
 
   // First-use hint: show when there are empty template cells and no layer is selected
   const [hint, setHint] = useState(false)
@@ -44,20 +66,37 @@ export default function Editor() {
     // Show "Saving…" immediately so the user knows their work isn't yet
     // persisted (the 2s debounce is invisible to them).
     useStore.setState({ saveStatus: 'saving' })
-    saveTimerRef.current = setTimeout(async () => {
-      const state = useStore.getState()
-      try {
-        await saveProject(state.currentProjectId, state.projectName, state)
-        useStore.setState({ savedAt: Date.now(), saveStatus: 'saved' })
-      } catch (err) {
-        console.error('Save failed:', err)
-        useStore.setState({ saveStatus: 'error' })
-      }
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null
+      saveNowRef.current()
     }, 2000)
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
-  }, [history, currentProjectId])
+    // Keyed on dirtyCounter (not history) so rename/ratio-only changes — which
+    // push no undo history — still schedule a save.
+  }, [dirtyCounter, currentProjectId])
+
+  // Lifecycle flush: iOS can kill a backgrounded PWA inside the 2s debounce
+  // window, silently dropping edits. On pagehide / tab-hidden, cancel the
+  // pending debounce and persist immediately (fire-and-forget — a queued IDB
+  // transaction survives page teardown).
+  useEffect(() => {
+    const flush = () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
+      saveNowRef.current()
+    }
+    const onVisibility = () => { if (document.hidden) flush() }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
 
   return (
     <CanvasContext.Provider value={openPickerRef}>
