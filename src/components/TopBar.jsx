@@ -66,7 +66,11 @@ export default function TopBar() {
         await saveProject(state.currentProjectId, state.projectName, state)
         useStore.setState({ savedAt: Date.now(), saveStatus: 'saved' })
       } catch {
+        // Save failed — stay in the editor and keep the "Save failed · tap to
+        // retry" indicator visible instead of navigating away and silently
+        // discarding edits made since the last successful save.
         useStore.setState({ saveStatus: 'error' })
+        return
       }
     }
     goHome()
