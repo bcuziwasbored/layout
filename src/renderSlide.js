@@ -18,9 +18,83 @@ function linearGradientPoints(angleDeg, w, h) {
   }
 }
 
-function renderTextLayer(ctx, layer, sliceStart, sliceEnd) {
-  if (layer.x >= sliceEnd || layer.x + layer.w <= sliceStart) return
+// Line width the way Konva's Text._getTextWidth measures it: raw glyph advance
+// plus letterSpacing added once per UTF-16 code unit (including the trailing one).
+// We never rely on ctx.letterSpacing here — it's unsupported on iOS Safari < 18.4,
+// so all spacing is accounted for manually to stay cross-platform.
+function measureLineWidth(ctx, text, letterSpacing) {
+  return ctx.measureText(text).width + letterSpacing * text.length
+}
 
+// Faithful port of Konva Text._setTextData wrapping (wrap='word', ellipsis off).
+// Splits into visual lines the same way the editor does — including the
+// fixed-height behaviour where paragraphs that would overflow the box height are
+// dropped — so exported line breaks match the editor even with letterSpacing ≠ 0.
+function wrapTextLines(ctx, rawText, width, height, letterSpacing, lineHeightPx, wrapMode) {
+  const lines = []
+  const paragraphs = String(rawText).split('\n')
+  const maxWidth = width
+  const maxHeightPx = height
+  const shouldWrap = wrapMode !== 'none'
+  const wrapAtWord = wrapMode !== 'char' && shouldWrap
+  const tw = (s) => measureLineWidth(ctx, s, letterSpacing)
+  let currentHeightPx = 0
+
+  for (let i = 0; i < paragraphs.length; i++) {
+    let line = paragraphs[i]
+    let lineWidth = tw(line)
+    if (shouldWrap && lineWidth > maxWidth) {
+      while (line.length > 0) {
+        const arr = Array.from(line)
+        let low = 0, high = arr.length, match = '', matchWidth = 0
+        while (low < high) {
+          const mid = (low + high) >>> 1
+          const substr = arr.slice(0, mid + 1).join('')
+          const substrWidth = tw(substr)
+          if (substrWidth <= maxWidth) { low = mid + 1; match = substr; matchWidth = substrWidth }
+          else high = mid
+        }
+        if (!match) break
+        if (wrapAtWord) {
+          const matchArr = Array.from(match)
+          const nextChar = arr[matchArr.length]
+          const nextIsSpaceOrDash = nextChar === ' ' || nextChar === '-'
+          let wrapIndex
+          if (nextIsSpaceOrDash && matchWidth <= maxWidth) {
+            wrapIndex = matchArr.length
+          } else {
+            const lastSpace = matchArr.lastIndexOf(' ')
+            const lastDash = matchArr.lastIndexOf('-')
+            wrapIndex = Math.max(lastSpace, lastDash) + 1
+          }
+          if (wrapIndex > 0) {
+            low = wrapIndex
+            match = arr.slice(0, low).join('')
+          }
+        }
+        lines.push(match.replace(/\s+$/, ''))
+        currentHeightPx += lineHeightPx
+        line = arr.slice(low).join('').replace(/^\s+/, '')
+        if (line.length > 0) {
+          lineWidth = tw(line)
+          if (lineWidth <= maxWidth) {
+            lines.push(line)
+            currentHeightPx += lineHeightPx
+            break
+          }
+        }
+      }
+    } else {
+      lines.push(line)
+      currentHeightPx += lineHeightPx
+    }
+    // Konva stops laying out further paragraphs once the box height is exceeded.
+    if (currentHeightPx + lineHeightPx > maxHeightPx) break
+  }
+  return lines
+}
+
+function renderTextLayer(ctx, layer, sliceStart) {
   const x = layer.x - sliceStart
   const y = layer.y
   const w = layer.w
@@ -34,10 +108,12 @@ function renderTextLayer(ctx, layer, sliceStart, sliceEnd) {
     ctx.restore()
   }
 
+  const raw = layer.text ?? ''
+  if (!raw) return
+
   ctx.save()
-  ctx.beginPath()
-  ctx.rect(x, y, w, h)
-  ctx.clip()
+  // Konva does NOT clip text to its box — overflowing text bleeds past the edges
+  // in the editor, so we must not clip here either.
   ctx.globalAlpha = layer.opacity ?? 1
 
   const bold = layer.bold ? 'bold' : ''
@@ -48,40 +124,50 @@ function renderTextLayer(ctx, layer, sliceStart, sliceEnd) {
 
   ctx.font = `${fontStyle} ${fontSize}px "${fontFamily}"`
   ctx.fillStyle = layer.color ?? '#000000'
+  // Draw each line left-anchored and compute the align offset ourselves (Konva
+  // keeps textAlign='left' and positions lines manually).
+  ctx.textAlign = 'left'
   ctx.textBaseline = 'alphabetic'
-  ctx.letterSpacing = `${layer.letterSpacing ?? 0}px`
 
   const align = layer.align ?? 'center'
-  ctx.textAlign = align
-
+  const letterSpacing = layer.letterSpacing ?? 0
   const lineHeightPx = (layer.lineHeight ?? 1.2) * fontSize
 
-  const raw = layer.text ?? ''
-  const paragraphs = raw.split('\n')
-  const lines = []
-  for (const para of paragraphs) {
-    if (para === '') { lines.push(''); continue }
-    const words = para.split(' ')
-    let cur = ''
-    for (const word of words) {
-      const test = cur ? cur + ' ' + word : word
-      if (ctx.measureText(test).width > w && cur) { lines.push(cur); cur = word }
-      else cur = test
-    }
-    if (cur) lines.push(cur)
-  }
+  const lines = wrapTextLines(ctx, raw, w, h, letterSpacing, lineHeightPx, 'word')
 
-  const totalH = lines.length * lineHeightPx
+  // Vertical placement matches Konva's non-legacy text rendering: each line box is
+  // fontSize*lineHeight tall and the alphabetic baseline sits at
+  // (ascent-descent)/2 + lineHeightPx/2 within the box.
+  const m = ctx.measureText('M')
+  const sf = fontSize / 100
+  const ascent = m.fontBoundingBoxAscent ?? (91 * sf)
+  const descent = m.fontBoundingBoxDescent ?? (21 * sf)
+  const translateY = (ascent - descent) / 2 + lineHeightPx / 2
+
   const va = layer.verticalAlign ?? 'middle'
-  let baseY
-  if (va === 'top')        baseY = y + fontSize
-  else if (va === 'bottom') baseY = y + h - totalH + fontSize
-  else                      baseY = y + (h - totalH) / 2 + fontSize
-
-  const textX = align === 'left' ? x : align === 'right' ? x + w : x + w / 2
+  let alignY = 0
+  if (va === 'middle') alignY = (h - lines.length * lineHeightPx) / 2
+  else if (va === 'bottom') alignY = h - lines.length * lineHeightPx
 
   for (let i = 0; i < lines.length; i++) {
-    ctx.fillText(lines[i], textX, baseY + i * lineHeightPx)
+    const line = lines[i]
+    const lineWidth = measureLineWidth(ctx, line, letterSpacing)
+    let lineX = x
+    if (align === 'right') lineX = x + w - lineWidth
+    else if (align === 'center') lineX = x + (w - lineWidth) / 2
+    const baseY = y + alignY + translateY + i * lineHeightPx
+
+    if (letterSpacing !== 0) {
+      // Manual letter-spaced drawing so it works on iOS Safari < 18.4, which
+      // ignores ctx.letterSpacing.
+      let cx = lineX
+      for (const ch of Array.from(line)) {
+        ctx.fillText(ch, cx, baseY)
+        cx += ctx.measureText(ch).width + letterSpacing
+      }
+    } else {
+      ctx.fillText(line, lineX, baseY)
+    }
   }
   ctx.restore()
 }
@@ -90,16 +176,16 @@ function renderShapeLayer(ctx, layer, sliceStart) {
   const x = layer.x - sliceStart, y = layer.y, w = layer.w, h = layer.h
   ctx.save()
   ctx.globalAlpha = layer.opacity ?? 1
-  if (layer.fill) {
-    ctx.fillStyle = layer.fill
-    ctx.beginPath()
-    if (layer.shapeType === 'circle') {
-      ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
-    } else {
-      drawShapePath(ctx, x, y, w, h, 'rect', layer.cornerRadius ?? 0)
-    }
-    ctx.fill()
+  // Editor falls back to #000000 (fill ?? '#000000'); a null-fill shape is black
+  // in the editor, so it must be black in export too.
+  ctx.fillStyle = layer.fill ?? '#000000'
+  ctx.beginPath()
+  if (layer.shapeType === 'circle') {
+    ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
+  } else {
+    drawShapePath(ctx, x, y, w, h, 'rect', layer.cornerRadius ?? 0)
   }
+  ctx.fill()
   const sw = layer.strokeWidth ?? 0
   if (sw > 0 && layer.stroke) {
     ctx.strokeStyle = layer.stroke
@@ -239,12 +325,15 @@ export async function renderSlide(slideIdx, args) {
       const bc  = layer.borderColor ?? '#000000'
       const shape = layer.shape ?? 'rect'
 
-      const clipX = freeRot
-        ? (layer.x - sliceStart) + inset
-        : Math.max(layer.x, sliceStart) - sliceStart + inset
-      const clipW = freeRot
-        ? layer.w - gap
-        : Math.min(layer.x + layer.w, sliceEnd) - Math.max(layer.x, sliceStart) - gap
+      // The cellGap inset is measured from the cell's own frame edges, not from
+      // the slide-boundary slice. The editor shows each slide as a viewport onto
+      // the full canvas, so a cell spanning two slides bleeds edge-to-edge at the
+      // seam with no gap there. We draw the full inset frame in slice-local coords
+      // and let the slide-sized canvas clip the off-slide portion (the seam cut),
+      // exactly like the editor viewport — instead of clamping to the slice and
+      // wrongly re-adding the inset at the boundary.
+      const clipX = (layer.x - sliceStart) + inset
+      const clipW = layer.w - gap
       const clipY = layer.y + inset
       const clipH = layer.h - gap
 
@@ -271,10 +360,13 @@ export async function renderSlide(slideIdx, args) {
       if (rotation || flipH || flipV) {
         const frameCX = (layer.x - sliceStart) + layer.w / 2
         const frameCY = layer.y + layer.h / 2
+        // Match Konva's Group transform order (translate → rotate → scale, with
+        // scale innermost): the editor composes rotation OUTSIDE the flip, so we
+        // must rotate before applying the flip scale here.
         ctx.translate(frameCX, frameCY)
+        if (rotation) ctx.rotate(rotation * Math.PI / 180)
         if (flipH) ctx.scale(-1, 1)
         if (flipV) ctx.scale(1, -1)
-        if (rotation) ctx.rotate(rotation * Math.PI / 180)
         ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight,
           drawX - frameCX, drawY - frameCY, drawW, drawH)
       } else {
@@ -295,7 +387,10 @@ export async function renderSlide(slideIdx, args) {
         ctx.restore()
       }
     } else if (layer.type === 'text') {
-      renderTextLayer(ctx, layer, sliceStart, sliceEnd)
+      // No slice-based early-return here: the `relevant` filter above already
+      // culls using rotated extents, so a rotated text overhanging a slide edge
+      // is still drawn (the old unrotated bounds check dropped it).
+      renderTextLayer(ctx, layer, sliceStart)
     } else if (layer.type === 'shape') {
       renderShapeLayer(ctx, layer, sliceStart)
     }
