@@ -102,7 +102,13 @@ async function prepareOriginalDataURL(srcUrl) {
   return canvas.toDataURL('image/jpeg', 0.92)
 }
 
-async function serializeLayers(layers, projectId) {
+async function serializeLayers(layers, projectId, prevLayers) {
+  // Index the previous save's layers by id so an unchanged image can reuse the
+  // data URL we already encoded instead of re-fetching + re-encoding its blob on
+  // every 2s autosave. Match is gated on imgId (a stable per-image content id
+  // minted fresh on every import/replace), so a reused string is guaranteed to be
+  // the same image. See #16 (e).
+  const prevById = new Map((prevLayers ?? []).map(l => [l.id, l]))
   return Promise.all(
     layers.map(async (layer) => {
       // Resolve what the persisted `srcOriginal` should be.
@@ -127,6 +133,12 @@ async function serializeLayers(layers, projectId) {
       }
 
       if (layer.src?.startsWith('blob:')) {
+        // Unchanged image (same imgId) already serialized last save → reuse it.
+        const prev = prevById.get(layer.id)
+        if (layer.imgId && prev?.imgId === layer.imgId &&
+            typeof prev.src === 'string' && prev.src.startsWith('data:')) {
+          return { ...layer, src: prev.src, srcOriginal: srcOriginalRef }
+        }
         try {
           const blob = await blobFromURL(layer.src)
           const dataURL = await blobToDataURL(blob)
@@ -159,12 +171,39 @@ async function renderThumbnail(layers, slides, ratio, bgColor, bgGradient) {
   })
 }
 
+// Cheap signature of everything renderThumbnail draws for slide 0. The thumbnail
+// delegates to renderSlide, which draws EVERY layer type (images, text, shapes)
+// plus backgrounds and gradients — so the fingerprint must cover all of a
+// slide-0 layer's visual props, not just image geometry. We stringify each
+// overlapping layer minus its bulky src/srcOriginal strings, using imgId (small,
+// stable, re-minted on every import/replace) as the per-image content identity.
+// When the fingerprint is unchanged from the last save we reuse the stored
+// thumbnail instead of decoding every image and re-rendering. See #16 (e).
+function thumbFingerprint(layers, slides, ratio, bgColor, bgGradient) {
+  const sliceEnd = ratio.w
+  const slide0 = slides[0] ?? {}
+  const parts = [
+    `${ratio.w}x${ratio.h}`,
+    `bg:${slide0.bgColor ?? bgColor}`,
+    `grad:${JSON.stringify(slide0.bgGradient ?? bgGradient ?? null)}`,
+  ]
+  for (const l of layers) {
+    if (!(l.x < sliceEnd && l.x + l.w > 0)) continue
+    const rest = { ...l }
+    delete rest.src
+    delete rest.srcOriginal
+    if (l.src) rest._img = l.imgId ?? `s${l.src.length}:${l.src.slice(0, 24)}`
+    parts.push(JSON.stringify(rest))
+  }
+  return parts.join('|')
+}
+
 // ─── Public API ────────────────────────────────────────────────────────────────
 
 export async function saveProject(id, name, storeState) {
   const { ratio, bgColor, bgGradient, slides, layers } = storeState
   const prev = await dbGet('projects', id)
-  const serialized = await serializeLayers(layers, id)
+  const serialized = await serializeLayers(layers, id, prev?.state?.layers)
 
   // Garbage-collect originals no longer referenced by this project (layer deleted,
   // or its image replaced by one without a distinct original). Keys are scoped by
@@ -176,9 +215,16 @@ export async function saveProject(id, name, storeState) {
     }
   }
 
-  const thumbnail = await renderThumbnail(serialized, slides, ratio, bgColor, bgGradient)
+  // Skip the (image-decoding, main-thread) thumbnail re-render when slide 0's
+  // content hasn't changed since the last save — common, since autosave also
+  // fires for renames and edits on other slides.
+  const fingerprint = thumbFingerprint(serialized, slides, ratio, bgColor, bgGradient)
+  const thumbnail = (prev?.thumbFingerprint === fingerprint && prev.thumbnail)
+    ? prev.thumbnail
+    : await renderThumbnail(serialized, slides, ratio, bgColor, bgGradient)
   await dbPut('projects', {
-    id, name, updatedAt: Date.now(), thumbnail, slideCount: slides.length,
+    id, name, updatedAt: Date.now(), thumbnail, thumbFingerprint: fingerprint,
+    slideCount: slides.length,
     state: { ratio, bgColor, bgGradient, slides, layers: serialized },
   })
 }

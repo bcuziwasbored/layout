@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { RATIOS } from './templates'
 import { preloadLayerFonts } from './fonts'
+import { clearImageCaches } from './blobCache'
 
 const uid = () => Math.random().toString(36).slice(2)
 
@@ -82,6 +83,16 @@ function fitInCell(naturalW, naturalH, cellW, cellH) {
 // undoing a "delete layer with image" can restore the image. The strings stored
 // here are the same references the layers hold, so this doesn't duplicate data —
 // it's just a separate index keyed by content id. Session-only (not persisted).
+//
+// Cleared on every project switch (goHome / openProject / startProject). This is
+// safe against undo because a snapshot only resolves imgIds through this registry
+// while its history entry is live, and history/future are reset to [] by
+// openProject and startProject — the only ways back into an editor after goHome.
+// So no surviving snapshot can reference a cleared entry. (Note: clearing inside
+// goHome is immediately re-populated by the subscribe below from the still-present
+// layers, since goHome doesn't drop them; the operative reset for THIS map is
+// openProject/startProject, which replace layers wholesale. The blob/dataURL
+// caches, which the subscribe does NOT touch, are genuinely freed at goHome.)
 const imageSrcRegistry = new Map()
 
 export const useStore = create((set, get) => ({
@@ -231,6 +242,10 @@ export const useStore = create((set, get) => ({
   },
 
   startProject(ratio, template) {
+    // New project → previous session's images are dead. Reset the per-session
+    // registry and image caches (undo history is also reset below). See #16 (a).
+    imageSrcRegistry.clear()
+    clearImageCaches()
     const pageSpan = template?.pageSpan ?? 1
     const slides = Array.from({ length: Math.max(1, pageSpan) }, () => ({ id: uid() }))
 
@@ -280,6 +295,11 @@ export const useStore = create((set, get) => ({
   },
 
   openProject(savedState) {
+    // Switching projects → the outgoing project's registry entries and blob/
+    // dataURL caches are dead. Clear before repopulating (undo history is reset
+    // to [] below, so no snapshot can still need a cleared entry). See #16 (a).
+    imageSrcRegistry.clear()
+    clearImageCaches()
     // Layers loaded from disk carry a src but predate imgId (or come from a save
     // written before this field existed). Mint a fresh imgId for every image-
     // bearing layer so the session registry can track it from here on, letting
@@ -796,6 +816,12 @@ export const useStore = create((set, get) => ({
   },
 
   goHome() {
+    // Leaving the editor for the home screen. saveProject has already run (the
+    // Back button awaits it before calling goHome), so revoking the session's
+    // blob: URLs and dropping the dataURL cache here frees that memory while the
+    // user is on the home screen — the editor is unmounted and nothing renders
+    // the outgoing layers. See #16 (a)/(c).
+    clearImageCaches()
     set({ screen: 'home', panel: null, elementPanel: null, cropMode: false })
   },
 }))
@@ -810,5 +836,8 @@ useStore.subscribe(state => {
     if (l.src && l.imgId) imageSrcRegistry.set(l.imgId, { src: l.src, srcOriginal: l.srcOriginal })
   }
 })
+
+// TEMP-VERIFY (remove before commit)
+if (typeof window !== 'undefined') window.__store = useStore
 
 export { fitInCell }
