@@ -24,10 +24,14 @@ function fitInCell(naturalW, naturalH, cellW, cellH) {
   }
 }
 
-// Session-wide registry of layer-id → { src, srcOriginal }. Survives layer
-// deletes so undoing a "delete layer with image" can restore the image. The
-// strings stored here are the same references the layers hold, so this doesn't
-// duplicate any data — it just keeps a separate index keyed by layer id.
+// Session-wide registry of imgId → { src, srcOriginal }, where imgId is a stable
+// CONTENT id minted whenever a new image enters a layer. Keying by content (not
+// layer id) means undo can restore the exact image a snapshot saw even after the
+// layer's image was replaced (A → B): each version keeps its own imgId, so the
+// snapshot taken before the replace still points at A. Survives layer deletes so
+// undoing a "delete layer with image" can restore the image. The strings stored
+// here are the same references the layers hold, so this doesn't duplicate data —
+// it's just a separate index keyed by content id. Session-only (not persisted).
 const imageSrcRegistry = new Map()
 
 export const useStore = create((set, get) => ({
@@ -74,28 +78,31 @@ export const useStore = create((set, get) => ({
     const s = get()
     // Strip src/srcOriginal from layers to keep snapshots small — data URLs can be
     // 500KB+ each, and a 30-entry history with 15 images would otherwise use ~225MB.
-    // We mark whether each layer had a src at snapshot time so undo can correctly
-    // restore "image was null" vs "image was set" states from the current store.
+    // The layer keeps its `imgId` (a stable content id), which _restoreSrcs resolves
+    // through imageSrcRegistry to reattach the exact image this snapshot saw — even
+    // if the layer's image was later replaced. Cells with no image have no imgId.
     const layers = s.layers.map(l => {
-      const { src, srcOriginal, ...rest } = l
-      return { ...rest, _hadSrc: !!src }
+      const rest = { ...l }
+      delete rest.src
+      delete rest.srcOriginal
+      return rest
     })
     return JSON.stringify({ slides: s.slides, layers, bgColor: s.bgColor, bgGradient: s.bgGradient })
   },
 
-  // Merge srcs from current store back into snapshot-restored layers.
-  // Falls back to imageSrcRegistry for layers that were deleted then undone —
-  // those won't be in currentLayers but the registry remembers their src.
-  _restoreSrcs(parsedLayers, currentLayers) {
-    const srcByLayerId = new Map()
-    currentLayers.forEach(l => {
-      if (l.src) srcByLayerId.set(l.id, { src: l.src, srcOriginal: l.srcOriginal })
-    })
+  // Reattach image srcs to snapshot-restored layers by resolving each layer's
+  // stable imgId through imageSrcRegistry. Because imgId identifies the image
+  // CONTENT (not the layer), this restores the exact image the snapshot captured,
+  // with the matching crop/fit params also stored in the snapshot. A layer with
+  // no imgId, or an imgId the session registry never saw (e.g. project reopened —
+  // the registry only spans the session), falls back to src:null.
+  _restoreSrcs(parsedLayers) {
     return parsedLayers.map(l => {
-      const { _hadSrc, ...layerData } = l
-      if (!_hadSrc) return { ...layerData, src: null }
-      const tracked = srcByLayerId.get(l.id) ?? imageSrcRegistry.get(l.id)
-      return tracked?.src ? { ...layerData, ...tracked } : { ...layerData, src: null }
+      if (!l.imgId) return { ...l, src: null, srcOriginal: null }
+      const tracked = imageSrcRegistry.get(l.imgId)
+      return tracked?.src
+        ? { ...l, src: tracked.src, srcOriginal: tracked.srcOriginal }
+        : { ...l, src: null, srcOriginal: null }
     })
   },
 
@@ -131,7 +138,7 @@ export const useStore = create((set, get) => ({
       future: [s._snapshot(), ...s.future.slice(0, 30)],
       textEditId: null,
       ...parsed,
-      layers: s._restoreSrcs(parsed.layers, s.layers),
+      layers: s._restoreSrcs(parsed.layers),
       dirtyCounter: s.dirtyCounter + 1,
     }))
   },
@@ -146,7 +153,7 @@ export const useStore = create((set, get) => ({
       history: [...s.history.slice(-30), s._snapshot()],
       textEditId: null,
       ...parsed,
-      layers: s._restoreSrcs(parsed.layers, s.layers),
+      layers: s._restoreSrcs(parsed.layers),
       dirtyCounter: s.dirtyCounter + 1,
     }))
   },
@@ -200,12 +207,20 @@ export const useStore = create((set, get) => ({
   },
 
   openProject(savedState) {
+    // Layers loaded from disk carry a src but predate imgId (or come from a save
+    // written before this field existed). Mint a fresh imgId for every image-
+    // bearing layer so the session registry can track it from here on, letting
+    // undo/redo restore images edited during this session. imgId is session-scoped
+    // for restore purposes; persisting it is harmless but not relied upon.
+    const layers = savedState.layers.map(l =>
+      l.src && !l.imgId ? { ...l, imgId: uid() } : l
+    )
     set({
       screen: 'editor',
       ratio: savedState.ratio,
       bgColor: savedState.bgColor,
       slides: savedState.slides,
-      layers: savedState.layers,
+      layers,
       activeSlideIdx: 0,
       activeLayerId: null,
       activeCellId: null,
@@ -518,14 +533,14 @@ export const useStore = create((set, get) => ({
     set({ slides: newSlides, layers: [...kept, ...newLayers], panel: null })
   },
 
-  addImageLayer(src, srcOriginal, naturalW, naturalH, slideIdx) {
+  addImageLayer(src, srcOriginal, naturalW, naturalH, imgId, slideIdx) {
     get()._pushHistory()
     const { ratio, activeSlideIdx } = get()
     const si = slideIdx ?? activeSlideIdx
     const offsetX = si * ratio.w
     const { imgScale, imgX, imgY } = fitInCell(naturalW, naturalH, ratio.w, ratio.h)
     const layer = {
-      id: uid(), type: 'image', src, srcOriginal: srcOriginal ?? src,
+      id: uid(), type: 'image', src, srcOriginal: srcOriginal ?? src, imgId: imgId ?? uid(),
       x: offsetX, y: 0, w: ratio.w, h: ratio.h,
       imgX, imgY, imgScale, opacity: 1, naturalW, naturalH,
     }
@@ -549,12 +564,14 @@ export const useStore = create((set, get) => ({
     const targetCells = (replaceFilled ? scopeCells : scopeCells.filter(l => !l.src))
       .sort((a, b) => a.x - b.x || a.y - b.y)
 
-    processedImages.forEach(({ src, srcOriginal, naturalW, naturalH }, i) => {
+    processedImages.forEach(({ src, srcOriginal, naturalW, naturalH, imgId }, i) => {
       if (i >= targetCells.length) return
       const cell = targetCells[i]
       const gap = cell.cellGap ?? 0
       const fit = fitInCell(naturalW, naturalH, cell.w - gap, cell.h - gap)
-      useStore.getState().updateLayer(cell.id, { src, srcOriginal: srcOriginal ?? src, naturalW, naturalH, ...fit })
+      // imgId is a stable content id for this imported image; a fresh one is
+      // minted per image so undo can distinguish it from whatever the cell held.
+      useStore.getState().updateLayer(cell.id, { src, srcOriginal: srcOriginal ?? src, imgId: imgId ?? uid(), naturalW, naturalH, ...fit })
     })
   },
 
@@ -624,13 +641,14 @@ export const useStore = create((set, get) => ({
   },
 }))
 
-// Keep imageSrcRegistry in sync with whatever srcs are currently on layers.
-// Runs on every state change — cheap (just iterating layers + Map.set on string
-// refs). The registry never evicts entries during a session so undo can restore
-// images even for layers that were deleted.
+// Keep imageSrcRegistry in sync with whatever srcs are currently on layers,
+// keyed by the layer's stable content id (imgId). Runs on every state change —
+// cheap (just iterating layers + Map.set on string refs). The registry never
+// evicts entries during a session, so undo/redo can resolve any imgId a snapshot
+// captured — including images that were later replaced or whose layer was deleted.
 useStore.subscribe(state => {
   for (const l of state.layers) {
-    if (l.src) imageSrcRegistry.set(l.id, { src: l.src, srcOriginal: l.srcOriginal })
+    if (l.src && l.imgId) imageSrcRegistry.set(l.imgId, { src: l.src, srcOriginal: l.srcOriginal })
   }
 })
 
