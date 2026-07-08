@@ -38,6 +38,9 @@ function processImageFile(file) {
           if (!blob) { reject(new Error('toBlob failed')); return }
           const url = URL.createObjectURL(blob)
           blobCache.set(url, blob)  // cache so serializeLayers never needs fetch(url)
+          // Cache the original File too (a Blob) so serializeLayers can persist the
+          // full-res original without fetch(blob:), unreliable on iOS Safari PWA.
+          blobCache.set(rawUrl, file)
           resolve({ src: url, srcOriginal: rawUrl, naturalW: w, naturalH: h })
         },
         'image/jpeg', 0.92,
