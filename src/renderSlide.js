@@ -201,13 +201,27 @@ function renderShapeLayer(ctx, layer, sliceStart) {
   ctx.restore()
 }
 
+const BLOB_REF_PREFIX = 'blob-ref://'
+
 // Resolve a layer's source URL to something usable by an Image element.
-// Handles blob-ref:// (looks up data URL from IDB). preferOriginal uses the
-// session-only full-res blob if available.
+// preferOriginal returns the full-res original when available: in-session it's a
+// blob:/data: URL on layer.srcOriginal; after a reload it's a `blob-ref://` pointer
+// into the IDB blobs store. If a persisted original is missing (older project, or
+// GC'd), we transparently fall back to the preview `src` so the image still renders.
 async function resolveLayerSrc(layer, preferOriginal) {
-  let src = preferOriginal ? (layer.srcOriginal ?? layer.src) : layer.src
-  if (src?.startsWith('blob-ref://')) {
-    return await dbGetBlob(src.slice(10)).catch(() => null)
+  if (preferOriginal && layer.srcOriginal) {
+    const orig = layer.srcOriginal
+    if (orig.startsWith(BLOB_REF_PREFIX)) {
+      const resolved = await dbGetBlob(orig.slice(BLOB_REF_PREFIX.length)).catch(() => null)
+      if (resolved) return resolved
+      // fall through to preview src below
+    } else {
+      return orig
+    }
+  }
+  const src = layer.src
+  if (src?.startsWith(BLOB_REF_PREFIX)) {
+    return await dbGetBlob(src.slice(BLOB_REF_PREFIX.length)).catch(() => null)
   }
   return src ?? null
 }
@@ -259,6 +273,10 @@ export async function renderSlide(slideIdx, args) {
   canvas.width = Math.max(1, Math.round(ratio.w * scale))
   canvas.height = Math.max(1, Math.round(ratio.h * scale))
   const ctx = canvas.getContext('2d')
+  // Large originals downscaled into the output canvas look softer with default
+  // smoothing — request the highest-quality resampling the browser offers.
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
   // All subsequent drawing uses logical (ratio.w × ratio.h) coordinates.
   if (scale !== 1) ctx.scale(scale, scale)
 
