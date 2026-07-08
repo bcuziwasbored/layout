@@ -172,18 +172,34 @@ export default function SlidesPanel() {
       setDragState({ ...next })
     }
 
+    const cleanup = () => {
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+      document.removeEventListener('pointercancel', onCancel)
+    }
+
     const onUp = () => {
       const ds = dragStateRef.current
       if (ds && ds.fromIdx !== ds.currentIdx) {
         useStore.getState().moveSlide(ds.fromIdx, ds.currentIdx)
       }
       setDragState(null)
-      document.removeEventListener('pointermove', onMove)
-      document.removeEventListener('pointerup', onUp)
+      cleanup()
+    }
+
+    // iOS can cancel an in-flight pointer (edge swipe, incoming notification).
+    // Reset drag state and tear down listeners WITHOUT committing a move — otherwise
+    // the stale listeners leak and a later tap can fire them, committing a phantom
+    // reorder.
+    const onCancel = () => {
+      setDragState(null)
+      dragStateRef.current = null
+      cleanup()
     }
 
     document.addEventListener('pointermove', onMove)
     document.addEventListener('pointerup', onUp)
+    document.addEventListener('pointercancel', onCancel)
   }
 
   return (

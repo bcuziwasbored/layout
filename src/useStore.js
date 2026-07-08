@@ -224,6 +224,7 @@ export const useStore = create((set, get) => ({
       screen: 'editor',
       ratio,
       bgColor: '#ffffff',
+      bgGradient: null,
       slides,
       layers,
       activeSlideIdx: 0,
@@ -257,6 +258,7 @@ export const useStore = create((set, get) => ({
       screen: 'editor',
       ratio: savedState.ratio,
       bgColor: savedState.bgColor,
+      bgGradient: savedState.bgGradient ?? null,
       slides: savedState.slides,
       layers,
       activeSlideIdx: 0,
@@ -657,7 +659,8 @@ export const useStore = create((set, get) => ({
       : layers.filter(l => Math.floor(l.x / ratio.w) === activeSlideIdx)
 
     const targetCells = (replaceFilled ? scopeCells : scopeCells.filter(l => !l.src))
-      .sort((a, b) => a.x - b.x || a.y - b.y)
+      // Row-major (reading order): top-to-bottom, then left-to-right within a row.
+      .sort((a, b) => a.y - b.y || a.x - b.x)
 
     processedImages.forEach(({ src, srcOriginal, naturalW, naturalH, imgId }, i) => {
       if (i >= targetCells.length) return
@@ -708,7 +711,21 @@ export const useStore = create((set, get) => ({
     get()._pushHistory()
     set(s => {
       const idx = s.layers.findIndex(l => l.id === id)
-      const copy = { ...s.layers[idx], id: uid(), x: s.layers[idx].x + 20, y: s.layers[idx].y + 20 }
+      if (idx === -1) return {}
+      const src = s.layers[idx]
+      // Offset the copy by +20,+20, but clamp it to the source slide's bounds so a
+      // layer near the right/bottom edge doesn't spill onto the next slide (x is in
+      // global space: slide si occupies [si*ratio.w, (si+1)*ratio.w]).
+      const ratio = s.ratio
+      const si = Math.floor(src.x / ratio.w)
+      const minX = si * ratio.w
+      const maxX = (si + 1) * ratio.w - src.w
+      const maxY = ratio.h - src.h
+      // For a layer wider/taller than the slide, the clamp range is empty; keep the
+      // source origin rather than clamping to an inverted range.
+      const cx = maxX >= minX ? Math.max(minX, Math.min(maxX, src.x + 20)) : src.x
+      const cy = maxY >= 0 ? Math.max(0, Math.min(maxY, src.y + 20)) : src.y
+      const copy = { ...src, id: uid(), x: cx, y: cy }
       const next = [...s.layers]
       next.splice(idx + 1, 0, copy)
       return { layers: next }
@@ -720,12 +737,25 @@ export const useStore = create((set, get) => ({
     set(s => {
       const layers = [...s.layers]
       const idx = layers.findIndex(l => l.id === id)
+      if (idx === -1) return {}
+      // Slide a layer belongs to, by its left edge — matches the floor idiom used
+      // elsewhere for slide assignment.
+      const ratio = s.ratio
+      const slideOf = l => Math.floor(l.x / ratio.w)
+      const si = slideOf(layers[idx])
       if (direction === 'front') { const [l] = layers.splice(idx, 1); layers.push(l) }
       else if (direction === 'back') { const [l] = layers.splice(idx, 1); layers.unshift(l) }
-      else if (direction === 'forward' && idx < layers.length - 1) {
-        [layers[idx], layers[idx + 1]] = [layers[idx + 1], layers[idx]]
-      } else if (direction === 'backward' && idx > 0) {
-        [layers[idx], layers[idx - 1]] = [layers[idx - 1], layers[idx]]
+      else if (direction === 'forward') {
+        // Swap with the next layer ON THE SAME SLIDE. Z-order only matters within a
+        // slide's stacking context; layers on other slides can't overlap this one,
+        // so skipping past them (a global swap) would appear to do nothing.
+        let j = idx + 1
+        while (j < layers.length && slideOf(layers[j]) !== si) j++
+        if (j < layers.length) [layers[idx], layers[j]] = [layers[j], layers[idx]]
+      } else if (direction === 'backward') {
+        let j = idx - 1
+        while (j >= 0 && slideOf(layers[j]) !== si) j--
+        if (j >= 0) [layers[idx], layers[j]] = [layers[j], layers[idx]]
       }
       return { layers }
     })
