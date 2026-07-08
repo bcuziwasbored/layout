@@ -113,6 +113,11 @@ export const useStore = create((set, get) => ({
   history: [],
   future: [],
   _undoSnap: null,   // pre-gesture snapshot waiting to be committed
+  // Session-only layer clipboard for copy/paste across slides (issue #48).
+  // Holds a shallow copy of a layer (src/srcOriginal/imgId references kept, so
+  // the image content and undo registry keep working). Not persisted — saveProject
+  // only serializes ratio/bg/slides/layers, so this never reaches disk.
+  clipboard: null,
   currentProjectId: null,
   projectName: 'Untitled',
   recentColors: [],
@@ -794,6 +799,46 @@ export const useStore = create((set, get) => ({
       next.splice(idx + 1, 0, copy)
       return { layers: next }
     })
+  },
+
+  // Copy a layer into the session clipboard. Stores a shallow copy so later edits
+  // to the source don't mutate the clipboard entry; src/srcOriginal/imgId are kept
+  // (strings are shared refs — no data duplication — and imgId keeps the undo
+  // registry resolving the pasted copy's image). Pushes NO history entry.
+  copyLayer(id) {
+    const layer = get().layers.find(l => l.id === id)
+    if (!layer) return
+    set({ clipboard: { ...layer } })
+  },
+
+  // Paste the clipboard layer onto a slide (active slide by default) as a fresh,
+  // free layer: regenerate `id`, drop `groupId`/`locked` so a copied template cell
+  // pastes as a standalone image, and keep `imgId` (same content) so undo/redo can
+  // restore its image via imageSrcRegistry. Centered on the target slide; a layer
+  // larger than the slide stays centered (symmetric overhang) rather than being
+  // resized, which would break an image's crop. Pushes ONE history entry.
+  pasteLayer(slideIdx) {
+    const { clipboard, ratio, activeSlideIdx } = get()
+    if (!clipboard) return
+    get()._pushHistory()
+    const si = slideIdx ?? activeSlideIdx
+    const { w, h } = clipboard
+    const x = Math.round(si * ratio.w + (ratio.w - w) / 2)
+    const y = Math.round((ratio.h - h) / 2)
+    const copy = { ...clipboard, id: uid(), x, y }
+    delete copy.groupId
+    delete copy.locked
+    set(s => ({
+      layers: [...s.layers, copy],
+      activeSlideIdx: si,
+      activeLayerId: copy.id,
+      activeCellId: null,
+      textEditId: null,
+      panel: null,
+      elementPanel: null,
+      cropMode: false,
+    }))
+    return copy.id
   },
 
   reorderLayer(id, direction) {

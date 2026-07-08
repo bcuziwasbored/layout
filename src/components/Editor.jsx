@@ -77,6 +77,40 @@ export default function Editor() {
     // push no undo history — still schedule a save.
   }, [dirtyCounter, currentProjectId])
 
+  // Desktop keyboard shortcuts: Cmd/Ctrl+C copies the selected layer, Cmd/Ctrl+V
+  // pastes onto the active slide (issue #48). Guarded so it never hijacks a real
+  // text/clipboard interaction: skip while editing a text layer (textEditId) or
+  // when focus is in an input/textarea/contenteditable, and let the browser handle
+  // the event when there's a live text selection (user is copying actual text).
+  useEffect(() => {
+    const isEditableTarget = () => {
+      const el = document.activeElement
+      if (!el) return false
+      const tag = el.tagName
+      return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable
+    }
+    const onKeyDown = (e) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return
+      const key = e.key.toLowerCase()
+      if (key !== 'c' && key !== 'v') return
+      const s = useStore.getState()
+      if (s.screen !== 'editor' || s.textEditId != null || isEditableTarget()) return
+      if (key === 'c') {
+        // Don't steal a genuine text selection copy.
+        if (!window.getSelection?.().isCollapsed) return
+        if (!s.activeLayerId) return
+        e.preventDefault()
+        s.copyLayer(s.activeLayerId)
+      } else {
+        if (!s.clipboard) return
+        e.preventDefault()
+        s.pasteLayer()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
   // Lifecycle flush: iOS can kill a backgrounded PWA inside the 2s debounce
   // window, silently dropping edits. On pagehide / tab-hidden, cancel the
   // pending debounce and persist immediately (fire-and-forget — a queued IDB

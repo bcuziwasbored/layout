@@ -727,6 +727,7 @@ function CropTarget({ layer, vs }) {
 
 function QuickToolbar({ layer, view, containerH }) {
   const duplicateLayer = useStore(s => s.duplicateLayer)
+  const copyLayer      = useStore(s => s.copyLayer)
   const reorderLayer   = useStore(s => s.reorderLayer)
   const deleteLayer    = useStore(s => s.deleteLayer)
 
@@ -774,6 +775,11 @@ function QuickToolbar({ layer, view, containerH }) {
         {btn('dup', 'Duplicate', () => duplicateLayer(layer.id),
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" />
+          </svg>)}
+        {btn('copy', 'Copy', () => copyLayer(layer.id),
+          // Clipboard glyph — copy to the cross-slide clipboard (paste from Add panel)
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
           </svg>)}
         {btn('fwd', 'Forward', () => reorderLayer(layer.id, 'forward'),
           // Stack with the front square highlighted + up arrow

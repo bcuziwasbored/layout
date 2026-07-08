@@ -43,6 +43,8 @@ export default function AddPanel() {
   const addSlide       = useStore(s => s.addSlide)
   const addTextLayer   = useStore(s => s.addTextLayer)
   const addShapeLayer  = useStore(s => s.addShapeLayer)
+  const pasteLayer     = useStore(s => s.pasteLayer)
+  const hasClipboard   = useStore(s => !!s.clipboard)
   const openPickerRef  = useCanvasPicker()
   const [view, setView] = useState('root')
 
@@ -137,6 +139,15 @@ export default function AddPanel() {
           <IconBlank size={26} />
           <span className="text-[11px] text-white/70">Page</span>
         </button>
+        {hasClipboard && (
+          <button onClick={() => { pasteLayer(); setPanel(null) }}
+            className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-white/85">
+              <rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+            </svg>
+            <span className="text-[11px] text-white/70">Paste</span>
+          </button>
+        )}
       </div>
     </div>
   )
