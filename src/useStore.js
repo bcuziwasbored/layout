@@ -13,6 +13,37 @@ function layersInSlide(layers, idx, ratio) {
   return layers.filter(l => l.x < end && l.x + l.w > start)
 }
 
+// Width of a layer that lies inside slide `idx`'s column (0 if it doesn't reach it).
+function overlapWidth(layer, idx, ratio) {
+  const start = idx * ratio.w
+  const end = (idx + 1) * ratio.w
+  return Math.max(0, Math.min(layer.x + layer.w, end) - Math.max(layer.x, start))
+}
+
+// Inclusive range of slide indices a layer overlaps, using the same strict-overlap
+// semantics as layersInSlide. `first` may be negative for a layer dragged past the
+// left edge; callers that need an ownership index clamp via ownerSlide.
+function slideSpan(layer, ratio) {
+  const first = Math.floor(layer.x / ratio.w)
+  const last = Math.ceil((layer.x + layer.w) / ratio.w) - 1
+  return { first, last: Math.max(first, last) }
+}
+
+// The slide that OWNS a layer: the one holding the majority of the layer's width
+// (ties → leftmost, matching layersInSlide's left-bias). Cross-slide "Width 2×"
+// images are exactly 50/50, so the tie makes their left slide the owner. Clamped
+// to >= 0 so a layer dragged to x < 0 is owned by slide 0 rather than index -1.
+function ownerSlide(layer, ratio) {
+  const { first, last } = slideSpan(layer, ratio)
+  let best = first
+  let bestOverlap = -Infinity
+  for (let i = first; i <= last; i++) {
+    const overlap = overlapWidth(layer, i, ratio)
+    if (overlap > bestOverlap) { bestOverlap = overlap; best = i }
+  }
+  return Math.max(0, best)
+}
+
 function fitInCell(naturalW, naturalH, cellW, cellH) {
   const scale = Math.max(cellW / naturalW, cellH / naturalH)
   const imgW = naturalW * scale
@@ -408,10 +439,13 @@ export const useStore = create((set, get) => ({
     const newSlide = { id: uid() }
     const newSlides = [...slides]
     newSlides.splice(atIdx, 0, newSlide)
+    // Shift layers owned by slides at/after the insertion point; owners are floored
+    // at 0 so a layer dragged to x < 0 shifts with slide 0 instead of being skipped.
+    // A negative-x result is then clamped into slide 0's range (ownership floor).
     const newLayers = layers.map(l => {
-      const si = Math.floor(l.x / ratio.w)
-      if (si >= atIdx) return { ...l, x: l.x + ratio.w }
-      return l
+      let nx = ownerSlide(l, ratio) >= atIdx ? l.x + ratio.w : l.x
+      if (nx < 0) nx = 0
+      return nx === l.x ? l : { ...l, x: nx }
     })
     set({ slides: newSlides, layers: newLayers, activeSlideIdx: atIdx, panel: null })
   },
@@ -423,9 +457,12 @@ export const useStore = create((set, get) => ({
     const newSlides = [...slides]
     const [moved] = newSlides.splice(fromIdx, 1)
     newSlides.splice(toIdx, 0, moved)
+    // Ownership decides which layers travel with the moved slide. A layer keeps its
+    // intra-slide offset (may still span two slides after the move — acceptable and
+    // consistent with the cross-slide model).
     const newLayers = layers.map(l => {
-      const si = Math.floor(l.x / ratio.w)
-      if (si === fromIdx) return { ...l, x: toIdx * ratio.w + (l.x - fromIdx * ratio.w) }
+      const si = ownerSlide(l, ratio)
+      if (si === fromIdx) return { ...l, x: l.x + (toIdx - fromIdx) * ratio.w }
       if (fromIdx < toIdx && si > fromIdx && si <= toIdx) return { ...l, x: l.x - ratio.w }
       if (fromIdx > toIdx && si >= toIdx && si < fromIdx) return { ...l, x: l.x + ratio.w }
       return l
@@ -442,21 +479,19 @@ export const useStore = create((set, get) => ({
     const { ratio, slides, layers } = get()
     const newSlide = { id: uid() }
     const newSlideIdx = idx + 1
-    const offsetX = newSlideIdx * ratio.w
 
-    // Shift all layers after idx up by one slide width
+    // Shift layers OWNED by the new slot (or later) up by one slide width.
     const shiftedLayers = layers.map(l => {
-      const lSlide = Math.floor(l.x / ratio.w)
-      if (lSlide >= newSlideIdx) return { ...l, x: l.x + ratio.w }
+      if (ownerSlide(l, ratio) >= newSlideIdx) return { ...l, x: l.x + ratio.w }
       return l
     })
 
-    // Copy layers from idx into newSlideIdx, remapping each distinct groupId
-    // to a fresh id so the duplicated grid(s) don't merge with the original
-    const srcStart = idx * ratio.w
+    // Copy layers owned by idx into newSlideIdx, remapping each distinct groupId
+    // to a fresh id so the duplicated grid(s) don't merge with the original. A
+    // spanning layer copies with its intra-slide offset preserved (x + ratio.w).
     const groupIdMap = {}
     const copiedLayers = layers
-      .filter(l => Math.floor(l.x / ratio.w) === idx)
+      .filter(l => ownerSlide(l, ratio) === idx)
       .map(l => {
         const copy = { ...l, id: uid(), x: l.x + ratio.w }
         if (l.groupId != null) {
@@ -481,13 +516,23 @@ export const useStore = create((set, get) => ({
       set({ slides: [fresh], layers: [], activeSlideIdx: 0 })
       return
     }
-    // Remove layers in deleted slide, shift layers after it down
+    // Remove a layer only when the MAJORITY of its width sits in the deleted slide
+    // (a wholly-contained layer is the full-majority case). A cross-slide "Width 2×"
+    // image is exactly 50/50, so it is NOT majority-owned by either slide and is kept
+    // — deleting one of its slides must not delete its other half.
+    const dl = idx * ratio.w
+    const dr = (idx + 1) * ratio.w
     const newLayers = layers
-      .filter(l => Math.floor(l.x / ratio.w) !== idx)
+      .filter(l => overlapWidth(l, idx, ratio) <= l.w / 2)
       .map(l => {
-        const lSlide = Math.floor(l.x / ratio.w)
-        if (lSlide > idx) return { ...l, x: l.x - ratio.w }
-        return l
+        if (l.x + l.w <= dl) return l              // entirely left of the deleted column
+        if (l.x >= dr) return { ...l, x: l.x - ratio.w }  // entirely right — shift to close the gap
+        // Spans the deleted column: drop the deleted portion and close the gap so no
+        // overlap results. The surviving side(s) collapse into a single rectangle.
+        const leftKeep = Math.max(0, dl - l.x)
+        const rightKeep = Math.max(0, (l.x + l.w) - dr)
+        const newX = leftKeep > 0 ? l.x : dl
+        return { ...l, x: newX, w: leftKeep + rightKeep }
       })
     set({
       slides: newSlides,
