@@ -199,34 +199,40 @@ function PositionTab({ layer, activeLayerId, ratio, activeSlideIdx, layers, reor
       </div>
       <div className="border-t border-white/8 my-1" />
 
-      {/* Rotation */}
-      <SectionLabel>Rotation</SectionLabel>
-      <div className="mb-1">
-        <div className="flex items-center gap-3">
-          <input type="range" min={-180} max={180} step={1}
-            value={layer.freeRotation ?? 0}
-            onPointerDown={() => useStore.getState()._captureUndo()}
-            onChange={e => updateLayer(activeLayerId, { freeRotation: +e.target.value })}
-            onMouseUp={() => useStore.getState()._commitUndo()}
-            onTouchEnd={() => useStore.getState()._commitUndo()}
-            className="flex-1 accent-white" />
-          <div className="bg-white/10 rounded-lg px-2.5 py-1.5 flex items-baseline gap-1 min-w-[64px] justify-end shrink-0">
-            <span className="text-white text-sm tabular-nums">{layer.freeRotation ?? 0}</span>
-            <span className="text-white/40 text-[11px]">°</span>
+      {/* Rotation — regular layers only. Rotating a whole locked template grid
+          isn't a supported layout operation, and per-cell rotation inside a grid
+          corrupts the layout (issue #17), so the control is hidden in group mode. */}
+      {!isGroup && (
+        <>
+          <SectionLabel>Rotation</SectionLabel>
+          <div className="mb-1">
+            <div className="flex items-center gap-3">
+              <input type="range" min={-180} max={180} step={1}
+                value={layer.freeRotation ?? 0}
+                onPointerDown={() => useStore.getState()._captureUndo()}
+                onChange={e => updateLayer(activeLayerId, { freeRotation: +e.target.value })}
+                onMouseUp={() => useStore.getState()._commitUndo()}
+                onTouchEnd={() => useStore.getState()._commitUndo()}
+                className="flex-1 accent-white" />
+              <div className="bg-white/10 rounded-lg px-2.5 py-1.5 flex items-baseline gap-1 min-w-[64px] justify-end shrink-0">
+                <span className="text-white text-sm tabular-nums">{layer.freeRotation ?? 0}</span>
+                <span className="text-white/40 text-[11px]">°</span>
+              </div>
+            </div>
+            {(layer.freeRotation ?? 0) !== 0 && (
+              <button
+                onClick={() => {
+                  useStore.getState()._pushHistory()
+                  updateLayer(activeLayerId, { freeRotation: 0 })
+                }}
+                className="mt-2 text-xs text-white/50 bg-white/8 px-3 py-1 rounded-full active:opacity-60">
+                Reset to 0°
+              </button>
+            )}
           </div>
-        </div>
-        {(layer.freeRotation ?? 0) !== 0 && (
-          <button
-            onClick={() => {
-              useStore.getState()._pushHistory()
-              updateLayer(activeLayerId, { freeRotation: 0 })
-            }}
-            className="mt-2 text-xs text-white/50 bg-white/8 px-3 py-1 rounded-full active:opacity-60">
-            Reset to 0°
-          </button>
-        )}
-      </div>
-      <div className="border-t border-white/8 my-1" />
+          <div className="border-t border-white/8 my-1" />
+        </>
+      )}
 
       {/* Fill — regular image layers only */}
       {!isGroup && !isText && (
@@ -322,7 +328,7 @@ function StyleTab({ layer, activeLayerId, layers, updateLayer, isGroup }) {
         value={Math.round((layer.opacity ?? 1) * 100)}
         min={0} max={100} step={1}
         display={Math.round((layer.opacity ?? 1) * 100)} unit="%"
-        onChange={v => updateLayer(activeLayerId, { opacity: v / 100 })}
+        onChange={v => applyProp('opacity', v / 100)}
         onDone={() => useStore.getState()._commitUndo()} />
 
       {/* Corner radius only applies to rectangle shape */}
