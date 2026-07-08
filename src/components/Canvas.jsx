@@ -4,7 +4,7 @@ import { useStore, fitInCell } from '../useStore'
 import useImage from 'use-image'
 import { dbGetBlob } from '../db'
 import { blobCache, dataURLCache } from '../blobCache'
-import { drawShapePath } from '../shapes'
+import { drawShapePath, STROKE_AWARE_SHAPES } from '../shapes'
 
 // ─── Image downscaling ─────────────────────────────────────────────────────────
 // Phone cameras produce 12–50MP images. Drawing a 4032×3024 image in Konva every
@@ -430,6 +430,12 @@ function TextCell({ layer, isEditing }) {
 
 function ShapeCell({ layer }) {
   const sw = layer.strokeWidth ?? 0
+  const shapeType = layer.shapeType ?? 'rect'
+  // Stroke pass matches export (renderShapeLayer): only when a stroke color is
+  // actually set, and never for the stroke-aware line/arrow — their strokeWidth
+  // is geometry thickness, not an outline.
+  const strokeColor = sw > 0 && layer.stroke && !STROKE_AWARE_SHAPES.has(shapeType)
+    ? layer.stroke : null
   return (
     <Group
       x={layer.x + layer.w / 2} y={layer.y + layer.h / 2}
@@ -437,25 +443,22 @@ function ShapeCell({ layer }) {
       rotation={layer.freeRotation ?? 0}
       opacity={layer.opacity ?? 1}
     >
-      {layer.shapeType === 'circle' ? (
-        <Ellipse
-          x={layer.w / 2} y={layer.h / 2}
-          radiusX={layer.w / 2} radiusY={layer.h / 2}
-          fill={layer.fill ?? '#000000'}
-          stroke={sw > 0 ? (layer.stroke ?? '#000000') : null}
-          strokeWidth={sw}
-          listening={false}
-        />
-      ) : (
-        <Rect
-          width={layer.w} height={layer.h}
-          fill={layer.fill ?? '#000000'}
-          stroke={sw > 0 ? (layer.stroke ?? '#000000') : null}
-          strokeWidth={sw}
-          cornerRadius={layer.cornerRadius ?? 0}
-          listening={false}
-        />
-      )}
+      {/* Single source of truth: same drawShapePath as export (renderShapeLayer
+          in renderSlide.js) — editor/export parity for every shape type.
+          cornerRadius is gated to rect inside drawShapePath; strokeWidth feeds
+          the stroke-aware line/arrow geometry. */}
+      <Shape
+        sceneFunc={(ctx, sh) => {
+          ctx.beginPath()
+          drawShapePath(ctx, 0, 0, layer.w, layer.h, shapeType,
+            layer.cornerRadius ?? 0, false, sw)
+          ctx.fillStrokeShape(sh)
+        }}
+        fill={layer.fill ?? '#000000'}
+        stroke={strokeColor}
+        strokeWidth={sw}
+        listening={false}
+      />
       <Rect width={layer.w} height={layer.h} fill="rgba(0,0,0,0.01)" />
     </Group>
   )

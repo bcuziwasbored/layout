@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { useStore } from '../../useStore'
 import { useCanvasPicker } from '../../CanvasContext'
 import { TEMPLATES } from '../../templates'
-import { IconImage, IconGrid, IconBlank, IconText, IconClose, IconShapes, IconShapeRect, IconShapeCircle } from '../icons'
+import { IconImage, IconGrid, IconBlank, IconText, IconClose, IconShapes } from '../icons'
+import { SHAPE_LAYER_TYPES } from '../../shapes'
+import ShapePreview from '../ShapePreview'
 
 const TemplateThumb = ({ template, onClick }) => {
   const ps = template.pageSpan ?? 1
@@ -89,19 +91,15 @@ export default function AddPanel() {
           <span className="font-semibold text-base">Shapes</span>
           <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={() => { addShapeLayer('rect'); setPanel(null) }}
-            className="flex flex-col items-center gap-3 bg-white/8 rounded-xl py-6 active:bg-white/15">
-            <IconShapeRect size={40} />
-            <span className="text-[13px] text-white/70">Rectangle</span>
-          </button>
-          <button
-            onClick={() => { addShapeLayer('circle'); setPanel(null) }}
-            className="flex flex-col items-center gap-3 bg-white/8 rounded-xl py-6 active:bg-white/15">
-            <IconShapeCircle size={40} />
-            <span className="text-[13px] text-white/70">Circle</span>
-          </button>
+        <div className="grid grid-cols-3 gap-3">
+          {SHAPE_LAYER_TYPES.map(s => (
+            <button key={s.id}
+              onClick={() => { addShapeLayer(s.id); setPanel(null) }}
+              className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
+              <ShapePreview type={s.id} size={40} />
+              <span className="text-[12px] text-white/70">{s.label}</span>
+            </button>
+          ))}
         </div>
       </div>
     )
