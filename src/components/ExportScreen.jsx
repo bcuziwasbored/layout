@@ -2,7 +2,35 @@ import { useEffect, useState } from 'react'
 import { useStore } from '../useStore'
 import { renderSlide } from '../renderSlide'
 
+// Persisted export options. Kept in localStorage (no server-side state) so the
+// last-used format/resolution/quality stick across exports and sessions.
+const OPTS_KEY = 'export-options-v1'
+const QUALITY_PRESETS = { standard: 0.9, high: 0.95 }
 
+function loadOptions() {
+  const defaults = { format: 'jpeg', scale: 1, quality: 'high' }
+  try {
+    const saved = JSON.parse(localStorage.getItem(OPTS_KEY))
+    if (!saved || typeof saved !== 'object') return defaults
+    return {
+      format: saved.format === 'png' ? 'png' : 'jpeg',
+      scale: saved.scale === 2 ? 2 : 1,
+      quality: saved.quality === 'standard' ? 'standard' : 'high',
+    }
+  } catch {
+    return defaults
+  }
+}
+
+function saveOptions(opts) {
+  try {
+    localStorage.setItem(OPTS_KEY, JSON.stringify(opts))
+  } catch {
+    /* storage full or blocked — options just won't persist */
+  }
+}
+
+const extFor = (format) => (format === 'png' ? 'png' : 'jpg')
 
 function dataURLtoBlob(dataURL) {
   const [header, data] = dataURL.split(',')
@@ -14,7 +42,9 @@ function dataURLtoBlob(dataURL) {
 }
 
 function fileFromDataURL(dataURL, filename) {
-  return new File([dataURLtoBlob(dataURL)], filename, { type: 'image/jpeg' })
+  const blob = dataURLtoBlob(dataURL)
+  // Mime is carried in the data-URL header, so File type follows the chosen format.
+  return new File([blob], filename, { type: blob.type })
 }
 
 function canShareFiles(files) {
@@ -77,8 +107,8 @@ function triggerDownload(dataURL, filename) {
 // Per-slide save. Shares the single file via the OS share sheet when possible,
 // otherwise opens it in a new tab. (Desktop uses a real <a download> in the
 // markup and never reaches here.)
-async function saveOne(dataURL, index) {
-  const file = fileFromDataURL(dataURL, `slide-${index + 1}.jpg`)
+async function saveOne(dataURL, index, ext) {
+  const file = fileFromDataURL(dataURL, `slide-${index + 1}.${ext}`)
   if (canShareFiles([file])) {
     try {
       await navigator.share({ files: [file], title: `Slide ${index + 1}` })
@@ -93,9 +123,9 @@ async function saveOne(dataURL, index) {
 // Save every slide in a single user gesture. With file share we hand the whole
 // batch to one share sheet; on desktop we fire all downloads synchronously
 // (never behind awaited timeouts, which browsers block as non-gesture).
-async function saveAll(rendered, mode) {
+async function saveAll(rendered, mode, ext) {
   if (mode === 'share') {
-    const files = rendered.map((src, i) => fileFromDataURL(src, `slide-${i + 1}.jpg`))
+    const files = rendered.map((src, i) => fileFromDataURL(src, `slide-${i + 1}.${ext}`))
     if (canShareFiles(files)) {
       try {
         await navigator.share({ files })
@@ -106,7 +136,7 @@ async function saveAll(rendered, mode) {
     }
   }
   // Desktop / in-browser: synchronous downloads within this gesture.
-  rendered.forEach((src, i) => triggerDownload(src, `slide-${i + 1}.jpg`))
+  rendered.forEach((src, i) => triggerDownload(src, `slide-${i + 1}.${ext}`))
 }
 
 export default function ExportScreen({ onClose }) {
@@ -131,8 +161,25 @@ export default function ExportScreen({ onClose }) {
 
   const [renderKey, setRenderKey] = useState(0)
 
+  // Output options (persisted). `format` → jpeg|png, `scale` → 1|2 (2160px at 2×),
+  // `quality` → jpeg-quality preset key (ignored for PNG).
+  const [options, setOptions] = useState(loadOptions)
+  const { format, scale: outScale, quality: qualityKey } = options
+  const ext = extFor(format)
+
   // Delivery channel is fixed for the session; compute it once.
   const [{ mode }] = useState(detectDelivery)
+
+  // Change an option: persist it and kick off a fresh render (reusing the same
+  // renderKey/retry machinery so the serial render restarts cleanly).
+  const updateOption = (patch) => {
+    setOptions(prev => {
+      const next = { ...prev, ...patch }
+      saveOptions(next)
+      return next
+    })
+    retry()
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -153,6 +200,9 @@ export default function ExportScreen({ onClose }) {
         try {
           const url = await renderSlide(i, {
             slides, layers, ratio, bgColor, bgGradient, imgCache,
+            scale: outScale,
+            format,
+            quality: QUALITY_PRESETS[qualityKey],
             onImageError: (layer) => {
               failedLayerIds.add(layer.id)
               affectedSlides.add(i)
@@ -199,6 +249,11 @@ export default function ExportScreen({ onClose }) {
     mode === 'share'
       ? rendered.length === 1 ? 'Share Image' : `Share All ${rendered.length} Images`
       : `Download ${rendered.length === 1 ? 'Image' : `All ${rendered.length} Images`}`
+
+  // Slides render serially and `rendered` grows one entry at a time, so its
+  // length is how many have finished — show it as a counter on multi-slide runs.
+  const progressLabel =
+    slides.length > 1 ? `Rendering… ${rendered.length}/${slides.length}` : 'Rendering…'
 
   return (
     <div className="fixed inset-0 bg-black flex flex-col z-50">
@@ -309,7 +364,7 @@ export default function ExportScreen({ onClose }) {
               <a
                 key={i}
                 href={src}
-                download={`slide-${i + 1}.jpg`}
+                download={`slide-${i + 1}.${ext}`}
                 className="relative shrink-0 active:opacity-60"
               >
                 {thumb}
@@ -317,7 +372,7 @@ export default function ExportScreen({ onClose }) {
             ) : (
               <button
                 key={i}
-                onClick={() => saveOne(src, i)}
+                onClick={() => saveOne(src, i, ext)}
                 className="relative shrink-0 active:opacity-60"
               >
                 {thumb}
@@ -326,12 +381,61 @@ export default function ExportScreen({ onClose }) {
           })}
           {isRendering && (
             <div className="flex items-center gap-3 py-2">
-              <div className="text-white/30 text-xs">Rendering…</div>
+              <div className="text-white/30 text-xs whitespace-nowrap">{progressLabel}</div>
               <button
                 onClick={retry}
                 className="text-white/50 text-xs bg-white/10 px-3 py-1 rounded-full active:bg-white/20">
                 Retry
               </button>
+            </div>
+          )}
+        </div>
+
+        {/* Output options — format / resolution / JPEG quality. Changing any of
+            these persists the choice and restarts the serial render. */}
+        <div className="flex items-center gap-2 mb-3 text-xs">
+          <div className="flex bg-white/10 rounded-full p-0.5">
+            {['jpeg', 'png'].map(f => (
+              <button
+                key={f}
+                onClick={() => format !== f && updateOption({ format: f })}
+                aria-pressed={format === f}
+                className={`px-3 py-1 rounded-full font-medium transition-colors ${
+                  format === f ? 'bg-white text-black' : 'text-white/50 active:text-white'
+                }`}
+              >
+                {f.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <div className="flex bg-white/10 rounded-full p-0.5">
+            {[1, 2].map(s => (
+              <button
+                key={s}
+                onClick={() => outScale !== s && updateOption({ scale: s })}
+                aria-pressed={outScale === s}
+                className={`px-3 py-1 rounded-full font-medium transition-colors ${
+                  outScale === s ? 'bg-white text-black' : 'text-white/50 active:text-white'
+                }`}
+              >
+                {s}×
+              </button>
+            ))}
+          </div>
+          {format === 'jpeg' && (
+            <div className="flex bg-white/10 rounded-full p-0.5">
+              {[['standard', 'Standard'], ['high', 'High']].map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => qualityKey !== key && updateOption({ quality: key })}
+                  aria-pressed={qualityKey === key}
+                  className={`px-3 py-1 rounded-full font-medium transition-colors ${
+                    qualityKey === key ? 'bg-white text-black' : 'text-white/50 active:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -356,16 +460,16 @@ export default function ExportScreen({ onClose }) {
           // No share sheet and no download manager: the grid above is the
           // delivery mechanism. Tap a slide to open it, then long-press to save.
           <div className="w-full py-3.5 text-center text-white/50 text-sm">
-            {isRendering ? 'Rendering…' : 'Tap a slide to open, then press and hold to save'}
+            {isRendering ? progressLabel : 'Tap a slide to open, then press and hold to save'}
           </div>
         ) : (
           <button
-            onClick={() => saveAll(rendered, mode)}
+            onClick={() => saveAll(rendered, mode, ext)}
             disabled={isRendering}
             className="w-full py-3.5 rounded-2xl font-semibold text-base transition-opacity active:opacity-70 disabled:opacity-30"
             style={{ background: 'white', color: 'black' }}
           >
-            {isRendering ? 'Rendering…' : saveAllLabel}
+            {isRendering ? progressLabel : saveAllLabel}
           </button>
         )}
       </div>
