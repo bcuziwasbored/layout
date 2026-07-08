@@ -13,69 +13,100 @@ function dataURLtoBlob(dataURL) {
   return new Blob([buf], { type: mime })
 }
 
-async function downloadAll(rendered) {
-  const files = rendered.map((src, i) => {
-    const blob = dataURLtoBlob(src)
-    return new File([blob], `slide-${i + 1}.jpg`, { type: 'image/jpeg' })
-  })
+function fileFromDataURL(dataURL, filename) {
+  return new File([dataURLtoBlob(dataURL)], filename, { type: 'image/jpeg' })
+}
 
-  if (navigator.canShare && navigator.canShare({ files })) {
+function canShareFiles(files) {
+  return typeof navigator.canShare === 'function' && navigator.canShare({ files })
+}
+
+// Detect the right delivery channel *once* — these don't change during the
+// session. `standalone` = installed PWA with no browser chrome / download
+// manager (iOS home-screen app). `fileShare` = the Web Share API can share
+// actual files (iOS 15+, Android Chrome). We deliberately avoid UA sniffing.
+function detectDelivery() {
+  const standalone =
+    (typeof window.matchMedia === 'function' &&
+      window.matchMedia('(display-mode: standalone)').matches) ||
+    window.navigator.standalone === true
+
+  let fileShare = false
+  try {
+    const testFile = new File([new Blob([''], { type: 'image/jpeg' })], 'test.jpg', {
+      type: 'image/jpeg',
+    })
+    fileShare = canShareFiles([testFile])
+  } catch {
+    /* canShare unsupported — leave fileShare false */
+  }
+
+  // 'share'    → invoke the OS share sheet (Save to Photos, etc.)
+  // 'download' → real <a download> links work (desktop / in-browser)
+  // 'open'     → no share, no download manager: open the image so the user can
+  //              long-press → Save. Rare (a standalone PWA without file share).
+  let mode
+  if (fileShare) mode = 'share'
+  else if (!standalone) mode = 'download'
+  else mode = 'open'
+
+  return { standalone, fileShare, mode }
+}
+
+// Open an image in a new tab (blob URL). Fallback when neither the share sheet
+// nor a real download is available — the user long-presses to save.
+function openInNewTab(dataURL) {
+  const url = URL.createObjectURL(dataURLtoBlob(dataURL))
+  window.open(url, '_blank', 'noopener')
+  // Give the new tab time to load before releasing the blob.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
+// Trigger a native download via an <a download>. Only used on platforms where
+// this actually works (desktop / in-browser), and always synchronously inside
+// the originating user gesture so the browser doesn't block it.
+function triggerDownload(dataURL, filename) {
+  const a = document.createElement('a')
+  a.href = dataURL
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
+// Per-slide save. Shares the single file via the OS share sheet when possible,
+// otherwise opens it in a new tab. (Desktop uses a real <a download> in the
+// markup and never reaches here.)
+async function saveOne(dataURL, index) {
+  const file = fileFromDataURL(dataURL, `slide-${index + 1}.jpg`)
+  if (canShareFiles([file])) {
     try {
-      await navigator.share({ files })
-    } catch (err) {
-      // User cancelled or share failed — silently ignore
+      await navigator.share({ files: [file], title: `Slide ${index + 1}` })
+    } catch {
+      /* user cancelled or share failed — ignore */
     }
     return
   }
-
-  // Fallback: download links — sequential, waiting for each save dialog to close
-  // before triggering the next one. Works for both auto-download browsers (no dialog
-  // → short timeout) and "ask where to save" browsers (waits for focus to return).
-  const triggerDownload = (src, filename) => {
-    const a = document.createElement('a')
-    a.href = src
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-  }
-
-  const waitForDialogClose = () => new Promise(resolve => {
-    let blurred = false
-    const onBlur  = () => { blurred = true }
-    const onFocus = () => {
-      if (!blurred) return
-      cleanup()
-      setTimeout(resolve, 150) // small buffer after dialog closes
-    }
-    const cleanup = () => {
-      window.removeEventListener('blur', onBlur)
-      window.removeEventListener('focus', onFocus)
-      clearTimeout(autoTimer)
-    }
-    // If the window never loses focus (auto-download, no dialog), proceed after 400ms
-    const autoTimer = setTimeout(() => { cleanup(); resolve() }, 400)
-    window.addEventListener('blur', onBlur)
-    window.addEventListener('focus', onFocus)
-  });
-
-  (async () => {
-    for (let i = 0; i < rendered.length; i++) {
-      triggerDownload(rendered[i], `slide-${i + 1}.jpg`)
-      if (i < rendered.length - 1) await waitForDialogClose()
-    }
-  })()
+  openInNewTab(dataURL)
 }
 
-function canUseWebShare(rendered) {
-  if (!rendered.length) return false
-  if (!navigator.canShare) return false
-  try {
-    const testFile = new File([new Blob([''])], 'test.jpg', { type: 'image/jpeg' })
-    return navigator.canShare({ files: [testFile] })
-  } catch {
-    return false
+// Save every slide in a single user gesture. With file share we hand the whole
+// batch to one share sheet; on desktop we fire all downloads synchronously
+// (never behind awaited timeouts, which browsers block as non-gesture).
+async function saveAll(rendered, mode) {
+  if (mode === 'share') {
+    const files = rendered.map((src, i) => fileFromDataURL(src, `slide-${i + 1}.jpg`))
+    if (canShareFiles(files)) {
+      try {
+        await navigator.share({ files })
+      } catch {
+        /* user cancelled or share failed — ignore */
+      }
+      return
+    }
   }
+  // Desktop / in-browser: synchronous downloads within this gesture.
+  rendered.forEach((src, i) => triggerDownload(src, `slide-${i + 1}.jpg`))
 }
 
 export default function ExportScreen({ onClose }) {
@@ -86,9 +117,13 @@ export default function ExportScreen({ onClose }) {
   const bgGradient  = useStore(s => s.bgGradient)
 
   const [rendered, setRendered] = useState([])
+  const [error, setError] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
 
   const [renderKey, setRenderKey] = useState(0)
+
+  // Delivery channel is fixed for the session; compute it once.
+  const [{ mode }] = useState(detectDelivery)
 
   useEffect(() => {
     let cancelled = false
@@ -103,10 +138,18 @@ export default function ExportScreen({ onClose }) {
       .then(results => { if (!cancelled) setRendered(results) })
       .catch(err => {
         console.error('Export render failed:', err)
-        // Leave rendered empty so the user sees "Rendering…" and can retry
+        if (!cancelled) setError(true)
       })
     return () => { cancelled = true }
   }, [renderKey])
+
+  const retry = () => {
+    setError(false)
+    setRendered([])
+    setRenderKey(k => k + 1)
+  }
+
+  const isRendering = !error && rendered.length === 0
 
   // Preview size: fit within screen on both axes, maintain aspect ratio
   const maxW = window.innerWidth - 48
@@ -114,6 +157,11 @@ export default function ExportScreen({ onClose }) {
   const scale = Math.min(maxW / ratio.w, maxH / ratio.h)
   const PREVIEW_W = Math.round(ratio.w * scale)
   const PREVIEW_H = Math.round(ratio.h * scale)
+
+  const saveAllLabel =
+    mode === 'share'
+      ? rendered.length === 1 ? 'Share Image' : `Share All ${rendered.length} Images`
+      : `Download ${rendered.length === 1 ? 'Image' : `All ${rendered.length} Images`}`
 
   return (
     <div className="fixed inset-0 bg-black flex flex-col z-50">
@@ -127,7 +175,20 @@ export default function ExportScreen({ onClose }) {
         <div className="w-14" />
       </div>
 
-      {/* Horizontal scroll carousel preview */}
+      {/* Main area: error state, or the slide carousel */}
+      {error ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 px-8 text-center">
+          <div className="text-white font-semibold text-base">Couldn’t render your slides</div>
+          <div className="text-white/50 text-sm">Something went wrong while exporting. Please try again.</div>
+          <button
+            onClick={retry}
+            className="mt-2 px-6 py-3 rounded-2xl font-semibold text-base active:opacity-70"
+            style={{ background: 'white', color: 'black' }}
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
       <div className="flex-1 flex flex-col justify-center min-h-0">
         <div
           className="overflow-x-auto overflow-y-hidden"
@@ -171,34 +232,53 @@ export default function ExportScreen({ onClose }) {
           </div>
         )}
       </div>
+      )}
 
-      {/* Thumbnails + download button */}
+      {/* Thumbnails + save controls */}
+      {!error && (
       <div className="shrink-0 px-5" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
-        {/* Thumbnail strip */}
+        {/* Thumbnail strip — each tile saves its own slide */}
         <div className="flex gap-2 overflow-x-auto pb-3">
-          {rendered.map((src, i) => (
-            <a
-              key={i}
-              href={src}
-              download={`slide-${i + 1}.jpg`}
-              className="relative shrink-0 active:opacity-60"
-            >
-              <img
-                src={src}
-                className="rounded-lg object-cover"
-                style={{ height: 72, width: Math.round(72 * ratio.w / ratio.h) }}
-                alt={`Slide ${i + 1}`}
-              />
-              <div className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded-full font-medium">
-                {i + 1}
-              </div>
-            </a>
-          ))}
-          {!rendered.length && (
+          {rendered.map((src, i) => {
+            const thumb = (
+              <>
+                <img
+                  src={src}
+                  className="rounded-lg object-cover"
+                  style={{ height: 72, width: Math.round(72 * ratio.w / ratio.h) }}
+                  alt={`Slide ${i + 1}`}
+                />
+                <div className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded-full font-medium">
+                  {i + 1}
+                </div>
+              </>
+            )
+            // Desktop: real download link (works natively). Elsewhere: a button
+            // that opens the share sheet / a new tab inside the tap gesture.
+            return mode === 'download' ? (
+              <a
+                key={i}
+                href={src}
+                download={`slide-${i + 1}.jpg`}
+                className="relative shrink-0 active:opacity-60"
+              >
+                {thumb}
+              </a>
+            ) : (
+              <button
+                key={i}
+                onClick={() => saveOne(src, i)}
+                className="relative shrink-0 active:opacity-60"
+              >
+                {thumb}
+              </button>
+            )
+          })}
+          {isRendering && (
             <div className="flex items-center gap-3 py-2">
               <div className="text-white/30 text-xs">Rendering…</div>
               <button
-                onClick={() => setRenderKey(k => k + 1)}
+                onClick={retry}
                 className="text-white/50 text-xs bg-white/10 px-3 py-1 rounded-full active:bg-white/20">
                 Retry
               </button>
@@ -206,20 +286,24 @@ export default function ExportScreen({ onClose }) {
           )}
         </div>
 
-        {/* Download/Share all button */}
-        <button
-          onClick={() => downloadAll(rendered)}
-          disabled={rendered.length === 0}
-          className="w-full py-3.5 rounded-2xl font-semibold text-base transition-opacity active:opacity-70 disabled:opacity-30"
-          style={{ background: 'white', color: 'black' }}
-        >
-          {rendered.length === 0
-            ? 'Rendering…'
-            : canUseWebShare(rendered)
-              ? 'Share'
-              : `Download ${rendered.length === 1 ? 'Image' : `All ${rendered.length} Images`}`}
-        </button>
+        {mode === 'open' ? (
+          // No share sheet and no download manager: the grid above is the
+          // delivery mechanism. Tap a slide to open it, then long-press to save.
+          <div className="w-full py-3.5 text-center text-white/50 text-sm">
+            {isRendering ? 'Rendering…' : 'Tap a slide to open, then press and hold to save'}
+          </div>
+        ) : (
+          <button
+            onClick={() => saveAll(rendered, mode)}
+            disabled={isRendering}
+            className="w-full py-3.5 rounded-2xl font-semibold text-base transition-opacity active:opacity-70 disabled:opacity-30"
+            style={{ background: 'white', color: 'black' }}
+          >
+            {isRendering ? 'Rendering…' : saveAllLabel}
+          </button>
+        )}
       </div>
+      )}
     </div>
   )
 }
