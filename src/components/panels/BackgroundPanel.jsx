@@ -39,6 +39,13 @@ export default function BackgroundPanel() {
   const clearSlideBgColor = useStore(s => s.clearSlideBgColor)
   const setSlideBgGradient   = useStore(s => s.setSlideBgGradient)
   const clearSlideBgGradient = useStore(s => s.clearSlideBgGradient)
+  const setBgColorLive         = useStore(s => s.setBgColorLive)
+  const setSlideBgColorLive    = useStore(s => s.setSlideBgColorLive)
+  const setBgGradientLive      = useStore(s => s.setBgGradientLive)
+  const setSlideBgGradientLive = useStore(s => s.setSlideBgGradientLive)
+  const captureUndo       = useStore(s => s._captureUndo)
+  const commitUndo        = useStore(s => s._commitUndo)
+  const discardUndo       = useStore(s => s._discardUndo)
   const setPanel          = useStore(s => s.setPanel)
   const addRecentColor    = useStore(s => s.addRecentColor)
 
@@ -65,7 +72,10 @@ export default function BackgroundPanel() {
   const stop0Ref = useRef()
   const stop1Ref = useRef()
 
-  const currentGrad = { angle: gradAngle, stops: [gradStop0, gradStop1] }
+  // Track in-progress scrub interactions so we push exactly one history entry
+  // per interaction (on release), not one per continuous onChange event.
+  const colorInteraction = useRef(null) // { initial } while a color scrub is live
+  const gradInteraction  = useRef(null) // { initial } while a gradient scrub is live
 
   const handlePreset = (c) => {
     if (scope === 'all') setBgColor(c)
@@ -73,12 +83,29 @@ export default function BackgroundPanel() {
     addRecentColor(c)
   }
 
+  // --- Solid color scrub: capture once, apply live, commit/discard on release ---
+  const startColorInteraction = () => {
+    if (colorInteraction.current) return
+    colorInteraction.current = { initial: scope === 'all' ? bgColor : slideColor }
+    captureUndo()
+  }
+
+  const endColorInteraction = (finalValue) => {
+    const state = colorInteraction.current
+    if (!state) return
+    colorInteraction.current = null
+    if (finalValue === state.initial) discardUndo()
+    else commitUndo()
+  }
+
   const handlePicker = (e) => {
-    if (scope === 'all') setBgColor(e.target.value)
-    else setSlideBgColor(activeSlideIdx, e.target.value)
+    startColorInteraction()
+    if (scope === 'all') setBgColorLive(e.target.value)
+    else setSlideBgColorLive(activeSlideIdx, e.target.value)
   }
 
   const handlePickerBlur = (e) => {
+    endColorInteraction(e.target.value)
     addRecentColor(e.target.value)
   }
 
@@ -90,9 +117,35 @@ export default function BackgroundPanel() {
     else setSlideBgGradient(activeSlideIdx, g)
   }
 
+  // Discrete apply (one history entry) — used by presets / mode switch.
   const applyGradient = (g) => {
     if (scope === 'all') setBgGradient(g)
     else setSlideBgGradient(activeSlideIdx, g)
+  }
+
+  // --- Gradient scrub: capture once, apply live, commit/discard on release ---
+  const applyGradientLive = (g) => {
+    if (scope === 'all') setBgGradientLive(g)
+    else setSlideBgGradientLive(activeSlideIdx, g)
+  }
+
+  const startGradInteraction = () => {
+    if (gradInteraction.current) return
+    const g = scope === 'all' ? bgGradient : slideGradient
+    gradInteraction.current = { initial: JSON.stringify(g ?? null) }
+    captureUndo()
+  }
+
+  const endGradInteraction = () => {
+    const state = gradInteraction.current
+    if (!state) return
+    gradInteraction.current = null
+    const cur = useStore.getState()
+    const g = scope === 'all'
+      ? cur.bgGradient
+      : (cur.slides[activeSlideIdx]?.bgGradient ?? cur.bgGradient)
+    if (JSON.stringify(g ?? null) === state.initial) discardUndo()
+    else commitUndo()
   }
 
   const handleSwitchToSolid = () => {
@@ -175,6 +228,8 @@ export default function BackgroundPanel() {
               <input
                 type="color"
                 value={activeColor}
+                onPointerDown={startColorInteraction}
+                onFocus={startColorInteraction}
                 onChange={handlePicker}
                 onBlur={handlePickerBlur}
                 className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
@@ -220,10 +275,14 @@ export default function BackgroundPanel() {
                 className="w-10 h-10 rounded-full border-2 border-white/20 active:scale-90 transition-transform relative overflow-hidden"
                 style={{ background: gradStop0 }}>
                 <input ref={stop0Ref} type="color" value={gradStop0}
+                  onPointerDown={startGradInteraction}
+                  onFocus={startGradInteraction}
                   onChange={e => {
+                    startGradInteraction()
                     setGradStop0(e.target.value)
-                    applyGradient({ angle: gradAngle, stops: [e.target.value, gradStop1] })
+                    applyGradientLive({ angle: gradAngle, stops: [e.target.value, gradStop1] })
                   }}
+                  onBlur={endGradInteraction}
                   className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
               </button>
             </div>
@@ -233,10 +292,14 @@ export default function BackgroundPanel() {
                 className="w-10 h-10 rounded-full border-2 border-white/20 active:scale-90 transition-transform relative overflow-hidden"
                 style={{ background: gradStop1 }}>
                 <input ref={stop1Ref} type="color" value={gradStop1}
+                  onPointerDown={startGradInteraction}
+                  onFocus={startGradInteraction}
                   onChange={e => {
+                    startGradInteraction()
                     setGradStop1(e.target.value)
-                    applyGradient({ angle: gradAngle, stops: [gradStop0, e.target.value] })
+                    applyGradientLive({ angle: gradAngle, stops: [gradStop0, e.target.value] })
                   }}
+                  onBlur={endGradInteraction}
                   className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
               </button>
             </div>
@@ -246,11 +309,15 @@ export default function BackgroundPanel() {
                 <span className="text-[10px] text-white/60">{gradAngle}°</span>
               </div>
               <input type="range" min={0} max={360} step={1} value={gradAngle}
+                onPointerDown={startGradInteraction}
                 onChange={e => {
+                  startGradInteraction()
                   const a = parseInt(e.target.value)
                   setGradAngle(a)
-                  applyGradient({ angle: a, stops: [gradStop0, gradStop1] })
+                  applyGradientLive({ angle: a, stops: [gradStop0, gradStop1] })
                 }}
+                onPointerUp={endGradInteraction}
+                onBlur={endGradInteraction}
                 className="flex-1 accent-white" />
             </div>
           </div>
