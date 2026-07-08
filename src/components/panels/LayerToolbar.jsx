@@ -16,6 +16,39 @@ import { FONTS, loadFont } from '../../fonts'
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
+// Capture-on-start / commit-on-release helper for <input type="color"> scrubbing,
+// matching the interaction-scrub pattern in BackgroundPanel. Captures the pre-edit
+// state once when the picker opens (pointerdown/focus/first change), applies edits
+// live via updateLayer, and on blur commits exactly one history entry — or discards
+// it when the value didn't actually change. Fixes the old anti-pattern of pushing a
+// snapshot of the POST-change state on blur (which made Undo a no-op).
+function useColorScrub() {
+  const startRef = useRef(null)
+  const start = (initial) => {
+    if (startRef.current !== null) return
+    startRef.current = initial
+    useStore.getState()._captureUndo()
+  }
+  const end = (finalValue) => {
+    if (startRef.current === null) return
+    const initial = startRef.current
+    startRef.current = null
+    if (finalValue === initial) useStore.getState()._discardUndo()
+    else useStore.getState()._commitUndo()
+  }
+  return { start, end }
+}
+
+// Discrete one-shot color/style apply (recent-color tap, font tap): push history
+// BEFORE the change by capturing then committing around a single updateLayer, so one
+// Undo restores the previous value. No-ops when the value is unchanged.
+function applyDiscrete(apply, changed) {
+  if (!changed) return
+  useStore.getState()._captureUndo()
+  apply()
+  useStore.getState()._commitUndo()
+}
+
 function SectionLabel({ children }) {
   return <div className="text-xs text-white/35 uppercase tracking-wider mb-2 mt-1">{children}</div>
 }
@@ -243,8 +276,9 @@ function StyleSliderRow({ label, value, min, max, step, display, unit, onChange,
   )
 }
 
-function StyleTab({ layer, activeLayerId, layers, updateLayer, updateLayerWithHistory, isGroup }) {
+function StyleTab({ layer, activeLayerId, layers, updateLayer, isGroup }) {
   const colorRef = useRef()
+  const borderScrub = useColorScrub()
 
   const gap = layer.cellGap ?? 0
   const cr  = layer.cornerRadius ?? 0
@@ -319,8 +353,10 @@ function StyleTab({ layer, activeLayerId, layers, updateLayer, updateLayerWithHi
           <span className="text-white/30 text-lg pr-1">›</span>
         </button>
         <input ref={colorRef} type="color" value={bc}
-          onChange={e => applyProp('borderColor', e.target.value)}
-          onBlur={() => updateLayerWithHistory(activeLayerId, {})}
+          onPointerDown={() => borderScrub.start(bc)}
+          onFocus={() => borderScrub.start(bc)}
+          onChange={e => { borderScrub.start(bc); applyProp('borderColor', e.target.value) }}
+          onBlur={e => borderScrub.end(e.target.value)}
           className="sr-only" />
       </div>
     </div>
@@ -336,11 +372,12 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
   const textBgRef = useRef()
   const fontPickerRef = useRef()
   const addRecentColor = useStore(s => s.addRecentColor)
+  const colorScrub = useColorScrub()
+  const textBgScrub = useColorScrub()
 
   const setFont = (family) => {
     loadFont(family)
-    updateLayer(layer.id, { fontFamily: family })
-    updateLayerWithHistory(layer.id, {})
+    applyDiscrete(() => updateLayer(layer.id, { fontFamily: family }), family !== layer.fontFamily)
   }
 
   // Group fonts by category for section headers
@@ -462,7 +499,7 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
       {/* Color */}
       <div className="py-3 border-b border-white/8">
         <div className="text-sm font-semibold text-white mb-2.5">Color</div>
-        <RecentColors onSelect={c => { updateLayer(layer.id, { color: c }); updateLayerWithHistory(layer.id, {}); addRecentColor(c) }} />
+        <RecentColors onSelect={c => { applyDiscrete(() => updateLayer(layer.id, { color: c }), c !== (layer.color ?? '#000000')); addRecentColor(c) }} />
         <button onClick={() => colorRef.current?.click()}
           className="flex items-center gap-3 active:opacity-60">
           <div className="w-8 h-8 rounded-full border-2 border-white/20"
@@ -471,8 +508,10 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
           <span className="text-white/30 text-lg ml-auto pr-1">›</span>
         </button>
         <input ref={colorRef} type="color" value={layer.color ?? '#000000'}
-          onChange={e => updateLayer(layer.id, { color: e.target.value })}
-          onBlur={e => { updateLayerWithHistory(layer.id, {}); addRecentColor(e.target.value) }}
+          onPointerDown={() => colorScrub.start(layer.color ?? '#000000')}
+          onFocus={() => colorScrub.start(layer.color ?? '#000000')}
+          onChange={e => { colorScrub.start(layer.color ?? '#000000'); updateLayer(layer.id, { color: e.target.value }) }}
+          onBlur={e => { colorScrub.end(e.target.value); addRecentColor(e.target.value) }}
           className="sr-only" />
       </div>
 
@@ -486,8 +525,10 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
           </button>
           <span className="text-sm text-white/60">{layer.textBg ? layer.textBg.toUpperCase() : 'None'}</span>
           <input ref={textBgRef} type="color" value={layer.textBg ?? '#ffffff'}
-            onChange={e => updateLayer(layer.id, { textBg: e.target.value })}
-            onBlur={() => updateLayerWithHistory(layer.id, {})}
+            onPointerDown={() => textBgScrub.start(layer.textBg ?? '#ffffff')}
+            onFocus={() => textBgScrub.start(layer.textBg ?? '#ffffff')}
+            onChange={e => { textBgScrub.start(layer.textBg ?? '#ffffff'); updateLayer(layer.id, { textBg: e.target.value }) }}
+            onBlur={e => textBgScrub.end(e.target.value)}
             className="sr-only" />
           <button onClick={() => textBgRef.current?.click()}
             className="text-white/30 text-lg ml-auto pr-1">›</button>
@@ -581,6 +622,7 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
 function TextQuickBar({ layer, updateLayer, updateLayerWithHistory, moreActive, onToggleMore }) {
   const colorRef = useRef()
   const addRecentColor = useStore(s => s.addRecentColor)
+  const colorScrub = useColorScrub()
   const size = layer.fontSize ?? 72
   const align = layer.align ?? 'center'
 
@@ -621,8 +663,10 @@ function TextQuickBar({ layer, updateLayer, updateLayerWithHistory, moreActive, 
         <div className="w-5 h-5 rounded-full border-2 border-white/30" style={{ background: layer.color ?? '#000000' }} />
       </button>
       <input ref={colorRef} type="color" value={layer.color ?? '#000000'}
-        onChange={e => updateLayer(layer.id, { color: e.target.value })}
-        onBlur={e => { updateLayerWithHistory(layer.id, {}); addRecentColor(e.target.value) }}
+        onPointerDown={() => colorScrub.start(layer.color ?? '#000000')}
+        onFocus={() => colorScrub.start(layer.color ?? '#000000')}
+        onChange={e => { colorScrub.start(layer.color ?? '#000000'); updateLayer(layer.id, { color: e.target.value }) }}
+        onBlur={e => { colorScrub.end(e.target.value); addRecentColor(e.target.value) }}
         className="sr-only" />
 
       {/* Align cycle */}
@@ -646,6 +690,8 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
   const fillRef   = useRef()
   const strokeRef = useRef()
   const addRecentColor = useStore(s => s.addRecentColor)
+  const fillScrub   = useColorScrub()
+  const strokeScrub = useColorScrub()
 
   const sw = layer.strokeWidth ?? 0
   const cr = layer.cornerRadius ?? 0
@@ -677,7 +723,7 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
       {/* Fill color */}
       <div className="py-3 border-b border-white/8">
         <div className="text-sm font-semibold text-white mb-2.5">Fill</div>
-        <RecentColors onSelect={c => { updateLayer(layer.id, { fill: c }); updateLayerWithHistory(layer.id, {}); addRecentColor(c) }} />
+        <RecentColors onSelect={c => { applyDiscrete(() => updateLayer(layer.id, { fill: c }), c !== (layer.fill ?? '#000000')); addRecentColor(c) }} />
         <button onClick={() => fillRef.current?.click()}
           className="flex items-center gap-3 active:opacity-60">
           <div className="w-8 h-8 rounded-full border-2 border-white/20"
@@ -686,8 +732,10 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
           <span className="text-white/30 text-lg ml-auto pr-1">›</span>
         </button>
         <input ref={fillRef} type="color" value={layer.fill ?? '#000000'}
-          onChange={e => updateLayer(layer.id, { fill: e.target.value })}
-          onBlur={e => { updateLayerWithHistory(layer.id, {}); addRecentColor(e.target.value) }}
+          onPointerDown={() => fillScrub.start(layer.fill ?? '#000000')}
+          onFocus={() => fillScrub.start(layer.fill ?? '#000000')}
+          onChange={e => { fillScrub.start(layer.fill ?? '#000000'); updateLayer(layer.id, { fill: e.target.value }) }}
+          onBlur={e => { fillScrub.end(e.target.value); addRecentColor(e.target.value) }}
           className="sr-only" />
       </div>
 
@@ -697,9 +745,10 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
           <div className="text-sm font-semibold text-white mb-2.5">Corner Radius</div>
           <div className="flex items-center gap-3">
             <input type="range" min={0} max={240} step={1} value={cr}
+              onPointerDown={() => useStore.getState()._captureUndo()}
               onChange={e => updateLayer(layer.id, { cornerRadius: +e.target.value })}
-              onMouseUp={() => updateLayerWithHistory(layer.id, {})}
-              onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+              onMouseUp={() => useStore.getState()._commitUndo()}
+              onTouchEnd={() => useStore.getState()._commitUndo()}
               className="flex-1 accent-white" />
             <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[64px] text-right shrink-0">
               <span className="text-white text-sm tabular-nums">{cr}</span>
@@ -738,8 +787,10 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
             <span className="text-white/30 text-lg ml-auto pr-1">›</span>
           </button>
           <input ref={strokeRef} type="color" value={layer.stroke ?? '#000000'}
-            onChange={e => updateLayer(layer.id, { stroke: e.target.value })}
-            onBlur={() => updateLayerWithHistory(layer.id, {})}
+            onPointerDown={() => strokeScrub.start(layer.stroke ?? '#000000')}
+            onFocus={() => strokeScrub.start(layer.stroke ?? '#000000')}
+            onChange={e => { strokeScrub.start(layer.stroke ?? '#000000'); updateLayer(layer.id, { stroke: e.target.value }) }}
+            onBlur={e => strokeScrub.end(e.target.value)}
             className="sr-only" />
         </div>
       )}
@@ -801,9 +852,10 @@ function AdjustPanel({ layer, updateLayer, updateLayerWithHistory, setElementPan
             <div className="text-sm font-semibold text-white mb-2.5">{label}</div>
             <div className="flex items-center gap-3">
               <input type="range" min={-100} max={100} step={1} value={val}
+                onPointerDown={() => useStore.getState()._captureUndo()}
                 onChange={e => updateLayer(layer.id, { [key]: +e.target.value })}
-                onMouseUp={() => updateLayerWithHistory(layer.id, {})}
-                onTouchEnd={() => updateLayerWithHistory(layer.id, {})}
+                onMouseUp={() => useStore.getState()._commitUndo()}
+                onTouchEnd={() => useStore.getState()._commitUndo()}
                 className="flex-1 accent-white" />
               <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[64px] text-right shrink-0">
                 <span className="text-white text-sm tabular-nums">{val > 0 ? `+${val}` : val}</span>
@@ -856,7 +908,7 @@ function PositionPanel({ layer, activeLayerId, ratio, activeSlideIdx, layers, re
       ) : (
         <StyleTab
           layer={layer} activeLayerId={activeLayerId} layers={layers}
-          updateLayer={updateLayer} updateLayerWithHistory={updateLayerWithHistory}
+          updateLayer={updateLayer}
           isGroup={isGroup} />
       )}
     </div>
