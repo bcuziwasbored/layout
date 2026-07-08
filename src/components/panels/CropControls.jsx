@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { useStore, fitInCell } from '../../useStore'
 import { SQUARE_SHAPES } from '../../shapes'
 
@@ -55,6 +56,67 @@ export default function CropControls() {
   const setCropAspect          = useStore(s => s.setCropAspect)
 
   const layer = layers.find(l => l.id === activeLayerId)
+
+  // ── Crop-session snapshot (true Cancel + rotation handling) ──
+  // On crop entry we snapshot the layer's crop-relevant props, the current
+  // cropAspect, and the history length. Cancel restores those props and
+  // truncates history back to entry so the store looks exactly as it did before
+  // — no leftover per-gesture undo entries. We also present the image UNROTATED
+  // during the session (freeRotation → 0) so the crop UI, hit-testing and resize
+  // all operate in the image's own frame; the canvas rotation is re-applied on
+  // any exit (Done, tap-outside, unmount) via the effect cleanup.
+  const snapRef = useRef(null)
+  useEffect(() => {
+    const st = useStore.getState()
+    const l = st.layers.find(x => x.id === st.activeLayerId)
+    if (!l) return
+    snapRef.current = {
+      layerId: l.id,
+      props: {
+        x: l.x, y: l.y, w: l.w, h: l.h,
+        imgX: l.imgX, imgY: l.imgY, imgScale: l.imgScale,
+        rotation: l.rotation, shape: l.shape, freeRotation: l.freeRotation,
+      },
+      cropAspect: st.cropAspect,
+      historyLen: st.history.length,
+    }
+    if (l.freeRotation) st.updateLayer(l.id, { freeRotation: 0 })
+    return () => {
+      // Re-apply the hidden canvas rotation on every exit path.
+      const s = snapRef.current
+      if (!s || !s.props.freeRotation) return
+      useStore.getState().updateLayer(s.layerId, { freeRotation: s.props.freeRotation })
+      // History snapshots committed mid-crop were captured with freeRotation
+      // zeroed — patch them so an undo after Done doesn't silently drop the
+      // layer's canvas rotation. (After Cancel these entries are already gone.)
+      useStore.setState(state => ({
+        history: state.history.map((snap, i) => {
+          if (i < s.historyLen) return snap
+          try {
+            const parsed = JSON.parse(snap)
+            parsed.layers = parsed.layers.map(pl =>
+              pl.id === s.layerId ? { ...pl, freeRotation: s.props.freeRotation } : pl)
+            return JSON.stringify(parsed)
+          } catch { return snap }
+        }),
+      }))
+    }
+    // Snapshot once, on crop-mode entry.
+  }, [])
+
+  const handleCancel = () => {
+    const snap = snapRef.current
+    const st = useStore.getState()
+    if (snap) {
+      // Restore the pre-crop props (freeRotation included) and aspect, then drop
+      // every history entry committed mid-crop so state + history match entry.
+      st.updateLayer(snap.layerId, snap.props)
+      st.setCropAspect(snap.cropAspect)
+      useStore.setState(s => ({ history: s.history.slice(0, snap.historyLen) }))
+    }
+    st.setCropMode(false)
+  }
+
   if (!layer) return null
 
   const coverScale = Math.max(layer.w / (layer.naturalW ?? 1), layer.h / (layer.naturalH ?? 1))
@@ -72,7 +134,7 @@ export default function CropControls() {
       style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
-        <button onClick={() => setCropMode(false)}
+        <button onClick={handleCancel}
           className="text-white/50 text-sm active:text-white">Cancel</button>
         <span className="text-xs text-white/40 uppercase tracking-wider">Crop</span>
         <button onClick={() => setCropMode(false)}

@@ -73,6 +73,19 @@ const SNAP_THRESHOLD_PX = 8
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
 
+// Minimum imgScale so an image rotated by `deg` fully covers a frame (W,H) with
+// no empty corners. Mirrors the same helper in CropControls (kept local to avoid
+// a panel→canvas import). See that file for the derivation.
+function minScaleForRotation(deg, W, H, nW, nH) {
+  const θ = Math.abs(deg % 180) * Math.PI / 180
+  const abscos = Math.abs(Math.cos(θ))
+  const abssin = Math.abs(Math.sin(θ))
+  return Math.max(
+    (W * abscos + H * abssin) / nW,
+    (W * abssin + H * abscos) / nH,
+  )
+}
+
 function getSnapLines(layers, excludeIds, ratio, slideCount) {
   const excl = new Set(Array.isArray(excludeIds) ? excludeIds : [excludeIds])
   const xs = [], ys = []
@@ -1467,7 +1480,24 @@ export default function Canvas({ openPickerRef }) {
       const sl = p.startLayer
       const { cropAspect } = fresh.current
       const { x: nx, y: ny, w: nw, h: nh } = computeResize(sl, p.handle, dx / vs, dy / vs, cropAspect)
-      if (nw > 20 && nh > 20) upd(sl.id, { x: nx, y: ny, w: nw, h: nh })
+      if (nw > 20 && nh > 20) {
+        // Never let the frame grow past the drawn image: bump imgScale up to the
+        // cover/rotation minimum for the new frame, and re-clamp the pan offset
+        // so no background band can show inside the crop. Computed from the
+        // gesture-start layer each move, so scale bumps don't compound.
+        const nW = sl.naturalW ?? nw
+        const nH = sl.naturalH ?? nh
+        const rot = sl.rotation ?? 0
+        const coverMin = Math.max(nw / nW, nh / nH)
+        const rotMin = minScaleForRotation(rot, nw, nh, nW, nH)
+        const newScale = Math.max(sl.imgScale ?? 1, coverMin, rotMin)
+        const imgW = nW * newScale
+        const imgH = nH * newScale
+        const extra = rot ? Math.max(imgW, imgH) : 0
+        const imgX = clamp(sl.imgX ?? 0, Math.min(0, nw - imgW) - extra, extra)
+        const imgY = clamp(sl.imgY ?? 0, Math.min(0, nh - imgH) - extra, extra)
+        upd(sl.id, { x: nx, y: ny, w: nw, h: nh, imgScale: newScale, imgX, imgY })
+      }
     } else if (p.type === 'rotate') {
       const containerRect = containerRef.current?.getBoundingClientRect()
       const cX = pt.clientX - (containerRect?.left ?? 0)
