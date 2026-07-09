@@ -75,6 +75,42 @@ function IconLock({ locked }) {
   )
 }
 
+function IconDuplicate() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  )
+}
+
+function IconMove() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 12h14" />
+      <path d="M13 6l6 6-6 6" />
+    </svg>
+  )
+}
+
+function IconChevron() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="9 6 15 12 9 18" />
+    </svg>
+  )
+}
+
+// Checkbox indicator for select mode (checked / unchecked).
+function IconCheckbox({ checked }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="4" fill={checked ? 'currentColor' : 'none'} />
+      {checked && <polyline points="8 12.5 11 15.5 16 9" stroke="#111" strokeWidth="2.5" />}
+    </svg>
+  )
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function layerIcon(layer) {
@@ -103,12 +139,16 @@ export default function LayersPanel() {
   const setPanel    = useStore(s => s.setPanel)
   const layers      = useStore(s => s.layers)
   const ratio       = useStore(s => s.ratio)
+  const slides      = useStore(s => s.slides)
   const activeSlideIdx  = useStore(s => s.activeSlideIdx)
   const activeLayerId   = useStore(s => s.activeLayerId)
   const setActiveLayer  = useStore(s => s.setActiveLayer)
   const deleteLayer     = useStore(s => s.deleteLayer)
   const deleteGroup     = useStore(s => s.deleteGroup)
   const toggleUserLock  = useStore(s => s.toggleUserLock)
+  const bulkDeleteLayers    = useStore(s => s.bulkDeleteLayers)
+  const bulkDuplicateLayers = useStore(s => s.bulkDuplicateLayers)
+  const bulkMoveLayers      = useStore(s => s.bulkMoveLayers)
 
   // Layers belonging to the current slide, in render order (index 0 = bottom)
   const slideStart = activeSlideIdx * ratio.w
@@ -121,6 +161,74 @@ export default function LayersPanel() {
 
   // Group deletion is guarded by a confirmation dialog; this holds the pending groupId.
   const [confirmGroupId, setConfirmGroupId] = useState(null)
+
+  // ─── Select mode (bulk actions, issue #49) ────────────────────────────────────
+  // The checked set is component state (layer ids), never store state. Exiting
+  // select mode clears it. Selecting any cell of a template group checks every
+  // visible sibling cell so the group reads (and acts) as a single unit.
+  const [selectMode, setSelectMode] = useState(false)
+  const [checkedIds, setCheckedIds]   = useState(() => new Set())
+  const [showMovePicker, setShowMovePicker]     = useState(false)
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
+
+  function exitSelectMode() {
+    setSelectMode(false)
+    setCheckedIds(new Set())
+    setShowMovePicker(false)
+    setConfirmBulkDelete(false)
+  }
+
+  function toggleChecked(layer) {
+    // userLocked layers are excluded from bulk selection entirely (#50): their
+    // row shows a padlock instead of a checkbox and taps don't check them. The
+    // store's _bulkScope is the backstop for ids that slip through anyway.
+    if (layer.userLocked) return
+    setCheckedIds(prev => {
+      const next = new Set(prev)
+      // A group toggles as a unit: flip every visible cell sharing its groupId.
+      const siblings = layer.groupId
+        ? slideLayers.filter(l => l.groupId === layer.groupId && !l.userLocked)
+        : [layer]
+      const turningOff = next.has(layer.id)
+      for (const l of siblings) {
+        if (turningOff) next.delete(l.id)
+        else next.add(l.id)
+      }
+      return next
+    })
+  }
+
+  // Layers currently checked, and whether any belongs to a template group (drives
+  // the #46 confirmation before a bulk delete wipes a collage grid).
+  const selectedLayers = slideLayers.filter(l => checkedIds.has(l.id))
+  const selectedGroupIds = new Set(selectedLayers.filter(l => l.groupId != null).map(l => l.groupId))
+  const bulkHasGroup = selectedGroupIds.size > 0
+  const bulkGroupPhotoCount = layers.filter(
+    l => l.groupId != null && selectedGroupIds.has(l.groupId) && l.src
+  ).length
+
+  function handleBulkDelete() {
+    if (!checkedIds.size) return
+    if (bulkHasGroup) setConfirmBulkDelete(true)
+    else { bulkDeleteLayers([...checkedIds]); exitSelectMode() }
+  }
+
+  function confirmBulkDeleteNow() {
+    bulkDeleteLayers([...checkedIds])
+    exitSelectMode()
+  }
+
+  function handleBulkDuplicate() {
+    if (!checkedIds.size) return
+    bulkDuplicateLayers([...checkedIds])
+    exitSelectMode()
+  }
+
+  function handleBulkMove(targetIdx) {
+    if (!checkedIds.size) return
+    bulkMoveLayers([...checkedIds], targetIdx)
+    exitSelectMode()
+  }
 
   // ─── Drag-to-reorder ────────────────────────────────────────────────────────
   // Use refs for drag/over indices so the pointerup closure always sees fresh values
@@ -237,9 +345,22 @@ export default function LayersPanel() {
       {/* Header */}
       <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
         <span className="font-semibold">Layers</span>
-        <button onClick={() => setPanel(null)} className="text-white/40 active:text-white">
-          <IconClose size={18} />
-        </button>
+        <div className="flex items-center gap-4">
+          {slideLayers.length > 0 && (
+            selectMode ? (
+              <button onClick={exitSelectMode} className="text-sm font-medium text-blue-400 active:text-blue-300">
+                Done
+              </button>
+            ) : (
+              <button onClick={() => setSelectMode(true)} className="text-sm font-medium text-white/70 active:text-white">
+                Select
+              </button>
+            )
+          )}
+          <button onClick={() => setPanel(null)} className="text-white/40 active:text-white">
+            <IconClose size={18} />
+          </button>
+        </div>
       </div>
 
       {slideLayers.length === 0 ? (
@@ -249,33 +370,50 @@ export default function LayersPanel() {
           {renderList.map((layer, i) => {
             const isDragging = dragIdx !== null && renderList[i] === displayLayers[dragIdx]
             const isActive   = layer.id === activeLayerId
+            const isChecked  = checkedIds.has(layer.id)
 
             return (
               <div
                 key={layer.id}
                 ref={el => { rowRefs.current[i] = el }}
-                onClick={() => handleSelectLayer(layer)}
+                onClick={() => selectMode ? toggleChecked(layer) : handleSelectLayer(layer)}
                 className={`
                   flex items-center gap-3 px-3 py-3 rounded-xl mb-1 cursor-pointer transition-colors
-                  ${isActive   ? 'bg-white/15'  : 'hover:bg-white/8 active:bg-white/12'}
+                  ${selectMode && isChecked ? 'bg-white/15' : ''}
+                  ${!selectMode && isActive ? 'bg-white/15' : ''}
+                  ${!(selectMode && isChecked) && !(!selectMode && isActive) ? 'hover:bg-white/8 active:bg-white/12' : ''}
                   ${isDragging ? 'opacity-40'   : 'opacity-100'}
                 `}
               >
-                {/* Drag handle */}
-                <div
-                  onPointerDown={e => onDragPointerDown(e, i)}
-                  className="shrink-0 touch-none cursor-grab active:cursor-grabbing"
-                >
-                  <IconDragHandle />
-                </div>
+                {/* Checkbox (select mode) or drag handle (normal mode).
+                    userLocked layers show a static padlock in select mode — they
+                    can't be checked and bulk ops skip them (#50). */}
+                {selectMode ? (
+                  layer.userLocked ? (
+                    <div className="shrink-0 text-white/20" aria-label="Locked — excluded from selection">
+                      <IconLock locked />
+                    </div>
+                  ) : (
+                    <div className={`shrink-0 ${isChecked ? 'text-blue-400' : 'text-white/30'}`}>
+                      <IconCheckbox checked={isChecked} />
+                    </div>
+                  )
+                ) : (
+                  <div
+                    onPointerDown={e => onDragPointerDown(e, i)}
+                    className="shrink-0 touch-none cursor-grab active:cursor-grabbing"
+                  >
+                    <IconDragHandle />
+                  </div>
+                )}
 
                 {/* Type icon */}
-                <div className={`shrink-0 ${isActive ? 'text-white' : 'text-white/50'}`}>
+                <div className={`shrink-0 ${(selectMode ? isChecked : isActive) ? 'text-white' : 'text-white/50'}`}>
                   {layerIcon(layer)}
                 </div>
 
                 {/* Label */}
-                <span className={`flex-1 text-sm truncate ${isActive ? 'text-white font-medium' : 'text-white/70'}`}>
+                <span className={`flex-1 text-sm truncate ${(selectMode ? isChecked : isActive) ? 'text-white font-medium' : 'text-white/70'}`}>
                   {layerLabel(layer)}
                 </span>
 
@@ -288,8 +426,9 @@ export default function LayersPanel() {
                     padlock here and can only be unlocked from this button (it's
                     inert to canvas taps). Toggling pushes no history. Only offered
                     for standalone layers; template-grid cells (locked/groupId) are
-                    managed as a group, matching the canvas quick toolbar. */}
-                {!layer.locked && !layer.groupId && (
+                    managed as a group, matching the canvas quick toolbar. Hidden in
+                    select mode (the bulk bar owns row actions there). */}
+                {!selectMode && !layer.locked && !layer.groupId && (
                   <button
                     onClick={e => { e.stopPropagation(); toggleUserLock(layer.id) }}
                     className={`shrink-0 p-1 ${layer.userLocked ? 'text-blue-400' : 'text-white/30 active:text-white'}`}
@@ -299,22 +438,120 @@ export default function LayersPanel() {
                   </button>
                 )}
 
-                {/* Delete */}
-                <button
-                  onClick={e => handleDelete(e, layer)}
-                  className="shrink-0 text-white/30 active:text-red-400 p-1"
-                >
-                  <IconTrash />
-                </button>
+                {/* Delete (normal mode only — bulk bar handles deletes in select mode) */}
+                {!selectMode && (
+                  <button
+                    onClick={e => handleDelete(e, layer)}
+                    className="shrink-0 text-white/30 active:text-red-400 p-1"
+                  >
+                    <IconTrash />
+                  </button>
+                )}
               </div>
             )
           })}
         </div>
       )}
 
-      <p className="text-[10px] text-white/20 text-center px-5 mt-1 shrink-0">
-        Drag ≡ to reorder · tap row to select
-      </p>
+      {selectMode ? (
+        <div className="shrink-0 px-3 pt-2">
+          {/* Bulk action bar */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleBulkDelete}
+              disabled={!checkedIds.size}
+              className="flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl bg-white/8 text-red-400 active:bg-white/12 disabled:opacity-30"
+            >
+              <IconTrash />
+              <span className="text-[11px] font-medium">Delete</span>
+            </button>
+            <button
+              onClick={handleBulkDuplicate}
+              disabled={!checkedIds.size}
+              className="flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl bg-white/8 text-white/80 active:bg-white/12 disabled:opacity-30"
+            >
+              <IconDuplicate />
+              <span className="text-[11px] font-medium">Duplicate</span>
+            </button>
+            <button
+              onClick={() => checkedIds.size && setShowMovePicker(true)}
+              disabled={!checkedIds.size}
+              className="flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl bg-white/8 text-white/80 active:bg-white/12 disabled:opacity-30"
+            >
+              <div className="flex items-center gap-0.5"><IconMove /><IconChevron /></div>
+              <span className="text-[11px] font-medium">Move to</span>
+            </button>
+          </div>
+          <p className="text-[10px] text-white/25 text-center px-5 mt-2">
+            {checkedIds.size ? `${checkedIds.size} selected` : 'Tap rows to select'}
+          </p>
+        </div>
+      ) : (
+        <p className="text-[10px] text-white/20 text-center px-5 mt-1 shrink-0">
+          Drag ≡ to reorder · tap row to select
+        </p>
+      )}
+
+      {/* ── Move-to-slide picker ───────────────────────────────────────────────── */}
+      {showMovePicker && (
+        <div className="fixed inset-0 bg-black/80 flex items-end justify-center z-[80]" onClick={() => setShowMovePicker(false)}>
+          <div className="w-full max-w-md bg-[#1c1c1c] rounded-t-2xl p-5 pb-8" onClick={e => e.stopPropagation()}>
+            <div className="text-[15px] font-semibold text-white mb-1">Move to slide</div>
+            <div className="text-sm text-white/50 mb-3">
+              Moving {checkedIds.size} {checkedIds.size === 1 ? 'layer' : 'layers'}.
+            </div>
+            <div className="overflow-y-auto" style={{ maxHeight: '40vh' }}>
+              {slides.map((sl, idx) => (
+                <button
+                  key={sl.id}
+                  onClick={() => handleBulkMove(idx)}
+                  className={`w-full flex items-center justify-between px-4 py-3 rounded-xl mb-1 text-sm active:bg-white/12
+                    ${idx === activeSlideIdx ? 'bg-white/12 text-white' : 'bg-white/6 text-white/80'}`}
+                >
+                  <span>Slide {idx + 1}{idx === activeSlideIdx ? ' (current)' : ''}</span>
+                  <IconChevron />
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowMovePicker(false)}
+              className="w-full py-3 mt-3 rounded-xl bg-white/10 text-white font-medium text-sm active:bg-white/15"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bulk-delete confirmation (selection includes a collage grid, per #46) ── */}
+      {confirmBulkDelete && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[80] px-8" onClick={() => setConfirmBulkDelete(false)}>
+          <div className="w-full max-w-xs bg-[#1c1c1c] rounded-2xl p-5" onClick={e => e.stopPropagation()}>
+            <div className="text-[15px] font-semibold text-white">
+              Delete {checkedIds.size} {checkedIds.size === 1 ? 'layer' : 'layers'}?
+            </div>
+            <div className="text-sm text-white/50 mt-1.5">
+              {bulkGroupPhotoCount > 0
+                ? `This includes a collage grid and its ${bulkGroupPhotoCount} ${bulkGroupPhotoCount === 1 ? 'photo' : 'photos'}.`
+                : 'This includes a whole collage grid.'}
+            </div>
+            <div className="flex gap-2.5 mt-5">
+              <button
+                onClick={() => setConfirmBulkDelete(false)}
+                className="flex-1 py-3 rounded-xl bg-white/10 text-white font-medium text-sm active:bg-white/15"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmBulkDeleteNow}
+                className="flex-1 py-3 rounded-xl bg-red-500 text-white font-semibold text-sm active:bg-red-600"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Delete-collage confirmation ────────────────────────────────────────── */}
       {confirmGroupId && (

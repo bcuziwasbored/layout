@@ -867,6 +867,94 @@ export const useStore = create((set, get) => ({
     return copy.id
   },
 
+  // ── Bulk actions (issue #49) ────────────────────────────────────────────────
+  // Each operates on a set of layer ids and records exactly ONE history entry, so a
+  // single undo reverses the whole batch. Any id that belongs to a template group
+  // expands to the WHOLE group (every layer sharing that groupId, across slides) so
+  // a group is always acted on as a unit — matching the panel's group-as-a-unit
+  // selection. Existing store functions are left untouched; these reuse the same
+  // helpers (ownerSlide, the duplicateSlide groupId-remap, the duplicateLayer clamp).
+  //
+  // userLocked layers (#56) are excluded from ALL bulk operations: a manual lock
+  // means "don't touch this", so bulk delete/duplicate/move skip them even if
+  // their id is passed (the panel also disables their checkboxes — this is the
+  // store-level backstop).
+
+  // Given the selected ids, return a predicate that also matches sibling cells of
+  // any selected template group, while never matching a userLocked layer.
+  _bulkScope(layers, ids) {
+    const idSet = new Set(ids)
+    const groupIds = new Set(
+      layers
+        .filter(l => idSet.has(l.id) && !l.userLocked && l.groupId != null)
+        .map(l => l.groupId)
+    )
+    return l => !l.userLocked && (idSet.has(l.id) || (l.groupId != null && groupIds.has(l.groupId)))
+  },
+
+  bulkDeleteLayers(ids) {
+    if (!ids || !ids.length) return
+    get()._pushHistory()
+    set(s => {
+      const inScope = get()._bulkScope(s.layers, ids)
+      return {
+        layers: s.layers.filter(l => !inScope(l)),
+        activeLayerId: null,
+        activeCellId: null,
+        textEditId: null,
+        elementPanel: null,
+        cropMode: false,
+      }
+    })
+  },
+
+  bulkDuplicateLayers(ids) {
+    if (!ids || !ids.length) return
+    get()._pushHistory()
+    set(s => {
+      const { ratio } = s
+      const inScope = get()._bulkScope(s.layers, ids)
+      // One groupId map shared across the batch so all cells of one source group
+      // land in a single fresh group (per the duplicateSlide remap pattern).
+      const groupIdMap = {}
+      const copies = s.layers.filter(inScope).map(l => {
+        // Offset +20,+20 clamped to the source slide's bounds (duplicateLayer idiom).
+        const si = Math.floor(l.x / ratio.w)
+        const minX = si * ratio.w
+        const maxX = (si + 1) * ratio.w - l.w
+        const maxY = ratio.h - l.h
+        const cx = maxX >= minX ? Math.max(minX, Math.min(maxX, l.x + 20)) : l.x
+        const cy = maxY >= 0 ? Math.max(0, Math.min(maxY, l.y + 20)) : l.y
+        const copy = { ...l, id: uid(), x: cx, y: cy }
+        if (l.groupId != null) {
+          if (!groupIdMap[l.groupId]) groupIdMap[l.groupId] = uid()
+          copy.groupId = groupIdMap[l.groupId]
+        }
+        return copy
+      })
+      return { layers: [...s.layers, ...copies] }
+    })
+  },
+
+  bulkMoveLayers(ids, targetSlideIdx) {
+    if (!ids || !ids.length) return
+    get()._pushHistory()
+    set(s => {
+      const { ratio } = s
+      const inScope = get()._bulkScope(s.layers, ids)
+      // Shift each selected layer by whole slide widths so its intra-slide offset
+      // (and, for group cells, their relative layout) is preserved. Uses ownerSlide
+      // for the source index, matching moveSlide/insertSlide ownership semantics.
+      return {
+        layers: s.layers.map(l => {
+          if (!inScope(l)) return l
+          const dx = (targetSlideIdx - ownerSlide(l, ratio)) * ratio.w
+          return dx === 0 ? l : { ...l, x: l.x + dx }
+        }),
+      }
+    })
+  },
+
   reorderLayer(id, direction) {
     get()._pushHistory()
     set(s => {
