@@ -718,13 +718,30 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
   const addRecentColor = useStore(s => s.addRecentColor)
   const fillScrub   = useColorScrub()
   const strokeScrub = useColorScrub()
+  const openPickerRef = useCanvasPicker()
 
   const sw = layer.strokeWidth ?? 0
   const cr = layer.cornerRadius ?? 0
-  const strokeAware = STROKE_AWARE_SHAPES.has(layer.shapeType ?? 'rect')
+  const shapeType = layer.shapeType ?? 'rect'
+  const strokeAware = STROKE_AWARE_SHAPES.has(shapeType)
 
   return (
     <div className="px-4 pb-6 pt-2 overflow-y-auto" style={{ maxHeight: '62vh' }}>
+
+      {/* Fill-shape-with-image (#59): line/arrow have no meaningful interior, so
+          they don't get the affordance. Tapping routes through the standard photo
+          picker with this shape layer as the pending target; handleFileChange
+          (Canvas.jsx) converts the shape into a shaped image in place. */}
+      {!strokeAware && (
+        <button
+          onClick={() => openPickerRef?.current?.(layer.id)}
+          className="w-full flex items-center justify-center gap-2 py-3 mb-3 rounded-xl bg-white/12 text-white text-sm font-medium active:bg-white/20">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" />
+          </svg>
+          Add Photo
+        </button>
+      )}
 
       {/* Shape type picker */}
       <div className="mb-4">
@@ -734,7 +751,7 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
             <button key={s.id} title={s.label}
               onClick={() => updateLayerWithHistory(layer.id, { shapeType: s.id })}
               className={`flex items-center justify-center py-2 rounded-[10px] transition-colors ${
-                (layer.shapeType ?? 'rect') === s.id ? 'bg-white/20' : 'bg-white/8 active:bg-white/15'
+                shapeType === s.id ? 'bg-white/20' : 'bg-white/8 active:bg-white/15'
               }`}>
               <ShapePreview type={s.id} size={22} />
             </button>

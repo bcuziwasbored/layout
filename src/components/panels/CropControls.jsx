@@ -36,6 +36,8 @@ const SHAPE_OPTIONS = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="14" rx="2" /></svg> },
   { id: 'circle', label: 'Circle',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /></svg> },
+  { id: 'triangle', label: 'Triangle',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 4 L21 20 L3 20 Z" /></svg> },
   { id: 'diamond', label: 'Diamond',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3 L21 12 L12 21 L3 12 Z" /></svg> },
   { id: 'star', label: 'Star',

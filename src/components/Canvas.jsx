@@ -5,6 +5,7 @@ import useImage from 'use-image'
 import { dbGetBlob } from '../db'
 import { blobCache, dataURLCache } from '../blobCache'
 import { drawShapePath, STROKE_AWARE_SHAPES } from '../shapes'
+import { useCanvasPicker } from '../CanvasContext'
 
 // ─── Image downscaling ─────────────────────────────────────────────────────────
 // Phone cameras produce 12–50MP images. Drawing a 4032×3024 image in Konva every
@@ -731,6 +732,13 @@ function QuickToolbar({ layer, view, containerH }) {
   const reorderLayer   = useStore(s => s.reorderLayer)
   const deleteLayer    = useStore(s => s.deleteLayer)
   const toggleUserLock = useStore(s => s.toggleUserLock)
+  const openPickerRef  = useCanvasPicker()
+
+  // Fill-shape-with-image (#59): a colored shape (except line/arrow, which have
+  // no meaningful interior) can be filled with a photo. Routes through the same
+  // picker plumbing as cell/replace; handleFileChange converts the layer in place.
+  const canFillWithPhoto = layer.type === 'shape' &&
+    !STROKE_AWARE_SHAPES.has(layer.shapeType ?? 'rect')
 
   // Compute the screen-space bounding box of the (possibly rotated) layer
   const cx = layer.x + layer.w / 2
@@ -799,6 +807,11 @@ function QuickToolbar({ layer, view, containerH }) {
           // use the padlock on the layer's LayersPanel row (the escape hatch).
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" />
+          </svg>)}
+        {canFillWithPhoto && btn('photo', 'Photo', () => openPickerRef?.current?.(layer.id),
+          // Framed-photo glyph — fill the shape with an image (converts in place)
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" />
           </svg>)}
         <div className="w-px h-7 bg-white/15 mx-0.5" />
         {btn('del', 'Delete', () => deleteLayer(layer.id),
@@ -1785,9 +1798,34 @@ export default function Canvas({ openPickerRef }) {
         if (layer) {
           const gap = layer.cellGap ?? 0
           const fit = fitInCell(naturalW, naturalH, layer.w - gap, layer.h - gap)
-          // imgId identifies this replacement image so undo restores it (and the
-          // previous image) exactly — see the replace-undo fix in useStore.js.
-          upd(pendingLayerId.current, { src, srcOriginal, imgId, naturalW, naturalH, ...fit })
+          if (layer.type === 'shape') {
+            // Fill-shape-with-image (#59): convert the colored shape IN PLACE into
+            // a shaped image, reusing the existing shaped-image machinery
+            // (FilledCell clip, crop mode, replace-photo, renderSlide export).
+            // updateLayer merges, so x/y/w/h/opacity/freeRotation are preserved;
+            // `shape` is taken from the old `shapeType` so drawShapePath clips
+            // identically in editor and export (triangle included). A stroke maps
+            // to the image cell's border (the shaped-border path handles every
+            // shape). Leftover shape-only props (fill/shapeType/stroke/strokeWidth)
+            // aren't read by the image render path, so they sit harmlessly. One
+            // history entry (upd = updateLayerWithHistory); undo restores the
+            // colored shape, redo restores the photo (imgId resolves via registry).
+            const shapeType = layer.shapeType ?? 'rect'
+            const conv = {
+              type: 'image', shape: shapeType,
+              src, srcOriginal, imgId, naturalW, naturalH, ...fit,
+            }
+            const sw = layer.strokeWidth ?? 0
+            if (sw > 0 && layer.stroke && !STROKE_AWARE_SHAPES.has(shapeType)) {
+              conv.borderWidth = sw
+              conv.borderColor = layer.stroke
+            }
+            upd(pendingLayerId.current, conv)
+          } else {
+            // imgId identifies this replacement image so undo restores it (and the
+            // previous image) exactly — see the replace-undo fix in useStore.js.
+            upd(pendingLayerId.current, { src, srcOriginal, imgId, naturalW, naturalH, ...fit })
+          }
         }
         pendingLayerId.current = null
       } else {
