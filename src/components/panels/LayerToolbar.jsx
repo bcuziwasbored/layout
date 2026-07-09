@@ -350,21 +350,24 @@ function StyleTab({ layer, activeLayerId, layers, updateLayer, isGroup }) {
       {/* Border Color */}
       <div className="py-4">
         <div className="text-sm font-semibold text-white mb-3">Border Color</div>
-        <button onClick={() => colorRef.current?.click()}
-          className="flex items-center justify-between w-full active:opacity-60">
+        {/* The transparent color input is stretched OVER the row so the user's tap
+            lands on the input itself — iOS Safari won't open the picker for a
+            programmatic .click() on a visually-hidden input (same pattern as
+            BackgroundPanel). */}
+        <button className="flex items-center justify-between w-full active:opacity-60 relative">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full border-2 border-white/20 shadow-sm"
               style={{ background: bc }} />
             <span className="text-sm text-white/60">{bc.toUpperCase()}</span>
           </div>
           <span className="text-white/30 text-lg pr-1">›</span>
+          <input ref={colorRef} type="color" value={bc}
+            onPointerDown={() => borderScrub.start(bc)}
+            onFocus={() => borderScrub.start(bc)}
+            onChange={e => { borderScrub.start(bc); applyProp('borderColor', e.target.value) }}
+            onBlur={e => borderScrub.end(e.target.value)}
+            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
         </button>
-        <input ref={colorRef} type="color" value={bc}
-          onPointerDown={() => borderScrub.start(bc)}
-          onFocus={() => borderScrub.start(bc)}
-          onChange={e => { borderScrub.start(bc); applyProp('borderColor', e.target.value) }}
-          onBlur={e => borderScrub.end(e.target.value)}
-          className="sr-only" />
       </div>
     </div>
   )
@@ -507,36 +510,38 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
       <div className="py-3 border-b border-white/8">
         <div className="text-sm font-semibold text-white mb-2.5">Color</div>
         <RecentColors onSelect={c => { applyDiscrete(() => updateLayer(layer.id, { color: c }), c !== (layer.color ?? '#000000')); addRecentColor(c) }} />
-        <button onClick={() => colorRef.current?.click()}
-          className="flex items-center gap-3 active:opacity-60">
+        {/* Overlay input (not sr-only + .click()): iOS Safari only opens the
+            picker for a direct tap on the input — BackgroundPanel pattern. */}
+        <button className="flex items-center gap-3 active:opacity-60 relative w-full">
           <div className="w-8 h-8 rounded-full border-2 border-white/20"
             style={{ background: layer.color ?? '#000000' }} />
           <span className="text-sm text-white/60">{(layer.color ?? '#000000').toUpperCase()}</span>
           <span className="text-white/30 text-lg ml-auto pr-1">›</span>
+          <input ref={colorRef} type="color" value={layer.color ?? '#000000'}
+            onPointerDown={() => colorScrub.start(layer.color ?? '#000000')}
+            onFocus={() => colorScrub.start(layer.color ?? '#000000')}
+            onChange={e => { colorScrub.start(layer.color ?? '#000000'); updateLayer(layer.id, { color: e.target.value }) }}
+            onBlur={e => { colorScrub.end(e.target.value); addRecentColor(e.target.value) }}
+            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
         </button>
-        <input ref={colorRef} type="color" value={layer.color ?? '#000000'}
-          onPointerDown={() => colorScrub.start(layer.color ?? '#000000')}
-          onFocus={() => colorScrub.start(layer.color ?? '#000000')}
-          onChange={e => { colorScrub.start(layer.color ?? '#000000'); updateLayer(layer.id, { color: e.target.value }) }}
-          onBlur={e => { colorScrub.end(e.target.value); addRecentColor(e.target.value) }}
-          className="sr-only" />
       </div>
 
       {/* Background */}
       <div className="py-3 border-b border-white/8">
         <div className="text-sm font-semibold text-white mb-2.5">Background</div>
         <div className="flex items-center gap-3 mb-2">
-          <button onClick={() => textBgRef.current?.click()}
-            className="w-8 h-8 rounded-full border-2 border-white/20 active:opacity-60 relative overflow-hidden"
+          {/* Overlay input inside the swatch (iOS-safe direct tap); the › button
+              keeps the programmatic .click() as a desktop convenience. */}
+          <button className="w-8 h-8 rounded-full border-2 border-white/20 active:opacity-60 relative overflow-hidden"
             style={{ background: layer.textBg ?? 'transparent' }}>
+            <input ref={textBgRef} type="color" value={layer.textBg ?? '#ffffff'}
+              onPointerDown={() => textBgScrub.start(layer.textBg ?? '#ffffff')}
+              onFocus={() => textBgScrub.start(layer.textBg ?? '#ffffff')}
+              onChange={e => { textBgScrub.start(layer.textBg ?? '#ffffff'); updateLayer(layer.id, { textBg: e.target.value }) }}
+              onBlur={e => textBgScrub.end(e.target.value)}
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
           </button>
           <span className="text-sm text-white/60">{layer.textBg ? layer.textBg.toUpperCase() : 'None'}</span>
-          <input ref={textBgRef} type="color" value={layer.textBg ?? '#ffffff'}
-            onPointerDown={() => textBgScrub.start(layer.textBg ?? '#ffffff')}
-            onFocus={() => textBgScrub.start(layer.textBg ?? '#ffffff')}
-            onChange={e => { textBgScrub.start(layer.textBg ?? '#ffffff'); updateLayer(layer.id, { textBg: e.target.value }) }}
-            onBlur={e => textBgScrub.end(e.target.value)}
-            className="sr-only" />
           <button onClick={() => textBgRef.current?.click()}
             className="text-white/30 text-lg ml-auto pr-1">›</button>
           {layer.textBg && (
@@ -676,20 +681,19 @@ function TextQuickBar({ layer, updateLayer, updateLayerWithHistory, moreActive, 
           className="w-9 h-10 text-white/75 text-xl leading-none active:bg-white/10 rounded-r-xl">+</button>
       </div>
 
-      {/* Color */}
-      <button onClick={() => colorRef.current?.click()}
-        className={`${cell} w-10 bg-white/10 active:bg-white/20`}>
-        <div className="w-5 h-5 rounded-full border-2 border-white/30" style={{ background: layer.color ?? '#000000' }} />
-      </button>
-      {/* Mid-edit, skip the capture/commit scrub entirely: its _captureUndo would
+      {/* Color — overlay input (iOS-safe direct tap, BackgroundPanel pattern).
+          Mid-edit, skip the capture/commit scrub entirely: its _captureUndo would
           clobber InlineTextEditor's pending pre-edit snapshot. Apply the color live
           so it folds into the single edit-session entry. Off-edit, keep the scrub. */}
-      <input ref={colorRef} type="color" value={layer.color ?? '#000000'}
-        onPointerDown={() => { if (!editing) colorScrub.start(layer.color ?? '#000000') }}
-        onFocus={() => { if (!editing) colorScrub.start(layer.color ?? '#000000') }}
-        onChange={e => { if (!editing) colorScrub.start(layer.color ?? '#000000'); updateLayer(layer.id, { color: e.target.value }) }}
-        onBlur={e => { if (!editing) colorScrub.end(e.target.value); addRecentColor(e.target.value) }}
-        className="sr-only" />
+      <button className={`${cell} w-10 bg-white/10 active:bg-white/20 relative overflow-hidden`}>
+        <div className="w-5 h-5 rounded-full border-2 border-white/30" style={{ background: layer.color ?? '#000000' }} />
+        <input ref={colorRef} type="color" value={layer.color ?? '#000000'}
+          onPointerDown={() => { if (!editing) colorScrub.start(layer.color ?? '#000000') }}
+          onFocus={() => { if (!editing) colorScrub.start(layer.color ?? '#000000') }}
+          onChange={e => { if (!editing) colorScrub.start(layer.color ?? '#000000'); updateLayer(layer.id, { color: e.target.value }) }}
+          onBlur={e => { if (!editing) colorScrub.end(e.target.value); addRecentColor(e.target.value) }}
+          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+      </button>
 
       {/* Align cycle */}
       <button onMouseDown={keepFocus} onClick={cycleAlign}
@@ -742,19 +746,19 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
       <div className="py-3 border-b border-white/8">
         <div className="text-sm font-semibold text-white mb-2.5">Fill</div>
         <RecentColors onSelect={c => { applyDiscrete(() => updateLayer(layer.id, { fill: c }), c !== (layer.fill ?? '#000000')); addRecentColor(c) }} />
-        <button onClick={() => fillRef.current?.click()}
-          className="flex items-center gap-3 active:opacity-60">
+        {/* Overlay input (iOS-safe direct tap, BackgroundPanel pattern). */}
+        <button className="flex items-center gap-3 active:opacity-60 relative w-full">
           <div className="w-8 h-8 rounded-full border-2 border-white/20"
             style={{ background: layer.fill ?? '#000000' }} />
           <span className="text-sm text-white/60">{(layer.fill ?? '#000000').toUpperCase()}</span>
           <span className="text-white/30 text-lg ml-auto pr-1">›</span>
+          <input ref={fillRef} type="color" value={layer.fill ?? '#000000'}
+            onPointerDown={() => fillScrub.start(layer.fill ?? '#000000')}
+            onFocus={() => fillScrub.start(layer.fill ?? '#000000')}
+            onChange={e => { fillScrub.start(layer.fill ?? '#000000'); updateLayer(layer.id, { fill: e.target.value }) }}
+            onBlur={e => { fillScrub.end(e.target.value); addRecentColor(e.target.value) }}
+            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
         </button>
-        <input ref={fillRef} type="color" value={layer.fill ?? '#000000'}
-          onPointerDown={() => fillScrub.start(layer.fill ?? '#000000')}
-          onFocus={() => fillScrub.start(layer.fill ?? '#000000')}
-          onChange={e => { fillScrub.start(layer.fill ?? '#000000'); updateLayer(layer.id, { fill: e.target.value }) }}
-          onBlur={e => { fillScrub.end(e.target.value); addRecentColor(e.target.value) }}
-          className="sr-only" />
       </div>
 
       {/* Corner radius — rect only */}
@@ -804,19 +808,19 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
       {sw > 0 && !strokeAware && (
         <div className="py-3 border-b border-white/8">
           <div className="text-sm font-semibold text-white mb-2.5">Stroke Color</div>
-          <button onClick={() => strokeRef.current?.click()}
-            className="flex items-center gap-3 active:opacity-60">
+          {/* Overlay input (iOS-safe direct tap, BackgroundPanel pattern). */}
+          <button className="flex items-center gap-3 active:opacity-60 relative w-full">
             <div className="w-8 h-8 rounded-full border-2 border-white/20"
               style={{ background: layer.stroke ?? '#000000' }} />
             <span className="text-sm text-white/60">{(layer.stroke ?? '#000000').toUpperCase()}</span>
             <span className="text-white/30 text-lg ml-auto pr-1">›</span>
+            <input ref={strokeRef} type="color" value={layer.stroke ?? '#000000'}
+              onPointerDown={() => strokeScrub.start(layer.stroke ?? '#000000')}
+              onFocus={() => strokeScrub.start(layer.stroke ?? '#000000')}
+              onChange={e => { strokeScrub.start(layer.stroke ?? '#000000'); updateLayer(layer.id, { stroke: e.target.value }) }}
+              onBlur={e => strokeScrub.end(e.target.value)}
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
           </button>
-          <input ref={strokeRef} type="color" value={layer.stroke ?? '#000000'}
-            onPointerDown={() => strokeScrub.start(layer.stroke ?? '#000000')}
-            onFocus={() => strokeScrub.start(layer.stroke ?? '#000000')}
-            onChange={e => { strokeScrub.start(layer.stroke ?? '#000000'); updateLayer(layer.id, { stroke: e.target.value }) }}
-            onBlur={e => strokeScrub.end(e.target.value)}
-            className="sr-only" />
         </div>
       )}
 
