@@ -7,6 +7,7 @@
 import { dbGetBlob } from './db'
 import { drawShapePath, STROKE_AWARE_SHAPES } from './shapes'
 import { ensureLayerFontsLoaded } from './fonts'
+import { buildFilterString, hasOverlay, drawAdjustmentOverlays } from './adjustments'
 
 function linearGradientPoints(angleDeg, w, h) {
   const rad = (angleDeg * Math.PI) / 180
@@ -381,10 +382,10 @@ export async function renderSlide(slideIdx, args) {
       ctx.clip()
       ctx.globalAlpha = layer.opacity ?? 1
 
-      const b = layer.brightness ?? 0, c = layer.contrast ?? 0, s = layer.saturation ?? 0
-      if (b || c || s) {
-        ctx.filter = `brightness(${1 + b / 100}) contrast(${1 + c / 100}) saturate(${1 + s / 100})`
-      }
+      // Same shared builder as the editor's useAdjustedImage — identical filter
+      // string means identical pixels in editor and export (issue #61).
+      const filter = buildFilterString(layer)
+      if (filter) ctx.filter = filter
 
       const drawX = (layer.x - sliceStart) + (layer.imgX ?? 0) + inset
       const drawY = layer.y + (layer.imgY ?? 0) + inset
@@ -413,6 +414,20 @@ export async function renderSlide(slideIdx, args) {
       }
       ctx.filter = 'none'
       ctx.restore()
+
+      // Vignette + grain overlays, clipped to the cell shape and drawn via the
+      // SAME drawAdjustmentOverlays the editor uses (issue #61 parity). Kept in a
+      // separate save/clip block so they cover the cell rect regardless of image
+      // pan/zoom, matching the editor's cell-aligned overlay Shape.
+      if (hasOverlay(layer)) {
+        ctx.save()
+        ctx.beginPath()
+        drawShapePath(ctx, clipX, clipY, clipW, clipH, shape, cr)
+        ctx.clip()
+        ctx.globalAlpha = layer.opacity ?? 1
+        drawAdjustmentOverlays(ctx, clipX, clipY, clipW, clipH, layer)
+        ctx.restore()
+      }
 
       if (bw > 0) {
         ctx.save()

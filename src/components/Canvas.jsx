@@ -5,6 +5,7 @@ import useImage from 'use-image'
 import { dbGetBlob } from '../db'
 import { blobCache, dataURLCache } from '../blobCache'
 import { drawShapePath, STROKE_AWARE_SHAPES } from '../shapes'
+import { buildFilterString, hasOverlay, drawAdjustmentOverlays } from '../adjustments'
 import { useCanvasPicker } from '../CanvasContext'
 
 // ─── Image downscaling ─────────────────────────────────────────────────────────
@@ -338,7 +339,7 @@ function useBlobSrc(src) {
   return resolved
 }
 
-function useAdjustedImage(src, brightness, contrast, saturation) {
+function useAdjustedImage(src, brightness, contrast, saturation, temperature, tint) {
   const resolvedSrc = useBlobSrc(src)
   const [img] = useImage(resolvedSrc ?? undefined)
   const [adjusted, setAdjusted] = React.useState(null)
@@ -350,8 +351,11 @@ function useAdjustedImage(src, brightness, contrast, saturation) {
   const canvasRef = React.useRef(null)
   React.useEffect(() => {
     if (!img) { setAdjusted(null); return }
-    const b = brightness ?? 0, c = contrast ?? 0, s = saturation ?? 0
-    if (!b && !c && !s) { setAdjusted(img); return }
+    // The CSS-filter string (brightness/contrast/saturation/temperature/tint) is
+    // built by the SAME shared builder the export path uses — identical pixels in
+    // editor and export (issue #61). Vignette/grain are overlays, not baked here.
+    const filter = buildFilterString({ brightness, contrast, saturation, temperature, tint })
+    if (!filter) { setAdjusted(img); return }
     let canvas = canvasRef.current
     if (!canvas) { canvas = document.createElement('canvas'); canvasRef.current = canvas }
     if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
@@ -361,14 +365,15 @@ function useAdjustedImage(src, brightness, contrast, saturation) {
     // Stamp naturalWidth/naturalHeight so FilledCell's dimension math works the same as with HTMLImageElement
     canvas.naturalWidth = img.naturalWidth; canvas.naturalHeight = img.naturalHeight
     const ctx = canvas.getContext('2d')
-    ctx.filter = `brightness(${1 + b/100}) contrast(${1 + c/100}) saturate(${1 + s/100})`
+    ctx.filter = filter
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.drawImage(img, 0, 0)
+    ctx.filter = 'none'
     // The canvas object reference is stable across ticks, so a setAdjusted with the
     // same ref would bail out of re-render and Konva would never repaint the new
     // pixels. FilledCell forces a layer batchDraw on adjustment change (see below).
     setAdjusted(canvas)
-  }, [img, brightness, contrast, saturation])
+  }, [img, brightness, contrast, saturation, temperature, tint])
   return adjusted
 }
 
@@ -515,14 +520,16 @@ function EmptyCell({ layer, onTap, vs }) {
 // All interaction (select, drag, cell-edit) is handled at the Stage level via
 // handleStageDown/Move/Up — FilledCell is purely visual.
 function FilledCell({ layer, vs }) {
-  const img = useAdjustedImage(layer.src, layer.brightness, layer.contrast, layer.saturation)
+  const img = useAdjustedImage(layer.src, layer.brightness, layer.contrast, layer.saturation,
+    layer.temperature, layer.tint)
   // useAdjustedImage redraws onto a REUSED canvas, so its object reference is
   // stable between slider ticks and react-konva won't auto-repaint. Force the
   // layer to redraw whenever an adjustment (or the resolved image) changes.
   const imgNodeRef = useRef(null)
   useEffect(() => {
     imgNodeRef.current?.getLayer()?.batchDraw()
-  }, [img, layer.brightness, layer.contrast, layer.saturation])
+  }, [img, layer.brightness, layer.contrast, layer.saturation, layer.temperature, layer.tint,
+    layer.vignette, layer.grain])
   const gap = layer.cellGap ?? 0
   const inset = gap / 2
   const innerW = layer.w - gap
@@ -561,6 +568,18 @@ function FilledCell({ layer, vs }) {
         ) : (
           <KImage ref={imgNodeRef} image={img} x={imgX} y={imgY} width={imgW} height={imgH} />
         ))}
+        {/* Vignette + grain overlays. Drawn over the CELL region (not the image),
+            via the SAME drawAdjustmentOverlays the export path uses (issue #61).
+            We pass the underlying native 2D context (ctx._context) so the shared
+            function runs on identical API in editor and export. */}
+        {img && hasOverlay(layer) && (
+          <Shape
+            listening={false}
+            sceneFunc={(ctx) => {
+              drawAdjustmentOverlays(ctx._context ?? ctx, inset, inset, innerW, innerH, layer)
+            }}
+          />
+        )}
       </Group>
       {/* Border overlay (outside clip so full stroke is visible) */}
       {bw > 0 && (
