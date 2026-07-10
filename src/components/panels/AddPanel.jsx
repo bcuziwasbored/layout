@@ -1,30 +1,42 @@
 import { useState } from 'react'
 import { useStore } from '../../useStore'
 import { useCanvasPicker } from '../../CanvasContext'
-import { TEMPLATES } from '../../templates'
+import { TEMPLATES, TEMPLATE_CATEGORIES, templateCategory, isStyledTemplate } from '../../templates'
 import { IconImage, IconGrid, IconBlank, IconText, IconClose, IconShapes } from '../icons'
 import { SHAPE_LAYER_TYPES } from '../../shapes'
 import ShapePreview from '../ShapePreview'
+import TemplatePreview from '../TemplatePreview'
 
-const TemplateThumb = ({ template, onClick }) => {
+const TemplateThumb = ({ template, ratio, onClick }) => {
   const ps = template.pageSpan ?? 1
+  const styled = isStyledTemplate(template)
   return (
     <button onClick={onClick} className="flex flex-col items-center gap-1.5 active:opacity-60">
-      <div className="w-full aspect-square bg-white/10 rounded-xl relative overflow-hidden border border-white/15">
-        {/* Page divider lines for multi-page templates */}
-        {ps > 1 && Array.from({ length: ps - 1 }, (_, i) => (
-          <div key={`pd${i}`} className="absolute top-0 bottom-0 w-px bg-white/50"
-            style={{ left: `${(i + 1) * 100 / ps}%` }} />
-        ))}
-        {template.cells.map((c, i) => (
-          <div key={i} className="absolute bg-white/25 border border-white/20"
-            style={{
-              left:   `${c.x * 100 / ps}%`,
-              top:    `${c.y * 100}%`,
-              width:  `${c.w * 100 / ps}%`,
-              height: `${c.h * 100}%`,
-            }} />
-        ))}
+      <div
+        className="w-full bg-white/10 rounded-xl relative overflow-hidden border border-white/15"
+        style={{ aspectRatio: styled ? `${ratio.w * ps} / ${ratio.h}` : '1 / 1' }}
+      >
+        {styled ? (
+          // Live canvas preview (real fonts/colors/shapes) for styled templates.
+          <TemplatePreview template={template} ratio={ratio} />
+        ) : (
+          <>
+            {/* Page divider lines for multi-page templates */}
+            {ps > 1 && Array.from({ length: ps - 1 }, (_, i) => (
+              <div key={`pd${i}`} className="absolute top-0 bottom-0 w-px bg-white/50"
+                style={{ left: `${(i + 1) * 100 / ps}%` }} />
+            ))}
+            {template.cells.map((c, i) => (
+              <div key={i} className="absolute bg-white/25 border border-white/20"
+                style={{
+                  left:   `${c.x * 100 / ps}%`,
+                  top:    `${c.y * 100}%`,
+                  width:  `${c.w * 100 / ps}%`,
+                  height: `${c.h * 100}%`,
+                }} />
+            ))}
+          </>
+        )}
         {/* Multi-page badge */}
         {ps > 1 && (
           <div className="absolute bottom-1 right-1 bg-black/60 text-white text-[8px] px-1 py-0.5 rounded font-medium leading-none">
@@ -45,8 +57,10 @@ export default function AddPanel() {
   const addShapeLayer  = useStore(s => s.addShapeLayer)
   const pasteLayer     = useStore(s => s.pasteLayer)
   const hasClipboard   = useStore(s => !!s.clipboard)
+  const ratio          = useStore(s => s.ratio)
   const openPickerRef  = useCanvasPicker()
   const [view, setView] = useState('root')
+  const [category, setCategory] = useState('all')
 
   const openImagePicker = () => {
     openPickerRef?.current?.()
@@ -54,32 +68,54 @@ export default function AddPanel() {
   }
 
   if (view === 'grid') {
-    const singlePage = TEMPLATES.filter(t => t.id !== 'blank' && t.id !== 'single' && !t.pageSpan)
-    const multiPage  = TEMPLATES.filter(t => t.pageSpan && t.pageSpan > 1)
+    const visible = TEMPLATES.filter(t =>
+      t.id !== 'blank' && t.id !== 'single' &&
+      (category === 'all' || templateCategory(t) === category))
+    const singlePage = visible.filter(t => !t.pageSpan || t.pageSpan === 1)
+    const multiPage  = visible.filter(t => t.pageSpan && t.pageSpan > 1)
+    const apply = t => { applyTemplate(t); setPanel(null) }
     return (
       <div className="bg-[#111] rounded-t-2xl" style={{ maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
         <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
           <button onClick={() => setView('root')} className="text-white/50 text-sm active:text-white">‹ Back</button>
-          <span className="font-semibold text-base">Grids</span>
+          <span className="font-semibold text-base">Templates</span>
           <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
         </div>
+        {/* Category tabs */}
+        <div className="flex gap-2 px-5 pb-3 overflow-x-auto scrollbar-hide shrink-0">
+          {TEMPLATE_CATEGORIES.map(c => (
+            <button key={c.id} onClick={() => setCategory(c.id)}
+              className={`shrink-0 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                category === c.id
+                  ? 'bg-white text-black border-white font-semibold'
+                  : 'bg-white/8 text-white/60 border-white/10 active:bg-white/15'}`}>
+              {c.label}
+            </button>
+          ))}
+        </div>
         <div className="overflow-y-auto px-5 pb-8 space-y-5">
-          {/* Single-page grids */}
-          <div className="grid grid-cols-4 gap-3">
-            {singlePage.map(t => (
-              <TemplateThumb key={t.id} template={t} onClick={() => { applyTemplate(t); setPanel(null) }} />
-            ))}
-          </div>
-
-          {/* Multi-page grids */}
-          <div>
-            <div className="text-xs text-white/30 uppercase tracking-wider mb-3">Multi-page</div>
-            <div className="grid grid-cols-4 gap-3">
-              {multiPage.map(t => (
-                <TemplateThumb key={t.id} template={t} onClick={() => { applyTemplate(t); setPanel(null) }} />
+          {singlePage.length > 0 && (
+            <div className="grid grid-cols-3 gap-3">
+              {singlePage.map(t => (
+                <TemplateThumb key={t.id} template={t} ratio={ratio} onClick={() => apply(t)} />
               ))}
             </div>
-          </div>
+          )}
+
+          {multiPage.length > 0 && (
+            <div>
+              <div className="text-xs text-white/30 uppercase tracking-wider mb-3">Multi-page</div>
+              <div className="grid grid-cols-2 gap-3">
+                {multiPage.map(t => (
+                  <TemplateThumb key={t.id} template={t} ratio={ratio} onClick={() => apply(t)} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {visible.length === 0 && (
+            <div className="text-white/30 text-sm text-center py-10">No templates in this category</div>
+          )}
         </div>
       </div>
     )
@@ -132,7 +168,7 @@ export default function AddPanel() {
         <button onClick={() => setView('grid')}
           className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
           <IconGrid size={26} />
-          <span className="text-[11px] text-white/70">Grid</span>
+          <span className="text-[11px] text-white/70">Templates</span>
         </button>
         <button onClick={() => { addSlide(); setPanel(null) }}
           className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { RATIOS } from './templates'
+import { RATIOS, instantiateTemplate, templatePageBg } from './templates'
 import { preloadLayerFonts } from './fonts'
 import { clearImageCaches } from './blobCache'
 import { fitInCell, migrateLayers } from './ratioMigrate'
@@ -250,23 +250,19 @@ export const useStore = create((set, get) => ({
     imageSrcRegistry.clear()
     clearImageCaches()
     const pageSpan = template?.pageSpan ?? 1
-    const slides = Array.from({ length: Math.max(1, pageSpan) }, () => ({ id: uid() }))
+    let slides = Array.from({ length: Math.max(1, pageSpan) }, () => ({ id: uid() }))
 
+    // Instantiate image cells + styled text/shape layers (issue #63). A styled
+    // template may carry text/shapes with no image cells at all, so this runs
+    // whenever a template is chosen — not only when it has grid cells.
     let layers = []
-    if (template && template.cells.length > 0) {
-      const groupId = uid()
-      layers = template.cells.map(cell => ({
-        id: uid(),
-        type: 'image',
-        locked: true,
-        groupId,
-        src: null,
-        x: Math.round(cell.x * ratio.w),
-        y: Math.round(cell.y * ratio.h),
-        w: Math.round(cell.w * ratio.w),
-        h: Math.round(cell.h * ratio.h),
-        imgX: 0, imgY: 0, imgScale: 1, opacity: 1, naturalW: null, naturalH: null, cellGap: 0,
-      }))
+    if (template) {
+      layers = instantiateTemplate(template, ratio, 0, uid).layers
+      // Per-page background: apply each page's { color | gradient } to its slide.
+      slides = slides.map((sl, p) => {
+        const bg = templatePageBg(template, p)
+        return bg ? { ...sl, ...bg } : sl
+      })
     }
 
     const projectId = Math.random().toString(36).slice(2)
@@ -649,12 +645,10 @@ export const useStore = create((set, get) => ({
     const offsetX = activeSlideIdx * ratio.w
     const pageSpan = template.pageSpan ?? 1
 
-    // Ensure enough slides exist for this template
-    let newSlides = slides
-    if (slides.length < activeSlideIdx + pageSpan) {
-      newSlides = [...slides]
-      while (newSlides.length < activeSlideIdx + pageSpan) newSlides.push({ id: uid() })
-    }
+    // Ensure enough slides exist for this template (copy so we can also patch
+    // per-page backgrounds without mutating the live array).
+    const newSlides = [...slides]
+    while (newSlides.length < activeSlideIdx + pageSpan) newSlides.push({ id: uid() })
 
     // Remove existing layers from ALL affected slide indices
     const kept = layers.filter(l => {
@@ -662,21 +656,21 @@ export const useStore = create((set, get) => ({
       return si < activeSlideIdx || si >= activeSlideIdx + pageSpan
     })
 
-    const groupId = uid()
-    const newLayers = template.cells.map(cell => ({
-      id: uid(),
-      type: 'image',
-      locked: true,
-      groupId,
-      src: null,
-      x: Math.round(offsetX + cell.x * ratio.w),
-      y: Math.round(cell.y * ratio.h),
-      w: Math.round(cell.w * ratio.w),
-      h: Math.round(cell.h * ratio.h),
-      imgX: 0, imgY: 0, imgScale: 1, opacity: 1, naturalW: null, naturalH: null, cellGap: 0,
-    }))
+    // Instantiate image cells + styled text/shape layers at the active slide's
+    // offset (issue #63). One _pushHistory above → the whole styled template
+    // (layers + backgrounds) is a single undo step.
+    const { layers: newLayers } = instantiateTemplate(template, ratio, offsetX, uid)
+
+    // Per-page background patches applied to each affected slide.
+    for (let p = 0; p < pageSpan; p++) {
+      const bg = templatePageBg(template, p)
+      if (bg) newSlides[activeSlideIdx + p] = { ...newSlides[activeSlideIdx + p], ...bg }
+    }
 
     set({ slides: newSlides, layers: [...kept, ...newLayers], panel: null })
+    // Inject the web fonts this template's text uses so it renders in its real
+    // face immediately (harmless no-op for pure grids). See openProject preload.
+    preloadLayerFonts([...kept, ...newLayers])
   },
 
   addImageLayer(src, srcOriginal, naturalW, naturalH, imgId, slideIdx) {
