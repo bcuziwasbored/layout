@@ -1,9 +1,10 @@
 import { create } from 'zustand'
 import { RATIOS, instantiateTemplate, templatePageBg } from './templates'
-import { preloadLayerFonts } from './fonts'
+import { preloadLayerFonts, loadFont } from './fonts'
 import { clearImageCaches } from './blobCache'
 import { fitInCell, migrateLayers } from './ratioMigrate'
 import { ADJUSTMENT_PROPS } from './adjustments'
+import { EMPTY_BRAND, loadBrandKit, saveBrandKit } from './brandKit'
 
 const uid = () => Math.random().toString(36).slice(2)
 
@@ -90,6 +91,11 @@ function sanitizeSelection(s, restoredLayers, restoredSlides) {
 // caches, which the subscribe does NOT touch, are genuinely freed at goHome.)
 const imageSrcRegistry = new Map()
 
+// Debounce handle for brand kit persistence. The brand record embeds the logo
+// data URL (can be a few hundred KB), so persisting on every color-picker scrub
+// tick would hammer IDB with large writes — coalesce to one write per burst.
+let brandSaveTimer = null
+
 export const useStore = create((set, get) => ({
   screen: 'home',
   ratio: RATIOS[0],
@@ -135,8 +141,35 @@ export const useStore = create((set, get) => ({
   // wired via initFontReloader().
   fontsVersion: 0,
 
+  // Brand kit (issue #64): device-global palette + default font pair + logo,
+  // persisted in the 'brandkit' IDB store. NOT part of undo history or project
+  // saves — it's identity, not document content. Loaded once by initBrandKit.
+  brand: { ...EMPTY_BRAND },
+
   bumpFontsVersion() {
     set(s => ({ fontsVersion: s.fontsVersion + 1 }))
+  },
+
+  // Load the brand kit from IDB at app start. Also injects the brand fonts'
+  // stylesheets so a new text layer (which defaults to the heading font) and the
+  // font picker's pinned Brand section render in the real faces immediately.
+  async initBrandKit() {
+    const brand = await loadBrandKit()
+    if (brand.headingFont) loadFont(brand.headingFont)
+    if (brand.bodyFont) loadFont(brand.bodyFont)
+    set({ brand })
+  },
+
+  // Merge a patch into the brand kit and persist it (debounced — see
+  // brandSaveTimer above). All brand kit edits go through here.
+  setBrand(patch) {
+    const brand = { ...get().brand, ...patch }
+    set({ brand })
+    if (brandSaveTimer) clearTimeout(brandSaveTimer)
+    brandSaveTimer = setTimeout(() => {
+      brandSaveTimer = null
+      saveBrandKit(brand).catch(err => console.error('Brand kit save failed:', err))
+    }, 400)
   },
 
   _snapshot() {
@@ -367,7 +400,7 @@ export const useStore = create((set, get) => ({
 
   addTextLayer(slideIdx) {
     get()._pushHistory()
-    const { ratio, activeSlideIdx } = get()
+    const { ratio, activeSlideIdx, brand } = get()
     const si = slideIdx ?? activeSlideIdx
     const offsetX = si * ratio.w
     const w = Math.round(ratio.w * 0.82)
@@ -379,7 +412,9 @@ export const useStore = create((set, get) => ({
       y: Math.round((ratio.h - h) / 2),
       w, h,
       text: '',
-      fontFamily: 'Inter',
+      // New text defaults to the brand heading font when one is set (issue #64);
+      // its stylesheet was injected by initBrandKit, so it renders immediately.
+      fontFamily: brand?.headingFont ?? 'Inter',
       fontSize: Math.round(ratio.h * 0.075),
       bold: false,
       italic: false,
@@ -716,6 +751,31 @@ export const useStore = create((set, get) => ({
       x: si * ratio.w + Math.round((ratio.w - w) / 2),
       y: Math.round((ratio.h - h) / 2),
       w, h, opacity: 1, naturalW, naturalH, ...fit,
+    }
+    set(s => ({ layers: [...s.layers, layer], activeLayerId: layer.id, panel: null, elementPanel: null }))
+  },
+
+  // One-tap brand logo stamp (issue #64): place the brand kit's logo as a normal
+  // free-floating image layer at a corner preset on the active slide, sized to
+  // ~18% of slide width with a 4% margin. Same layer shape as addStickerLayer
+  // (src/srcOriginal/imgId), so undo/redo, persistence, opacity control and
+  // export all work unchanged. `corner` ∈ 'tl'|'tr'|'bl'|'br'.
+  addLogoLayer(corner = 'br') {
+    const { brand, ratio, activeSlideIdx } = get()
+    const logo = brand?.logo
+    if (!logo?.src) return
+    get()._pushHistory()
+    const si = activeSlideIdx
+    const w = Math.round(ratio.w * 0.18)
+    const h = Math.max(1, Math.round(w * (logo.naturalH / logo.naturalW)))
+    const margin = Math.round(ratio.w * 0.04)
+    const x0 = si * ratio.w
+    const x = corner.includes('l') ? x0 + margin : x0 + ratio.w - w - margin
+    const y = corner.includes('t') ? margin : ratio.h - h - margin
+    const fit = fitInCell(logo.naturalW, logo.naturalH, w, h)
+    const layer = {
+      id: uid(), type: 'image', src: logo.src, srcOriginal: logo.src, imgId: uid(),
+      x, y, w, h, opacity: 1, naturalW: logo.naturalW, naturalH: logo.naturalH, ...fit,
     }
     set(s => ({ layers: [...s.layers, layer], activeLayerId: layer.id, panel: null, elementPanel: null }))
   },

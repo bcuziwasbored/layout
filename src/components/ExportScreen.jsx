@@ -193,6 +193,7 @@ export default function ExportScreen({ onClose }) {
   const bgColor     = useStore(s => s.bgColor)
   const bgGradient  = useStore(s => s.bgGradient)
   const caption     = useStore(s => s.caption)
+  const brandLogo   = useStore(s => s.brand.logo)
 
   // `rendered` grows one entry at a time, in slide order, as each slide
   // finishes; `renderDone` flips true once every slide is rendered.
@@ -208,6 +209,11 @@ export default function ExportScreen({ onClose }) {
   const [failedSlides, setFailedSlides] = useState(() => new Set())
 
   const [renderKey, setRenderKey] = useState(0)
+
+  // Brand kit logo stamp (issue #64): session-only toggle (not persisted with the
+  // output options — whether a given carousel gets the watermark is a per-export
+  // decision). Toggling restarts the serial render like any output option.
+  const [stampLogoOn, setStampLogoOn] = useState(false)
 
   // Output options (persisted). `format` → jpeg|png, `scale` → 1|2 (2160px at 2×),
   // `quality` → jpeg-quality preset key (ignored for PNG).
@@ -264,6 +270,7 @@ export default function ExportScreen({ onClose }) {
             scale: outScale,
             format,
             quality: QUALITY_PRESETS[qualityKey],
+            stampLogo: stampLogoOn && brandLogo ? brandLogo : undefined,
             onImageError: (layer) => {
               failedLayerIds.add(layer.id)
               affectedSlides.add(i)
@@ -498,6 +505,18 @@ export default function ExportScreen({ onClose }) {
                 </button>
               ))}
             </div>
+          )}
+          {/* Brand logo stamp (issue #64) — only offered when a logo exists */}
+          {brandLogo && (
+            <button
+              onClick={() => { setStampLogoOn(v => !v); retry() }}
+              aria-pressed={stampLogoOn}
+              className={`px-3 py-1 rounded-full font-medium transition-colors ${
+                stampLogoOn ? 'bg-white text-black' : 'bg-white/10 text-white/50 active:text-white'
+              }`}
+            >
+              Logo
+            </button>
           )}
         </div>
 

@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { useStore } from '../../useStore'
 import { IconClose } from '../icons'
+import ColorRows from '../ColorRows'
 
 const PRESETS = ['#ffffff', '#000000', '#f5f5f0', '#1a1a1a', '#e8e0d8', '#d4c5b0', '#c9d4c5', '#b0c4d4']
 
@@ -12,20 +13,6 @@ const GRADIENT_PRESETS = [
   { angle: 135, stops: ['#fa709a', '#fee140'] },
   { angle: 180, stops: ['#000000', '#434343'] },
 ]
-
-function RecentColors({ onSelect }) {
-  const recentColors = useStore(s => s.recentColors)
-  if (!recentColors.length) return null
-  return (
-    <div className="flex gap-2 flex-wrap mb-3">
-      {recentColors.map(c => (
-        <button key={c} onClick={() => onSelect(c)}
-          className="w-7 h-7 rounded-full border border-white/20 active:scale-90 transition-transform shrink-0"
-          style={{ background: c }} />
-      ))}
-    </div>
-  )
-}
 
 export default function BackgroundPanel() {
   const bgColor           = useStore(s => s.bgColor)
@@ -237,7 +224,7 @@ export default function BackgroundPanel() {
             </label>
           </div>
 
-          <RecentColors onSelect={c => { handlePreset(c) }} />
+          <ColorRows onSelect={c => { handlePreset(c) }} />
 
           <div className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3">
             <div className="w-6 h-6 rounded" style={{ background: activeColor, border: '1px solid rgba(255,255,255,0.2)' }} />

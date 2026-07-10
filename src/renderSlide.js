@@ -368,12 +368,17 @@ function loadImage(src, imgCache) {
  * @param {(layer:Object)=>void} [args.onImageError] - called for each image
  *   layer whose source can't be resolved or fails to decode (so callers can
  *   warn the user instead of silently exporting a slide with a photo missing)
+ * @param {{src:string,naturalW:number,naturalH:number}} [args.stampLogo] - brand
+ *   kit logo (issue #64) drawn as a post-draw overlay on every slide: bottom-
+ *   right corner, ~18% of slide width, in logical coordinates so it respects
+ *   the export scale exactly like every other element
  * @returns {Promise<string>} data URL
  */
 export async function renderSlide(slideIdx, args) {
   const {
     slides, layers, ratio, bgColor, bgGradient,
     scale = 1, format = 'jpeg', quality = 0.95, preferOriginal = true, imgCache, onImageError,
+    stampLogo,
   } = args
 
   const canvas = document.createElement('canvas')
@@ -565,6 +570,22 @@ export async function renderSlide(slideIdx, args) {
     }
 
     if (freeRot) ctx.restore()
+  }
+
+  // Brand logo stamp (issue #64): a post-draw overlay ON TOP of every layer.
+  // Drawn in logical (ratio.w × ratio.h) coordinates under the same ctx.scale as
+  // everything else, so 1× and 2× exports place and size it identically. Sizing
+  // matches the in-editor "Add logo" preset (18% width, 4% margin). The data URL
+  // src goes through the shared imgCache, so it decodes once per export run. A
+  // failed decode just skips the stamp — never fail the whole export over it.
+  if (stampLogo?.src) {
+    const logoImg = await loadImage(stampLogo.src, imgCache)
+    if (logoImg) {
+      const w = ratio.w * 0.18
+      const h = w * ((stampLogo.naturalH ?? logoImg.naturalHeight) / (stampLogo.naturalW ?? logoImg.naturalWidth))
+      const margin = ratio.w * 0.04
+      ctx.drawImage(logoImg, ratio.w - w - margin, ratio.h - h - margin, w, h)
+    }
   }
 
   // PNG is lossless and ignores the quality arg; JPEG honours it.

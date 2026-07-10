@@ -16,6 +16,7 @@ import { SHAPE_LAYER_TYPES, STROKE_AWARE_SHAPES } from '../../shapes'
 import { SHADOW_PRESETS, shadowPresetMatches } from '../../shadow'
 import { FILTER_PRESETS, presetAdjust, presetMatches, buildFilterString, ADJUSTMENT_PROPS } from '../../adjustments'
 import ShapePreview from '../ShapePreview'
+import ColorRows from '../ColorRows'
 
 // ─── Text style presets (issue #62) ─────────────────────────────────────────────
 // Curated one-tap combos of font + weight + color + shadow/outline + letterSpacing.
@@ -74,20 +75,6 @@ function applyDiscrete(apply, changed) {
 
 function SectionLabel({ children }) {
   return <div className="text-xs text-white/35 uppercase tracking-wider mb-2 mt-1">{children}</div>
-}
-
-function RecentColors({ onSelect }) {
-  const recentColors = useStore(s => s.recentColors)
-  if (!recentColors.length) return null
-  return (
-    <div className="flex gap-2 flex-wrap mb-3">
-      {recentColors.map(c => (
-        <button key={c} onClick={() => onSelect(c)}
-          className="w-7 h-7 rounded-full border border-white/20 active:scale-90 transition-transform shrink-0"
-          style={{ background: c }} />
-      ))}
-    </div>
-  )
 }
 
 function IconBtn({ icon, label, onClick, active, danger }) {
@@ -386,6 +373,8 @@ function ShadowSection({ layer, apply }) {
           {/* Shadow color */}
           <div className="py-4">
             <div className="text-sm font-semibold text-white mb-3">Shadow Color</div>
+            <ColorRows recents={false}
+              onSelect={c => applyDiscrete(() => apply({ shadowColor: c }), c !== color)} />
             <button className="flex items-center justify-between w-full active:opacity-60 relative">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full border-2 border-white/20 shadow-sm"
@@ -474,6 +463,8 @@ function StyleTab({ layer, activeLayerId, layers, updateLayer, isGroup }) {
       {/* Border Color */}
       <div className="py-4">
         <div className="text-sm font-semibold text-white mb-3">Border Color</div>
+        <ColorRows recents={false}
+          onSelect={c => applyDiscrete(() => applyProp('borderColor', c), c !== bc)} />
         {/* The transparent color input is stretched OVER the row so the user's tap
             lands on the input itself — iOS Safari won't open the picker for a
             programmatic .click() on a visually-hidden input (same pattern as
@@ -557,11 +548,20 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
     }
   }
 
-  // Group fonts by category for section headers
+  // Brand kit default font pair (issue #64) — pinned at the top of the picker
+  // under a "Brand" section label so the pair is always one tap away.
+  const brandHeading = useStore(s => s.brand.headingFont)
+  const brandBody    = useStore(s => s.brand.bodyFont)
+
+  // Group fonts by category for section headers, with the brand pair pinned first.
   const fontGroups = useMemo(() => {
-    const categoryOrder = ['sans', 'serif', 'display', 'script']
     const categoryLabel = { sans: 'SANS', serif: 'SERIF', display: 'DISPLAY', script: 'SCRIPT' }
     const groups = []
+    const brandFonts = [...new Set([brandHeading, brandBody].filter(Boolean))]
+    if (brandFonts.length) {
+      groups.push({ type: 'label', label: 'BRAND' })
+      for (const name of brandFonts) groups.push({ type: 'font', font: { name } })
+    }
     let lastCat = null
     for (const f of FONTS) {
       if (f.category !== lastCat) {
@@ -571,7 +571,7 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
       groups.push({ type: 'font', font: f })
     }
     return groups
-  }, [])
+  }, [brandHeading, brandBody])
 
   // Scroll active font into view
   useEffect(() => {
@@ -614,8 +614,10 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
             }
             const f = item.font
             return (
+              // Keyed by index, not name — a brand-pinned font also appears in its
+              // category section, so names alone would collide.
               <button
-                key={f.name}
+                key={`f${idx}`}
                 data-active={layer.fontFamily === f.name}
                 onClick={() => setFont(f.name)}
                 style={{ fontFamily: f.name, scrollSnapAlign: 'start' }}
@@ -693,7 +695,7 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
       {/* Color */}
       <div className="py-3 border-b border-white/8">
         <div className="text-sm font-semibold text-white mb-2.5">Color</div>
-        <RecentColors onSelect={c => { applyDiscrete(() => updateLayer(layer.id, { color: c }), c !== (layer.color ?? '#000000')); addRecentColor(c) }} />
+        <ColorRows onSelect={c => { applyDiscrete(() => updateLayer(layer.id, { color: c }), c !== (layer.color ?? '#000000')); addRecentColor(c) }} />
         {/* Overlay input (not sr-only + .click()): iOS Safari only opens the
             picker for a direct tap on the input — BackgroundPanel pattern. */}
         <button className="flex items-center gap-3 active:opacity-60 relative w-full">
@@ -772,7 +774,10 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
           </div>
         </div>
         {(layer.textStrokeWidth ?? 0) > 0 && (
-          <button className="flex items-center gap-3 active:opacity-60 relative w-full mt-3">
+          <div className="mt-3">
+            <ColorRows recents={false}
+              onSelect={c => applyDiscrete(() => updateLayer(layer.id, { textStroke: c }), c !== (layer.textStroke ?? '#000000'))} />
+            <button className="flex items-center gap-3 active:opacity-60 relative w-full">
             <div className="w-8 h-8 rounded-full border-2 border-white/20"
               style={{ background: layer.textStroke ?? '#000000' }} />
             <span className="text-sm text-white/60">{(layer.textStroke ?? '#000000').toUpperCase()}</span>
@@ -783,7 +788,8 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
               onChange={e => { strokeScrub.start(layer.textStroke ?? '#000000'); updateLayer(layer.id, { textStroke: e.target.value }) }}
               onBlur={e => { strokeScrub.end(e.target.value); addRecentColor(e.target.value) }}
               className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
-          </button>
+            </button>
+          </div>
         )}
       </div>
 
@@ -800,6 +806,8 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
         </div>
         {layer.shadowColor && (
           <>
+            <ColorRows recents={false}
+              onSelect={c => applyDiscrete(() => updateLayer(layer.id, { shadowColor: c }), c !== layer.shadowColor)} />
             <button className="flex items-center gap-3 active:opacity-60 relative w-full mb-3">
               <div className="w-8 h-8 rounded-full border-2 border-white/20"
                 style={{ background: layer.shadowColor }} />
@@ -1044,7 +1052,7 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
       {/* Fill color */}
       <div className="py-3 border-b border-white/8">
         <div className="text-sm font-semibold text-white mb-2.5">Fill</div>
-        <RecentColors onSelect={c => { applyDiscrete(() => updateLayer(layer.id, { fill: c }), c !== (layer.fill ?? '#000000')); addRecentColor(c) }} />
+        <ColorRows onSelect={c => { applyDiscrete(() => updateLayer(layer.id, { fill: c }), c !== (layer.fill ?? '#000000')); addRecentColor(c) }} />
         {/* Overlay input (iOS-safe direct tap, BackgroundPanel pattern). */}
         <button className="flex items-center gap-3 active:opacity-60 relative w-full">
           <div className="w-8 h-8 rounded-full border-2 border-white/20"
@@ -1107,6 +1115,8 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
       {sw > 0 && !strokeAware && (
         <div className="py-3 border-b border-white/8">
           <div className="text-sm font-semibold text-white mb-2.5">Stroke Color</div>
+          <ColorRows recents={false}
+            onSelect={c => applyDiscrete(() => updateLayer(layer.id, { stroke: c }), c !== (layer.stroke ?? '#000000'))} />
           {/* Overlay input (iOS-safe direct tap, BackgroundPanel pattern). */}
           <button className="flex items-center gap-3 active:opacity-60 relative w-full">
             <div className="w-8 h-8 rounded-full border-2 border-white/20"

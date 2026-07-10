@@ -7,6 +7,7 @@ import { SHAPE_LAYER_TYPES } from '../../shapes'
 import { STICKERS, STICKER_CATEGORIES, STICKER_COLORS, stickerPreviewURL, rasterizeSticker } from '../../stickers'
 import ShapePreview from '../ShapePreview'
 import TemplatePreview from '../TemplatePreview'
+import BrandKitPanel from './BrandKitPanel'
 
 const TemplateThumb = ({ template, ratio, onClick }) => {
   const ps = template.pageSpan ?? 1
@@ -57,6 +58,8 @@ export default function AddPanel() {
   const addTextLayer   = useStore(s => s.addTextLayer)
   const addShapeLayer  = useStore(s => s.addShapeLayer)
   const addStickerLayer = useStore(s => s.addStickerLayer)
+  const addLogoLayer   = useStore(s => s.addLogoLayer)
+  const brandLogo      = useStore(s => s.brand.logo)
   const pasteLayer     = useStore(s => s.pasteLayer)
   const hasClipboard   = useStore(s => !!s.clipboard)
   const ratio          = useStore(s => s.ratio)
@@ -68,6 +71,10 @@ export default function AddPanel() {
   const openImagePicker = () => {
     openPickerRef?.current?.()
     setPanel(null)
+  }
+
+  if (view === 'brand') {
+    return <BrandKitPanel onBack={() => setView('root')} onClose={() => setPanel(null)} />
   }
 
   if (view === 'grid') {
@@ -237,6 +244,30 @@ export default function AddPanel() {
           className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
           <IconGrid size={26} />
           <span className="text-[11px] text-white/70">Templates</span>
+        </button>
+        {/* One-tap brand logo stamp (issue #64): only shown once a logo exists in
+            the brand kit. Places at the bottom-right corner preset; other corners
+            (and the kit editor itself) live in the Brand view below. */}
+        {brandLogo && (
+          <button onClick={() => { addLogoLayer('br'); setPanel(null) }}
+            className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-white/85">
+              <rect x="3" y="3" width="18" height="18" rx="3" />
+              <rect x="13" y="13" width="5" height="5" rx="1" fill="currentColor" stroke="none" />
+            </svg>
+            <span className="text-[11px] text-white/70">Logo</span>
+          </button>
+        )}
+        <button onClick={() => setView('brand')}
+          className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-white/85">
+            <circle cx="12" cy="12" r="9" />
+            <circle cx="8.5" cy="10" r="1" fill="currentColor" stroke="none" />
+            <circle cx="12" cy="7.5" r="1" fill="currentColor" stroke="none" />
+            <circle cx="15.5" cy="10" r="1" fill="currentColor" stroke="none" />
+            <path d="M12 21a2 2 0 0 0 0-4h-1.5a1.5 1.5 0 0 1 0-3H15" />
+          </svg>
+          <span className="text-[11px] text-white/70">Brand</span>
         </button>
         <button onClick={() => { addSlide(); setPanel(null) }}
           className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
