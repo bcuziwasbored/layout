@@ -4,6 +4,7 @@ import { useCanvasPicker } from '../../CanvasContext'
 import { TEMPLATES, TEMPLATE_CATEGORIES, templateCategory, isStyledTemplate } from '../../templates'
 import { IconImage, IconGrid, IconBlank, IconText, IconClose, IconShapes } from '../icons'
 import { SHAPE_LAYER_TYPES } from '../../shapes'
+import { STICKERS, STICKER_CATEGORIES, STICKER_COLORS, stickerPreviewURL, rasterizeSticker } from '../../stickers'
 import ShapePreview from '../ShapePreview'
 import TemplatePreview from '../TemplatePreview'
 
@@ -55,12 +56,14 @@ export default function AddPanel() {
   const addSlide       = useStore(s => s.addSlide)
   const addTextLayer   = useStore(s => s.addTextLayer)
   const addShapeLayer  = useStore(s => s.addShapeLayer)
+  const addStickerLayer = useStore(s => s.addStickerLayer)
   const pasteLayer     = useStore(s => s.pasteLayer)
   const hasClipboard   = useStore(s => !!s.clipboard)
   const ratio          = useStore(s => s.ratio)
   const openPickerRef  = useCanvasPicker()
   const [view, setView] = useState('root')
   const [category, setCategory] = useState('all')
+  const [stickerColor, setStickerColor] = useState(STICKER_COLORS[0])
 
   const openImagePicker = () => {
     openPickerRef?.current?.()
@@ -121,6 +124,64 @@ export default function AddPanel() {
     )
   }
 
+  if (view === 'stickers') {
+    // Rasterize the tapped sticker at export-quality resolution, then place it
+    // centered on the active slide as a normal (transparent-PNG) image layer.
+    const placeSticker = async (sticker) => {
+      const placedW = ratio.w * 0.3
+      const placedLong = Math.max(placedW, placedW * (sticker.vb[1] / sticker.vb[0]))
+      // 2× headroom so a 2× export stays crisp; capped so data URLs stay modest.
+      const longPx = Math.min(1024, Math.max(256, Math.round(placedLong * 2)))
+      try {
+        const { src, naturalW, naturalH } = await rasterizeSticker(sticker, stickerColor, longPx)
+        addStickerLayer(src, naturalW, naturalH)
+        setPanel(null)
+      } catch (e) {
+        console.warn('Failed to place sticker', sticker.id, e)
+      }
+    }
+    return (
+      <div className="bg-[#111] rounded-t-2xl" style={{ maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
+          <button onClick={() => setView('root')} className="text-white/50 text-sm active:text-white">‹ Back</button>
+          <span className="font-semibold text-base">Stickers</span>
+          <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
+        </div>
+        {/* Tint color row */}
+        <div className="flex gap-2.5 px-5 pb-3 overflow-x-auto scrollbar-hide shrink-0">
+          {STICKER_COLORS.map(c => (
+            <button key={c} onClick={() => setStickerColor(c)}
+              aria-label={`Tint ${c}`}
+              className={`shrink-0 w-7 h-7 rounded-full border-2 transition-transform ${
+                stickerColor === c ? 'border-white scale-110' : 'border-white/25'}`}
+              style={{ backgroundColor: c }} />
+          ))}
+        </div>
+        <div className="overflow-y-auto px-5 pb-8 space-y-5">
+          {STICKER_CATEGORIES.map(cat => {
+            const items = STICKERS.filter(s => s.category === cat.id)
+            if (!items.length) return null
+            return (
+              <div key={cat.id}>
+                <div className="text-xs text-white/30 uppercase tracking-wider mb-3">{cat.label}</div>
+                <div className="grid grid-cols-4 gap-3">
+                  {items.map(s => (
+                    <button key={s.id} onClick={() => placeSticker(s)}
+                      className="rounded-xl p-2 flex items-center justify-center active:opacity-60"
+                      style={{ background: '#6b7280', aspectRatio: '1 / 1' }}>
+                      <img src={stickerPreviewURL(s, stickerColor)} alt={s.label} loading="lazy"
+                        className="max-w-full max-h-full" style={{ maxWidth: '80%', maxHeight: '80%' }} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
   if (view === 'shape') {
     return (
       <div className="bg-[#111] rounded-t-2xl p-5 pb-8">
@@ -149,7 +210,7 @@ export default function AddPanel() {
         <span className="font-semibold text-base">Add</span>
         <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
       </div>
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-4 gap-3">
         <button onClick={openImagePicker}
           className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
           <IconImage size={26} />
@@ -164,6 +225,13 @@ export default function AddPanel() {
           className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
           <IconShapes size={26} />
           <span className="text-[11px] text-white/70">Shape</span>
+        </button>
+        <button onClick={() => setView('stickers')}
+          className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-white/85">
+            <path d="M12 2l2.4 6.9H21l-5.6 4.1 2.1 6.9L12 15.7 6.5 20l2.1-6.9L3 8.9h6.6z" />
+          </svg>
+          <span className="text-[11px] text-white/70">Stickers</span>
         </button>
         <button onClick={() => setView('grid')}
           className="flex flex-col items-center gap-2 bg-white/8 rounded-xl py-4 active:bg-white/15">

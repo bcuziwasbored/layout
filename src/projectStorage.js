@@ -85,10 +85,15 @@ function loadImageEl(src) {
   })
 }
 
+// Alpha-capable source blob types — re-encode these as PNG on the cap path so a
+// transparent original keeps its alpha (issue #67). Photos stay JPEG for size.
+const ALPHA_BLOB_TYPES = new Set(['image/png', 'image/webp', 'image/svg+xml', 'image/gif'])
+
 // Data URL for a full-resolution original, capped at MAX_ORIGINAL_DIM on the long
-// edge (re-encoded JPEG q0.92 when larger).
+// edge (re-encoded when larger — PNG for alpha sources, else JPEG q0.92).
 async function prepareOriginalDataURL(srcUrl) {
   const blob = await blobFromURL(srcUrl)
+  const isAlpha = ALPHA_BLOB_TYPES.has(blob.type)
   const dataURL = await blobToDataURL(blob)
   const img = await loadImageEl(dataURL)
   const long = Math.max(img.naturalWidth, img.naturalHeight)
@@ -101,7 +106,7 @@ async function prepareOriginalDataURL(srcUrl) {
   const ctx = canvas.getContext('2d')
   ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(img, 0, 0, w, h)
-  return canvas.toDataURL('image/jpeg', 0.92)
+  return isAlpha ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.92)
 }
 
 async function serializeLayers(layers, projectId, prevLayers) {
