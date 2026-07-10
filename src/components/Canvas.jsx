@@ -8,6 +8,10 @@ import { drawShapePath, STROKE_AWARE_SHAPES } from '../shapes'
 import { konvaShadowProps, hasShadow } from '../shadow'
 import { buildFilterString, hasOverlay, drawAdjustmentOverlays } from '../adjustments'
 import { useCanvasPicker } from '../CanvasContext'
+import { stockEnabled } from '../stockConfig'
+import { getStockProvider } from '../stockProviders'
+import StockPicker from './StockPicker'
+import { IconImage } from './icons'
 
 // ─── Image downscaling ─────────────────────────────────────────────────────────
 // Phone cameras produce 12–50MP images. Drawing a 4032×3024 image in Konva every
@@ -1022,6 +1026,17 @@ export default function Canvas({ openPickerRef }) {
   // True while a drag/resize/rotate gesture is actively moving — hides the
   // floating quick-action toolbar so it doesn't get in the way.
   const [gestureActive, setGestureActive] = useState(false)
+
+  // ── Stock-photo picker (issue #66) ──
+  // When stock search is enabled (a Pexels key is configured), triggering any
+  // photo pick shows a small chooser first: "Your photos" (native input, the
+  // untouched fast path) vs "Stock photos". When disabled, none of this renders
+  // and the native input opens directly — zero extra taps.
+  const [chooserOpen, setChooserOpen] = useState(false)
+  // The active stock provider while the search UI is open (null = closed).
+  // Held in state (not a ref) because it's read during render.
+  const [stockProvider, setStockProvider] = useState(null)
+  const [stockToast, setStockToast]   = useState(null)
   // Keyboard-aware visible viewport height. iOS Safari overlays the soft
   // keyboard without resizing the layout viewport (the interactive-widget meta
   // tag is Android-only), so we track window.visualViewport — which DOES shrink
@@ -1825,13 +1840,21 @@ export default function Canvas({ openPickerRef }) {
 
   // ── File picker ──
   const openPickerRef2 = useRef(null)
+  // Open the native file input for the current pending target.
+  const openNativeInput = useCallback(() => {
+    if (fileRef.current) { fileRef.current.multiple = isMulti.current; fileRef.current.click() }
+  }, [])
+
   const openPickerForCell = useCallback((layerId, slideIdx, multi = false, replaceFilled = false) => {
     pendingLayerId.current       = layerId
     pendingSlideIdx.current      = slideIdx
     pendingReplaceFilled.current = replaceFilled
     isMulti.current              = multi
-    if (fileRef.current) { fileRef.current.multiple = multi; fileRef.current.click() }
-  }, [])
+    // Stock enabled → offer the chooser sheet first. Disabled → native input
+    // opens immediately, exactly as before (no extra tap).
+    if (stockEnabled()) setChooserOpen(true)
+    else openNativeInput()
+  }, [openNativeInput])
 
   useEffect(() => {
     openPickerRef2.current = openPickerForCell
@@ -1841,9 +1864,12 @@ export default function Canvas({ openPickerRef }) {
     }
   })
 
-  const handleFileChange = async (e) => {
-    const files = [...e.target.files]
-    e.target.value = ''
+  // Core "apply picked images" logic, shared by the native <input> and the stock
+  // picker. Fills the pending cell / replace target / new layer using the pending
+  // refs that were set when the picker was opened. Every image — native or stock —
+  // goes through processImageFile, so imgId / originals / crop / export / undo all
+  // behave identically regardless of source.
+  const applyPickedFiles = async (files) => {
     if (!files.length) return
     const { addImageLayer: addImg, fillCells: fill, updateLayerWithHistory: upd,
       layers: curLayers, activeSlideIdx: asi } = fresh.current
@@ -1898,6 +1924,37 @@ export default function Canvas({ openPickerRef }) {
     }
   }
 
+  const handleFileChange = async (e) => {
+    const files = [...e.target.files]
+    e.target.value = ''
+    await applyPickedFiles(files)
+  }
+
+  // Chooser: "Your photos" → native input; "Stock photos" → full-screen search.
+  const chooseNative = () => { setChooserOpen(false); openNativeInput() }
+  const chooseStock  = () => {
+    setChooserOpen(false)
+    setStockProvider(getStockProvider())
+  }
+
+  // A stock photo was downloaded to a File — run it through the SAME pipeline as a
+  // native pick. Stock picks one photo at a time, so force the single-file path so
+  // it fills the pending cell / replace target / new layer (never the multi split).
+  const handleStockPick = async (file) => {
+    setStockProvider(null)
+    isMulti.current = false
+    await applyPickedFiles([file])
+  }
+
+  const handleStockError = (message) => {
+    // Network failure during search/download → toast + fall back to native input
+    // so the user isn't stranded at the empty cell.
+    setStockProvider(null)
+    setStockToast(message)
+    setTimeout(() => setStockToast(null), 3500)
+    openNativeInput()
+  }
+
   if (!view) return <div ref={containerRef} className="flex-1 w-full" />
 
   const vs = view.scale
@@ -1921,6 +1978,51 @@ export default function Canvas({ openPickerRef }) {
   return (
     <div ref={containerRef} className="flex-1 w-full overflow-hidden relative">
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+
+      {/* Photo-source chooser (issue #66) — only shown when stock is enabled */}
+      {chooserOpen && (
+        <div className="fixed inset-0 bg-black/80 flex items-end z-[70]" onClick={() => setChooserOpen(false)}>
+          <div
+            className="w-full bg-[#161616] rounded-t-2xl p-3"
+            style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-3 pt-1 pb-2 text-xs text-white/40">Add a photo</div>
+            <button
+              onClick={chooseNative}
+              className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-white active:bg-white/10"
+            >
+              <IconImage size={22} /> Your photos
+            </button>
+            <button
+              onClick={chooseStock}
+              className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-white active:bg-white/10"
+            >
+              <IconImage size={22} /> Stock photos
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Full-screen stock search (issue #66) */}
+      {stockProvider && (
+        <StockPicker
+          provider={stockProvider}
+          onPick={handleStockPick}
+          onClose={() => setStockProvider(null)}
+          onError={handleStockError}
+        />
+      )}
+
+      {/* Transient stock error toast */}
+      {stockToast && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 bottom-8 z-[95] bg-red-500/95 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg max-w-[90%] text-center"
+          role="status" aria-live="polite"
+        >
+          {stockToast}
+        </div>
+      )}
       <Stage
         width={containerSize.w} height={containerSize.h}
         onMouseDown={handleStageDown}  onTouchStart={handleStageDown}
