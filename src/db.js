@@ -6,13 +6,16 @@
 //                     Each record is { id, name, tags } and is read/written through
 //                     the generic dbGet/dbPut/dbDelete/dbGetAll helpers below — no
 //                     dedicated wrappers needed since a group is just a small record.
+//   'brandkit'      — GLOBAL single-record brand kit (issue #64): saved palette,
+//                     default heading/body fonts, and an uploaded logo. One record
+//                     keyed 'default', read/written via the generic helpers.
 
 let dbPromise = null
 
 function openDB() {
   if (dbPromise) return dbPromise
   dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open('layout-app', 3)
+    const req = indexedDB.open('layout-app', 4)
     req.onupgradeneeded = e => {
       const db = e.target.result
       if (!db.objectStoreNames.contains('projects')) {
@@ -26,6 +29,11 @@ function openDB() {
       // the others, so upgrading from either v1 or v2 creates it exactly once.
       if (!db.objectStoreNames.contains('hashtagGroups')) {
         db.createObjectStore('hashtagGroups', { keyPath: 'id' })
+      }
+      // Version 4: global brand kit (issue #64). Same guarded-contains pattern so
+      // upgrading from any earlier version creates the single-record store once.
+      if (!db.objectStoreNames.contains('brandkit')) {
+        db.createObjectStore('brandkit', { keyPath: 'id' })
       }
     }
     req.onsuccess = e => resolve(e.target.result)
