@@ -13,6 +13,7 @@ import {
 } from '../icons'
 import { FONTS, loadFont } from '../../fonts'
 import { SHAPE_LAYER_TYPES, STROKE_AWARE_SHAPES } from '../../shapes'
+import { SHADOW_PRESETS, shadowPresetMatches } from '../../shadow'
 import { FILTER_PRESETS, presetAdjust, presetMatches, buildFilterString, ADJUSTMENT_PROPS } from '../../adjustments'
 import ShapePreview from '../ShapePreview'
 
@@ -284,6 +285,108 @@ function StyleSliderRow({ label, value, min, max, step, display, unit, onChange,
   )
 }
 
+// A small preview of a preset: a light card casting that preset's shadow so the
+// look is legible against the dark panel.
+function ShadowPresetChip({ preset, active, onTap }) {
+  const a = preset.adjust
+  // Preview at ~⅓ the logical offsets/blur so the sample fits the 48px chip.
+  const boxShadow = a.shadowEnabled
+    ? `${a.shadowOffsetX / 3}px ${a.shadowOffsetY / 3}px ${a.shadowBlur / 3}px rgba(0,0,0,${a.shadowOpacity})`
+    : 'none'
+  return (
+    <button onClick={onTap}
+      className="flex flex-col items-center gap-1.5 shrink-0 active:opacity-70"
+      style={{ scrollSnapAlign: 'start' }}>
+      <div className={`w-12 h-12 rounded-xl flex items-center justify-center border-2 transition-colors ${
+        active ? 'border-blue-400 bg-white/[0.07]' : 'border-white/15 bg-white/[0.07]'
+      }`}>
+        <div className="w-5 h-5 rounded-md bg-[#e7e7ea]" style={{ boxShadow }} />
+      </div>
+      <span className={`text-[10px] leading-none whitespace-nowrap ${active ? 'text-blue-400' : 'text-white/55'}`}>
+        {preset.name}
+      </span>
+    </button>
+  )
+}
+
+// Drop-shadow controls shared by the shape and image style panels (issue #69).
+// `apply(props)` writes shadow* props to the layer (group-aware for image cells).
+// Presets are one discrete history entry (capture→apply→commit, no-op safe);
+// sliders use the #28 capture/commit scrub pattern via StyleSliderRow.
+function ShadowSection({ layer, apply }) {
+  const colorRef = useRef()
+  const addRecentColor = useStore(s => s.addRecentColor)
+  const shadowScrub = useColorScrub()
+
+  const on = !!layer.shadowEnabled
+  const color = layer.shadowColor ?? '#000000'
+  const opacityPct = Math.round((layer.shadowOpacity ?? 0.3) * 100)
+  const blur = layer.shadowBlur ?? 0
+  const ox = layer.shadowOffsetX ?? 0
+  const oy = layer.shadowOffsetY ?? 0
+
+  const applyPreset = (preset) => {
+    const changed = !shadowPresetMatches(layer, preset)
+    if (!changed) return
+    useStore.getState()._captureUndo()
+    apply(preset.adjust)
+    useStore.getState()._commitUndo()
+  }
+  const commit = () => useStore.getState()._commitUndo()
+
+  return (
+    <div className="py-3 border-b border-white/8 last:border-0">
+      <div className="text-sm font-semibold text-white mb-2.5">Shadow</div>
+
+      {/* Preset strip */}
+      <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide"
+        style={{ scrollSnapType: 'x mandatory' }}>
+        {SHADOW_PRESETS.map(p => (
+          <ShadowPresetChip key={p.id} preset={p}
+            active={shadowPresetMatches(layer, p)} onTap={() => applyPreset(p)} />
+        ))}
+      </div>
+
+      {/* Fine-tune — only when a shadow is active */}
+      {on && (
+        <div className="mt-1">
+          <StyleSliderRow label="Blur" value={blur} min={0} max={120} step={1}
+            display={blur} unit="px"
+            onChange={v => apply({ shadowBlur: v })} onDone={commit} />
+          <StyleSliderRow label="Offset X" value={ox} min={-80} max={80} step={1}
+            display={ox} unit="px"
+            onChange={v => apply({ shadowOffsetX: v })} onDone={commit} />
+          <StyleSliderRow label="Offset Y" value={oy} min={-80} max={80} step={1}
+            display={oy} unit="px"
+            onChange={v => apply({ shadowOffsetY: v })} onDone={commit} />
+          <StyleSliderRow label="Shadow Opacity" value={opacityPct} min={0} max={100} step={1}
+            display={opacityPct} unit="%"
+            onChange={v => apply({ shadowOpacity: v / 100 })} onDone={commit} />
+
+          {/* Shadow color */}
+          <div className="py-4">
+            <div className="text-sm font-semibold text-white mb-3">Shadow Color</div>
+            <button className="flex items-center justify-between w-full active:opacity-60 relative">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full border-2 border-white/20 shadow-sm"
+                  style={{ background: color }} />
+                <span className="text-sm text-white/60">{color.toUpperCase()}</span>
+              </div>
+              <span className="text-white/30 text-lg pr-1">›</span>
+              <input ref={colorRef} type="color" value={color}
+                onPointerDown={() => shadowScrub.start(color)}
+                onFocus={() => shadowScrub.start(color)}
+                onChange={e => { shadowScrub.start(color); apply({ shadowColor: e.target.value }) }}
+                onBlur={e => { shadowScrub.end(e.target.value); addRecentColor(e.target.value) }}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function StyleTab({ layer, activeLayerId, layers, updateLayer, isGroup }) {
   const colorRef = useRef()
   const borderScrub = useColorScrub()
@@ -370,6 +473,9 @@ function StyleTab({ layer, activeLayerId, layers, updateLayer, isGroup }) {
             className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
         </button>
       </div>
+
+      {/* Drop shadow — follows the (possibly shaped) photo's outline */}
+      <ShadowSection layer={layer} apply={props => Object.entries(props).forEach(([k, v]) => applyProp(k, v))} />
     </div>
   )
 }
@@ -859,6 +965,9 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
           </div>
         </div>
       </div>
+
+      {/* Drop shadow — follows the shape outline */}
+      <ShadowSection layer={layer} apply={props => updateLayer(layer.id, props)} />
 
     </div>
   )

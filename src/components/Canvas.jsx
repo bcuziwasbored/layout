@@ -5,6 +5,7 @@ import useImage from 'use-image'
 import { dbGetBlob } from '../db'
 import { blobCache, dataURLCache } from '../blobCache'
 import { drawShapePath, STROKE_AWARE_SHAPES } from '../shapes'
+import { konvaShadowProps, hasShadow } from '../shadow'
 import { buildFilterString, hasOverlay, drawAdjustmentOverlays } from '../adjustments'
 import { useCanvasPicker } from '../CanvasContext'
 
@@ -453,6 +454,9 @@ function ShapeCell({ layer }) {
           in renderSlide.js) — editor/export parity for every shape type.
           cornerRadius is gated to rect inside drawShapePath; strokeWidth feeds
           the stroke-aware line/arrow geometry. */}
+      {/* A drop shadow on a filled shape follows its outline for free — the same
+          native canvas2d shadow the exporter uses (renderShapeLayer). Offset lives
+          in screen space (see shadow.js). */}
       <Shape
         sceneFunc={(ctx, sh) => {
           ctx.beginPath()
@@ -463,6 +467,7 @@ function ShapeCell({ layer }) {
         fill={layer.fill ?? '#000000'}
         stroke={strokeColor}
         strokeWidth={sw}
+        {...konvaShadowProps(layer)}
         listening={false}
       />
       <Rect width={layer.w} height={layer.h} fill="rgba(0,0,0,0.01)" />
@@ -554,6 +559,24 @@ function FilledCell({ layer, vs }) {
       rotation={layer.freeRotation ?? 0}
       opacity={layer.opacity ?? 1}
     >
+      {/* Shape-following drop shadow for (possibly shaped) images. A shadow on the
+          clipped group would trace the clip's bounding box, not its outline, so we
+          cast it from a separate shape-caster drawn UNDER the image: the same
+          drawShapePath filled with the shadow colour + shadowed. The caster's fill
+          is hidden by the opaque image on top; only its offset shadow bleeds out.
+          The exporter (renderSlide) mirrors this exactly. */}
+      {hasShadow(layer) && (
+        <Shape
+          listening={false}
+          sceneFunc={(ctx, sh) => {
+            ctx.beginPath()
+            drawShapePath(ctx, inset, inset, innerW, innerH, shape, cr)
+            ctx.fillStrokeShape(sh)
+          }}
+          fill={layer.shadowColor ?? '#000000'}
+          {...konvaShadowProps(layer)}
+        />
+      )}
       <Group clipFunc={ctx => drawShapePath(ctx, inset, inset, innerW, innerH, shape, cr)} listening={false}>
         {/* Gray placeholder while image decodes — prevents blank-white flash */}
         {!img && (
