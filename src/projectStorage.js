@@ -201,7 +201,7 @@ function thumbFingerprint(layers, slides, ratio, bgColor, bgGradient) {
 // ─── Public API ────────────────────────────────────────────────────────────────
 
 export async function saveProject(id, name, storeState) {
-  const { ratio, bgColor, bgGradient, slides, layers } = storeState
+  const { ratio, bgColor, bgGradient, slides, layers, caption } = storeState
   const prev = await dbGet('projects', id)
   const serialized = await serializeLayers(layers, id, prev?.state?.layers)
 
@@ -225,7 +225,9 @@ export async function saveProject(id, name, storeState) {
   await dbPut('projects', {
     id, name, updatedAt: Date.now(), thumbnail, thumbFingerprint: fingerprint,
     slideCount: slides.length,
-    state: { ratio, bgColor, bgGradient, slides, layers: serialized },
+    // `caption` (issue #71) is plain metadata persisted alongside the project;
+    // `?? ''` keeps records written before this field consistent.
+    state: { ratio, bgColor, bgGradient, slides, layers: serialized, caption: caption ?? '' },
   })
 }
 

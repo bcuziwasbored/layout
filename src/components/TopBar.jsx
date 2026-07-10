@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useStore } from '../useStore'
 import ExportScreen from './ExportScreen'
-import { IconUndo, IconRedo } from './icons'
+import CaptionSheet from './CaptionSheet'
+import { IconUndo, IconRedo, IconCaption } from './icons'
 import { saveProject } from '../projectStorage'
 
 // ─── Save indicator ───────────────────────────────────────────────────────────
@@ -55,8 +56,10 @@ export default function TopBar() {
   const projectName = useStore(s => s.projectName)
   const setProjectName = useStore(s => s.setProjectName)
   const currentProjectId = useStore(s => s.currentProjectId)
+  const caption = useStore(s => s.caption)
   const saveStatus = useStore(s => s.saveStatus)
   const [exporting, setExporting] = useState(false)
+  const [captionOpen, setCaptionOpen] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState('')
   const nameInputRef = useRef(null)
@@ -156,13 +159,26 @@ export default function TopBar() {
           </button>
         </div>
 
-        <button
-          onClick={() => setExporting(true)}
-          className="bg-white text-black text-sm font-semibold px-4 py-1.5 rounded-full active:scale-95 transition-transform"
-        >
-          Export
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setCaptionOpen(true)}
+            aria-label="Caption"
+            className="relative text-white/60 active:text-white p-1"
+          >
+            <IconCaption size={22} />
+            {caption.trim() && (
+              <span className="absolute top-0 right-0 w-1.5 h-1.5 rounded-full bg-white" />
+            )}
+          </button>
+          <button
+            onClick={() => setExporting(true)}
+            className="bg-white text-black text-sm font-semibold px-4 py-1.5 rounded-full active:scale-95 transition-transform"
+          >
+            Export
+          </button>
+        </div>
       </div>
+      {captionOpen && <CaptionSheet onClose={() => setCaptionOpen(false)} />}
       {exporting && <ExportScreen onClose={() => setExporting(false)} />}
     </>
   )

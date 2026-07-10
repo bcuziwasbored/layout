@@ -328,3 +328,12 @@ export function IconShapes({ size = 24 }) {
     </svg>
   )
 }
+
+export function IconCaption({ size = 22 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.5 4.5h15M3.5 9h15M3.5 13.5h9" />
+      <path d="M3.5 18h6" strokeOpacity="0.5" />
+    </svg>
+  )
+}
