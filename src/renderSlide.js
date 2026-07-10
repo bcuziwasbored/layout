@@ -6,6 +6,7 @@
 
 import { dbGetBlob } from './db'
 import { drawShapePath, STROKE_AWARE_SHAPES } from './shapes'
+import { hasShadow, applyCanvasShadow, clearCanvasShadow } from './shadow'
 import { ensureLayerFontsLoaded } from './fonts'
 import { buildFilterString, hasOverlay, drawAdjustmentOverlays } from './adjustments'
 
@@ -174,7 +175,7 @@ function renderTextLayer(ctx, layer, sliceStart) {
   ctx.restore()
 }
 
-function renderShapeLayer(ctx, layer, sliceStart) {
+function renderShapeLayer(ctx, layer, sliceStart, scale = 1) {
   const x = layer.x - sliceStart, y = layer.y, w = layer.w, h = layer.h
   // Same drawShapePath as the editor's ShapeCell sceneFunc (Canvas.jsx) — the
   // single source of truth for every shape type. cornerRadius is gated to rect
@@ -186,9 +187,14 @@ function renderShapeLayer(ctx, layer, sliceStart) {
   // Editor falls back to #000000 (fill ?? '#000000'); a null-fill shape is black
   // in the editor, so it must be black in export too.
   ctx.fillStyle = layer.fill ?? '#000000'
+  // Drop shadow follows the filled outline (matches ShapeCell). Applied to the
+  // fill pass only; cleared before the stroke pass so we cast a single shadow of
+  // the fill silhouette (Konva also casts one shadow for the composite node).
+  if (hasShadow(layer)) applyCanvasShadow(ctx, layer, scale)
   ctx.beginPath()
   drawShapePath(ctx, x, y, w, h, shapeType, layer.cornerRadius ?? 0, false, sw)
   ctx.fill()
+  if (hasShadow(layer)) clearCanvasShadow(ctx)
   // No outline pass for line/arrow — their strokeWidth is geometry thickness.
   if (sw > 0 && layer.stroke && !STROKE_AWARE_SHAPES.has(shapeType)) {
     ctx.strokeStyle = layer.stroke
@@ -376,6 +382,23 @@ export async function renderSlide(slideIdx, args) {
       const clipY = layer.y + inset
       const clipH = layer.h - gap
 
+      // Shape-following drop shadow: cast from a shadow-caster filled with the
+      // shadow colour and drawn UNDER the image (the clip below covers its fill,
+      // leaving only the offset shadow). Mirrors FilledCell's caster Shape in the
+      // editor. Drawn at the layer opacity so a semi-transparent photo lets the
+      // caster show through identically in editor and export (Konva applies group
+      // opacity per child too).
+      if (hasShadow(layer)) {
+        ctx.save()
+        ctx.globalAlpha = layer.opacity ?? 1
+        applyCanvasShadow(ctx, layer, scale)
+        ctx.fillStyle = layer.shadowColor ?? '#000000'
+        ctx.beginPath()
+        drawShapePath(ctx, clipX, clipY, clipW, clipH, shape, cr)
+        ctx.fill()
+        ctx.restore()
+      }
+
       ctx.save()
       ctx.beginPath()
       drawShapePath(ctx, clipX, clipY, clipW, clipH, shape, cr)
@@ -445,7 +468,7 @@ export async function renderSlide(slideIdx, args) {
       // is still drawn (the old unrotated bounds check dropped it).
       renderTextLayer(ctx, layer, sliceStart)
     } else if (layer.type === 'shape') {
-      renderShapeLayer(ctx, layer, sliceStart)
+      renderShapeLayer(ctx, layer, sliceStart, scale)
     }
 
     if (freeRot) ctx.restore()
