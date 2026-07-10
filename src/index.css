@@ -18,3 +18,19 @@ html, body, #root {
   user-select: none;
   -webkit-user-select: none;
 }
+
+/* Home-screen redesign uses Inter throughout (loaded in index.html). */
+.font-inter {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Loading-skeleton shimmer (home redesign frame 05). */
+@keyframes lyShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(90deg, #1C1D22 25%, #2A2B31 37%, #1C1D22 63%);
+  background-size: 200% 100%;
+  animation: lyShimmer 1.4s ease-in-out infinite;
+}

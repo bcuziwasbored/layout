@@ -1,8 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
 import { useStore } from '../useStore'
 import { RATIOS, TEMPLATES, TEMPLATE_CATEGORIES, templateCategory, isStyledTemplate } from '../templates'
-import { IconClose } from './icons'
+import {
+  IconClose, IconPlus, IconMoreH, IconImportTray, IconExportTray, IconRename,
+  IconDuplicate, IconFormat, IconTrash2, IconBackup, IconEmptyFrames,
+  IconAlertTriangle, IconRetry,
+} from './icons'
 import TemplatePreview from './TemplatePreview'
+import BrandMark from './home/BrandMark'
+import WelcomeHero from './home/WelcomeHero'
+import TemplateShelf from './home/TemplateShelf'
+import ProjectCard from './home/ProjectCard'
 import {
   listProjects, loadProject, deleteProject, renameProject, duplicateProject,
   exportProject, backupAllProjects, importProjectFile, duplicateProjectInFormat,
@@ -48,85 +56,28 @@ function formatRelativeTime(timestamp) {
   return new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-function TrashIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6l-1 14H6L5 6" />
-      <path d="M10 11v6M14 11v6" />
-      <path d="M9 6V4h6v2" />
-    </svg>
-  )
+// Card meta line — "edited 2h ago · 4:5" (mockup frame 02).
+function cardMeta(p) {
+  const rel = formatRelativeTime(p.updatedAt)
+  return p.ratio?.value ? `edited ${rel} · ${p.ratio.value}` : `edited ${rel}`
 }
 
-function DotsIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-      <circle cx="5" cy="12" r="2" />
-      <circle cx="12" cy="12" r="2" />
-      <circle cx="19" cy="12" r="2" />
-    </svg>
-  )
+// Project-menu header meta — "4:5 · 3 pages · edited 2h ago" (mockup frame 07).
+function sheetMeta(p) {
+  const parts = []
+  if (p.ratio?.value) parts.push(p.ratio.value)
+  if (p.slideCount > 1) parts.push(`${p.slideCount} pages`)
+  parts.push(`edited ${formatRelativeTime(p.updatedAt)}`)
+  return parts.join(' · ')
 }
 
-function PencilIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-    </svg>
-  )
-}
+const RATIO_4x5 = RATIOS.find(r => r.value === '4:5') ?? RATIOS[0]
 
-function CopyIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="9" y="9" width="12" height="12" rx="2" />
-      <path d="M5 15V5a2 2 0 0 1 2-2h10" />
-    </svg>
-  )
-}
+// Skeleton aspect ratios — a deliberate mix so the shimmer masonry reads like a
+// real feed of portrait / square / story cards (mockup frame 05).
+const SKELETON_ASPECTS = ['4 / 5', '1 / 1', '9 / 16', '4 / 5']
 
-function ShareIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 15V3" />
-      <path d="M8 7l4-4 4 4" />
-      <path d="M4 12v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6" />
-    </svg>
-  )
-}
-
-function ResizeIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="10" height="14" rx="1.5" />
-      <path d="M15 9h6v12h-8v-4" />
-    </svg>
-  )
-}
-
-function ImportIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3v12" />
-      <path d="M8 11l4 4 4-4" />
-      <path d="M4 12v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6" />
-    </svg>
-  )
-}
-
-function ArchiveIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="4" width="18" height="4" rx="1" />
-      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
-      <path d="M10 12h4" />
-    </svg>
-  )
-}
-
-// ─── Template tile (used in picker) ───────────────────────────────────────────
+// ─── Template tile (used in the full template picker) ─────────────────────────
 
 function TemplateTile({ template, ratio, onClick }) {
   const ps = template.pageSpan ?? 1
@@ -134,23 +85,22 @@ function TemplateTile({ template, ratio, onClick }) {
   return (
     <button onClick={onClick} className="flex flex-col items-center gap-2 active:opacity-60">
       <div
-        className="w-full relative bg-white/8 rounded-xl overflow-hidden border border-white/12"
+        className="w-full relative rounded-xl overflow-hidden bg-[#141518] border border-[#26272C]"
         style={{ aspectRatio: `${ratio.w * ps} / ${ratio.h}` }}
       >
         {styled ? (
-          // Live canvas preview (real fonts/colors/shapes) for styled templates.
           <TemplatePreview template={template} ratio={ratio} />
         ) : (
           <>
             {ps > 1 && Array.from({ length: ps - 1 }, (_, i) => (
-              <div key={`pd${i}`} className="absolute top-0 bottom-0 w-px bg-white/30"
+              <div key={`pd${i}`} className="absolute top-0 bottom-0 w-px bg-white/25"
                 style={{ left: `${(i + 1) * 100 / ps}%` }} />
             ))}
             {template.cells.length === 0 ? (
               <div className="absolute inset-0" />
             ) : (
               template.cells.map((c, i) => (
-                <div key={i} className="absolute bg-white/20 border border-white/15"
+                <div key={i} className="absolute bg-white/15 border border-white/10"
                   style={{
                     left:   `${c.x * 100 / ps}%`,
                     top:    `${c.y * 100}%`,
@@ -162,195 +112,13 @@ function TemplateTile({ template, ratio, onClick }) {
           </>
         )}
         {ps > 1 && (
-          <div className="absolute bottom-1.5 right-1.5 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded-full font-medium leading-none">
+          <div className="absolute bottom-1.5 right-1.5 bg-black/60 text-[#F5F4F1] text-[9px] px-1.5 py-0.5 rounded-full font-medium leading-none">
             ×{ps}
           </div>
         )}
       </div>
-      <span className="text-[11px] text-white/50 leading-none">{template.label}</span>
+      <span className="text-[11px] text-[#9C9BA1] leading-none">{template.label}</span>
     </button>
-  )
-}
-
-// ─── Photo cell helper ────────────────────────────────────────────────────────
-// Renders an absolutely-positioned photo cell inside a slide preview
-
-function PhotoCell({ x, y, w, h, src, pos = 'center center', gap = 3, total = 1 }) {
-  const G = gap
-  return (
-    <div
-      className="absolute overflow-hidden"
-      style={{
-        left:   `calc(${x * 100}% + ${x > 0 ? G / 2 : 0}px)`,
-        top:    `calc(${y * 100}% + ${y > 0 ? G / 2 : 0}px)`,
-        width:  `calc(${w * 100}% - ${x > 0 ? G / 2 : 0}px - ${x + w < 1 ? G / 2 : 0}px)`,
-        height: `calc(${h * 100}% - ${y > 0 ? G / 2 : 0}px - ${y + h < 1 ? G / 2 : 0}px)`,
-      }}
-    >
-      <img
-        src={src}
-        className="w-full h-full object-cover"
-        style={{ objectPosition: pos }}
-        draggable={false}
-      />
-    </div>
-  )
-}
-
-// ─── Sample carousel previews ─────────────────────────────────────────────────
-// Hard-coded layouts using the two sample photos
-
-const B = import.meta.env.BASE_URL + 'samples/'
-// Individual photos (short aliases)
-// a=yellow Lambo frontal, b=pink Porsche frontal, c=gold BBS wheel
-// d=Subaru WRX nose, e=BMW M4 nose, f=driver in Lambo w/ toy car
-// g=guy leaning on Lambo, h=blue BMW Z4, i=two white BMWs, j=guy in Lambo cockpit
-const P = {
-  a: B+'a.jpg', b: B+'b.jpg', c: B+'c.jpg', d: B+'d.jpg', e: B+'e.jpg',
-  f: B+'f.jpg', g: B+'g.jpg', h: B+'h.jpg', i: B+'i.jpg', j: B+'j.jpg',
-}
-
-const SAMPLE_CAROUSELS = [
-  // Carousel A: full bleed Lambo → pink Porsche + BBS wheel side-by-side
-  {
-    slides: [
-      [{ x:0, y:0, w:1, h:1, src:P.a, pos:'center 60%' }],
-      [
-        { x:0,    y:0, w:0.49, h:1, src:P.b, pos:'center 50%' },
-        { x:0.51, y:0, w:0.49, h:1, src:P.c, pos:'center center' },
-      ],
-    ],
-  },
-  // Carousel B: Subaru top + two detail cells → full-width twin BMWs
-  {
-    slides: [
-      [
-        { x:0,    y:0,    w:1,    h:0.57, src:P.d, pos:'center 40%' },
-        { x:0,    y:0.58, w:0.49, h:0.42, src:P.e, pos:'center 50%' },
-        { x:0.51, y:0.58, w:0.49, h:0.42, src:P.c, pos:'center center' },
-      ],
-      [{ x:0, y:0, w:1, h:1, src:P.i, pos:'center 40%' }],
-    ],
-  },
-  // Carousel C: tall portrait + 2 stacked right → cinematic cockpit shot
-  {
-    slides: [
-      [
-        { x:0,    y:0,    w:0.49, h:1,    src:P.g, pos:'center 35%' },
-        { x:0.51, y:0,    w:0.49, h:0.49, src:P.h, pos:'center 50%' },
-        { x:0.51, y:0.51, w:0.49, h:0.49, src:P.j, pos:'center 30%' },
-      ],
-      [{ x:0, y:0, w:1, h:1, src:P.f, pos:'center 40%' }],
-    ],
-  },
-]
-
-function SampleCarousel({ carousel, slideW, slideH }) {
-  const SLIDE_GAP = 5
-  const totalW = carousel.slides.length * slideW + (carousel.slides.length - 1) * SLIDE_GAP
-
-  return (
-    <div className="shrink-0 flex shadow-2xl" style={{ width: totalW, gap: SLIDE_GAP }}>
-      {carousel.slides.map((cells, si) => (
-        <div
-          key={si}
-          className="relative shrink-0 bg-zinc-900 overflow-hidden"
-          style={{
-            width: slideW,
-            height: slideH,
-            borderRadius: si === 0 ? '14px 6px 6px 14px' : si === carousel.slides.length - 1 ? '6px 14px 14px 6px' : 6,
-          }}
-        >
-          {cells.map((cell, ci) => (
-            <PhotoCell key={ci} {...cell} gap={3} />
-          ))}
-          {/* pagination dots on first slide */}
-          {si === 0 && carousel.slides.length > 1 && (
-            <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1 z-10">
-              {carousel.slides.map((_, di) => (
-                <div key={di} className={`rounded-full ${
-                  di === 0 ? 'w-3 h-1.5 bg-white' : 'w-1.5 h-1.5 bg-white/50'
-                }`} />
-              ))}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ─── Onboarding hero ──────────────────────────────────────────────────────────
-
-function OnboardingScreen({ onStart, onImportFile }) {
-  const SLIDE_W = 136
-  const SLIDE_H = 170
-  const importRef = useRef(null)
-
-  return (
-    <div className="flex flex-col h-full bg-black text-white">
-      {/* Top chrome */}
-      <div
-        className="shrink-0 flex items-center justify-between px-5"
-        style={{ paddingTop: 'max(52px, env(safe-area-inset-top))', paddingBottom: 0 }}
-      >
-        <span className="text-lg font-bold tracking-tight">Layout</span>
-      </div>
-
-      {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto flex flex-col">
-        {/* Hero text */}
-        <div className="px-5 pt-6 pb-5">
-          <h1 className="text-[28px] font-bold leading-tight tracking-tight">
-            Make carousels that<br />
-            <span className="text-white/40">stop the scroll.</span>
-          </h1>
-          <p className="mt-2 text-sm text-white/45 leading-relaxed">
-            Design multi-slide Instagram carousels and photo collages — right from your phone.
-          </p>
-        </div>
-
-        {/* Carousel examples — horizontally scrollable */}
-        <div className="overflow-x-auto flex gap-3 px-5 pb-5 scrollbar-hide">
-          {SAMPLE_CAROUSELS.map((c, i) => (
-            <SampleCarousel key={i} carousel={c} slideW={SLIDE_W} slideH={SLIDE_H} />
-          ))}
-        </div>
-
-        {/* Feature pills */}
-        <div className="flex gap-2 px-5 pb-6 overflow-x-auto scrollbar-hide">
-          {['Grids & collages', 'Multi-slide carousels', 'Text & shapes', 'Export to IG'].map(f => (
-            <div key={f} className="shrink-0 text-xs text-white/50 bg-white/8 rounded-full px-3 py-1.5 border border-white/10">
-              {f}
-            </div>
-          ))}
-        </div>
-
-        {/* CTA */}
-        <div className="px-5 pb-4">
-          <button
-            onClick={onStart}
-            className="w-full bg-white text-black font-semibold text-[15px] py-4 rounded-2xl active:scale-[0.98] transition-transform"
-          >
-            Start creating
-          </button>
-          <button
-            onClick={() => importRef.current?.click()}
-            className="w-full text-white/50 text-sm mt-3 py-2 active:text-white/80"
-          >
-            Have a backup? Import a project file
-          </button>
-          <input
-            ref={importRef}
-            type="file"
-            accept=".layout,.zip,application/zip"
-            onChange={onImportFile}
-            className="hidden"
-          />
-          <p className="text-center text-white/20 text-xs mt-2">Free · No account needed · Works offline</p>
-        </div>
-      </div>
-    </div>
   )
 }
 
@@ -367,6 +135,17 @@ export default function HomeScreen() {
   const [projectsLoading, setProjectsLoading] = useState(true)
   const [projectsError, setProjectsError] = useState(false)
 
+  // Whether the user has ever gotten past the first-run welcome. Persisted so an
+  // empty list from a returning user shows the "no projects yet" state (frame 03),
+  // not the first-run welcome (frame 01).
+  const [onboarded, setOnboarded] = useState(() => {
+    try { return localStorage.getItem('layout.onboarded') === '1' } catch { return false }
+  })
+  const markOnboarded = () => {
+    setOnboarded(true)
+    try { localStorage.setItem('layout.onboarded', '1') } catch { /* private mode — ignore */ }
+  }
+
   // Per-card action sheet / dialogs. Each holds the target project (or null).
   const [menuProject, setMenuProject]       = useState(null)  // "…" action sheet
   const [confirmDelete, setConfirmDelete]   = useState(null)  // delete confirmation
@@ -382,7 +161,11 @@ export default function HomeScreen() {
   // Fetch the project list. State updates happen only in async callbacks, so this
   // is safe to call from an effect body without triggering a synchronous cascade.
   const fetchProjects = () => listProjects()
-    .then(list => { setProjects(list); setProjectsError(false) })
+    .then(list => {
+      setProjects(list)
+      setProjectsError(false)
+      if (list.length > 0) markOnboarded()
+    })
     .catch(err => { console.error('Failed to list projects', err); setProjectsError(true) })
     .finally(() => setProjectsLoading(false))
 
@@ -512,6 +295,7 @@ export default function HomeScreen() {
       const buffer = await file.arrayBuffer()
       const created = await importProjectFile(buffer)
       if (created?.length) {
+        markOnboarded()
         setProjects(prev => {
           const incoming = new Set(created.map(p => p.id))
           return [...created, ...prev.filter(p => !incoming.has(p.id))]
@@ -558,6 +342,7 @@ export default function HomeScreen() {
   }
 
   const handleTemplate = (template) => {
+    markOnboarded()
     startProject(selectedRatio, template.id === 'blank' ? null : template)
     setStep(null)
     setSelectedRatio(null)
@@ -568,66 +353,46 @@ export default function HomeScreen() {
     setSelectedRatio(null)
   }
 
+  // New project from the top gold pill / welcome CTA / empty-state CTA.
+  const startNewProject = () => { markOnboarded(); setStep('ratio') }
+
+  // Template-shelf tile → new 4:5 project seeded with that styled template.
+  const startFromTemplate = (template) => {
+    markOnboarded()
+    startProject(RATIO_4x5, template)
+  }
+
+  // "See all ›" on the shelf → open the full template picker at 4:5.
+  const openTemplatePicker = () => {
+    setSelectedRatio(RATIO_4x5)
+    setStep('template')
+  }
+
   const visibleTemplates = TEMPLATES.filter(t =>
     t.id !== 'blank' && t.id !== 'single' &&
     (templateCat === 'all' || templateCategory(t) === templateCat))
   const singlePageTemplates = visibleTemplates.filter(t => !t.pageSpan || t.pageSpan === 1)
   const multiPageTemplates  = visibleTemplates.filter(t => t.pageSpan && t.pageSpan > 1)
 
-  const isFirstTime = !projectsLoading && !projectsError && projects.length === 0
+  const showWelcome = !projectsLoading && !projectsError && projects.length === 0 && !onboarded && step === null
 
-  if (isFirstTime && step === null) {
-    return (
-      <>
-        <OnboardingScreen onStart={() => setStep('ratio')} onImportFile={handleImportFile} />
-        {busy && (
-          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[80]" role="status" aria-live="polite">
-            <div className="bg-[#1c1c1c] rounded-2xl px-6 py-5 flex items-center gap-3">
-              <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-              <span className="text-sm text-white/80">{busy}</span>
-            </div>
-          </div>
-        )}
-        {errorToast && (
-          <div
-            className="fixed left-1/2 -translate-x-1/2 bottom-8 z-[70] bg-red-500/95 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg max-w-[90%] text-center"
-            style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
-            role="alert"
-          >
-            {errorToast}
-          </div>
-        )}
-      </>
-    )
-  }
-
-  // ── Returning user home ──────────────────────────────────────────────────────
-  return (
-    <div className="flex flex-col h-full bg-black text-white overflow-y-auto">
-      {/* Header */}
-      <div
-        className="shrink-0 flex items-center justify-between px-5 pb-4"
-        style={{ paddingTop: 'max(52px, env(safe-area-inset-top))' }}
+  // Reusable pieces ────────────────────────────────────────────────────────────
+  const NewProjectButton = (
+    <div className="px-5 pt-4">
+      <button
+        onClick={startNewProject}
+        className="w-full h-[52px] rounded-full bg-[#C6A052] text-[#171205] text-[16px] font-semibold flex items-center justify-center gap-2 active:translate-y-px active:brightness-95 transition"
       >
-        <span className="text-lg font-bold tracking-tight">Layout</span>
-        <div className="flex items-center gap-2">
-          <button
-            aria-label="Backup & import"
-            onClick={() => setGlobalMenu(true)}
-            className="text-white/70 bg-white/8 rounded-xl p-2 active:bg-white/15 active:text-white"
-          >
-            <DotsIcon />
-          </button>
-          <button
-            onClick={() => setStep('ratio')}
-            className="bg-white text-black font-semibold text-sm px-4 py-2 rounded-xl active:scale-95 transition-transform"
-          >
-            + New
-          </button>
-        </div>
-      </div>
+        <IconPlus size={19} /> New project
+      </button>
+    </div>
+  )
 
-      {/* Hidden file input for importing .layout files */}
+  const sectionLabel = 'text-[12px] font-semibold uppercase tracking-[0.14em] text-[#67666C]'
+
+  return (
+    <div className="font-inter flex flex-col h-full bg-[#0A0A0B] text-[#F5F4F1] overflow-hidden">
+      {/* Hidden file input for header-menu imports */}
       <input
         ref={importInputRef}
         type="file"
@@ -636,86 +401,136 @@ export default function HomeScreen() {
         className="hidden"
       />
 
-      {/* Projects */}
-      <div className="flex-1 px-5 pb-10">
-        {projectsLoading ? (
-          <div className="grid grid-cols-2 gap-3">
-            {[0, 1, 2, 3].map(i => (
-              <div key={i} className="rounded-2xl bg-white/6 animate-pulse" style={{ aspectRatio: '1/1.25' }} />
-            ))}
-          </div>
-        ) : projectsError ? (
-          <div className="flex flex-col items-center justify-center text-center py-16 px-6">
-            <div className="text-sm font-semibold text-white">Couldn't load your projects</div>
-            <div className="text-[13px] text-white/45 mt-1.5 leading-relaxed">
-              Something went wrong reading your saved projects. Your data is still safe.
+      {showWelcome ? (
+        <WelcomeHero onStart={startNewProject} onImportFile={handleImportFile} />
+      ) : (
+        <div className="flex flex-col h-full overflow-y-auto">
+          {/* Header */}
+          <div
+            className="shrink-0 flex items-center justify-between px-5"
+            style={{ paddingTop: 'max(12px, env(safe-area-inset-top))', paddingBottom: 2 }}
+          >
+            <div className="flex items-center gap-[9px]">
+              <BrandMark />
+              <span className="text-[20px] font-bold tracking-[-0.01em]">Layout</span>
             </div>
             <button
-              onClick={retryLoadProjects}
-              className="mt-5 bg-white/10 text-white font-medium text-sm px-5 py-2.5 rounded-xl active:bg-white/15"
+              aria-label="Backup & import"
+              onClick={() => setGlobalMenu(true)}
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-[#9C9BA1] active:bg-[#1C1D22] active:text-[#F5F4F1]"
             >
-              Try again
+              <IconMoreH size={22} />
             </button>
           </div>
-        ) : projects.length > 0 ? (
-          <>
-            <div className="text-xs text-white/30 uppercase tracking-wider mb-3">Recent</div>
-            <div className="grid grid-cols-2 gap-3">
-              {projects.map(project => (
-                <div
-                  key={project.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => handleOpenProject(project.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      handleOpenProject(project.id)
-                    }
-                  }}
-                  className="relative text-left rounded-2xl overflow-hidden bg-white/6 cursor-pointer active:opacity-70 transition-opacity"
-                >
-                  <div
-                    className="w-full bg-zinc-900"
-                    style={{ aspectRatio: project.ratio ? `${project.ratio.w} / ${project.ratio.h}` : '1/1' }}
-                  >
-                    {project.thumbnail ? (
-                      <img src={project.thumbnail} className="w-full h-full object-cover" alt="" />
-                    ) : (
-                      <div className="w-full h-full bg-white/10" />
-                    )}
-                  </div>
-                  <div className="px-3 py-2">
-                    <div className="text-xs font-medium text-white truncate">{project.name}</div>
-                    <div className="text-[11px] text-white/40 mt-0.5">{formatRelativeTime(project.updatedAt)}</div>
-                  </div>
-                  <button
-                    aria-label="Project options"
-                    onClick={(e) => { e.stopPropagation(); setMenuProject(project) }}
-                    className="absolute top-2 right-2 bg-black/60 text-white/70 rounded-full p-1.5 active:text-white"
-                  >
-                    <DotsIcon />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </>
-        ) : null}
-      </div>
 
-      {/* ── Step 1: Ratio picker ──────────────────────────────────────────────── */}
+          {/* Body — one of: loading / error / list / empty */}
+          {projectsLoading ? (
+            <div className="pb-10">
+              {NewProjectButton}
+              <div className="px-5 pt-[26px]">
+                <div className="animate-shimmer" style={{ width: 96, height: 11, borderRadius: 3, marginBottom: 16 }} />
+                <div style={{ columnCount: 2, columnGap: 12 }}>
+                  {SKELETON_ASPECTS.map((aspect, i) => (
+                    <div key={i} className="overflow-hidden"
+                      style={{ breakInside: 'avoid', marginBottom: 12, background: '#141518', border: '1px solid #26272C', borderRadius: 16 }}>
+                      <div className="animate-shimmer w-full" style={{ aspectRatio: aspect }} />
+                      <div style={{ padding: 12 }}>
+                        <div className="animate-shimmer" style={{ width: '62%', height: 11, borderRadius: 3 }} />
+                        <div className="animate-shimmer" style={{ width: '40%', height: 9, borderRadius: 3, marginTop: 8 }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : projectsError ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center px-10 pb-16">
+              <div
+                className="flex items-center justify-center mb-6"
+                style={{ width: 76, height: 76, borderRadius: '50%', background: 'rgba(210,86,75,.14)', color: '#DE5A50' }}
+              >
+                <IconAlertTriangle size={34} />
+              </div>
+              <div className="text-[22px] font-bold tracking-[-0.01em] text-[#F5F4F1]">Couldn&apos;t load your projects</div>
+              <div className="text-[15px] leading-[1.5] text-[#9C9BA1] mt-2.5 max-w-[270px]">
+                Something went wrong reading local storage. Your projects are still safe on this device.
+              </div>
+              <button
+                onClick={retryLoadProjects}
+                className="mt-[26px] h-[50px] px-[26px] rounded-full border border-[#34353B] bg-[#1C1D22] text-[#F5F4F1] text-[15px] font-semibold flex items-center justify-center gap-[9px] active:bg-[#26272C] transition"
+              >
+                <IconRetry size={18} /> Try again
+              </button>
+              <button
+                onClick={handleImportPick}
+                className="mt-3.5 text-[13px] font-medium text-[#67666C] active:text-[#9C9BA1]"
+              >
+                Import a project instead
+              </button>
+            </div>
+          ) : projects.length > 0 ? (
+            <div className="pb-10">
+              {NewProjectButton}
+              <TemplateShelf ratio={RATIO_4x5} onPick={startFromTemplate} onSeeAll={openTemplatePicker} />
+              <div className="px-5 pt-[26px]">
+                <div className={`${sectionLabel} mb-3.5`}>Recent</div>
+                <div style={{ columnCount: 2, columnGap: 12 }}>
+                  {projects.map(project => (
+                    <ProjectCard
+                      key={project.id}
+                      project={project}
+                      metaLabel={cardMeta(project)}
+                      onOpen={() => handleOpenProject(project.id)}
+                      onMenu={() => setMenuProject(project)}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-center px-10 pb-16">
+              <div
+                className="flex items-center justify-center mb-6"
+                style={{ width: 76, height: 76, borderRadius: 20, border: '1px solid #2E2F36', background: '#141518', color: '#67666C' }}
+              >
+                <IconEmptyFrames size={34} />
+              </div>
+              <div className="text-[22px] font-bold tracking-[-0.01em] text-[#F5F4F1]">No projects yet</div>
+              <div className="text-[15px] leading-[1.5] text-[#9C9BA1] mt-2.5 max-w-[262px]">
+                Your projects live on this device. Make your first one, or import a backup.
+              </div>
+              <button
+                onClick={startNewProject}
+                className="mt-[26px] h-[50px] rounded-full bg-[#C6A052] text-[#171205] text-[15px] font-semibold flex items-center justify-center gap-2 active:translate-y-px active:brightness-95 transition"
+                style={{ width: 220 }}
+              >
+                <IconPlus size={18} /> New project
+              </button>
+              <button
+                onClick={handleImportPick}
+                className="mt-3.5 text-[14px] font-semibold text-[#9C9BA1] flex items-center gap-[7px] active:text-[#F5F4F1]"
+              >
+                <IconImportTray size={18} /> Import a project
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Step 1: Ratio picker (bottom sheet) ───────────────────────────────── */}
       {step === 'ratio' && (
-        <div className="fixed inset-0 bg-black/80 flex items-end z-50" onClick={handleClose}>
+        <div className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(6,6,8,.6)' }} onClick={handleClose}>
           <div
-            className="w-full bg-[#161616] rounded-t-2xl p-6"
-            style={{ paddingBottom: 'max(32px, env(safe-area-inset-bottom))' }}
+            className="w-full font-inter"
+            style={{ background: '#16171B', borderTop: '1px solid #2E2F36', borderRadius: '24px 24px 0 0', paddingBottom: 'max(30px, env(safe-area-inset-bottom))', boxShadow: '0 -12px 44px rgba(0,0,0,.5)' }}
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between mb-5">
-              <span className="text-base font-semibold">Choose Format</span>
-              <button onClick={handleClose} className="text-white/40"><IconClose size={18} /></button>
+            <div className="mx-auto mt-1.5 mb-1.5" style={{ width: 36, height: 4, borderRadius: 2, background: '#34353B' }} />
+            <div className="flex items-center justify-between px-6 pt-2 pb-4">
+              <span className="text-[18px] font-bold tracking-[-0.01em]">Choose format</span>
+              <button onClick={handleClose} className="text-[#9C9BA1] active:text-[#F5F4F1]"><IconClose size={18} /></button>
             </div>
-            <div className="flex gap-5 overflow-x-auto pb-1 scrollbar-hide">
+            <div className="flex gap-5 overflow-x-auto px-6 pb-2 scrollbar-hide">
               {RATIOS.map(r => {
                 const previewH = 80
                 const previewW = Math.round(previewH * (r.w / r.h))
@@ -725,9 +540,9 @@ export default function HomeScreen() {
                     onClick={() => handleRatio(r)}
                     className="flex flex-col items-center gap-2.5 shrink-0 active:opacity-60"
                   >
-                    <div className="bg-white rounded-xl shadow-lg" style={{ width: previewW, height: previewH }} />
-                    <div className="text-xs text-white/70 font-medium">{r.label}</div>
-                    <div className="text-[11px] text-white/35">{r.value}</div>
+                    <div className="rounded-xl shadow-lg" style={{ width: previewW, height: previewH, background: '#E7E4DD' }} />
+                    <div className="text-[13px] font-semibold text-[#C9C8CE]">{r.label}</div>
+                    <div className="text-[11px] text-[#67666C]">{r.value}</div>
                   </button>
                 )
               })}
@@ -736,18 +551,18 @@ export default function HomeScreen() {
         </div>
       )}
 
-      {/* ── Step 2: Template gallery ──────────────────────────────────────────── */}
+      {/* ── Step 2: Template gallery (full screen) ────────────────────────────── */}
       {step === 'template' && selectedRatio && (
-        <div className="fixed inset-0 bg-black z-50 flex flex-col">
+        <div className="fixed inset-0 z-50 flex flex-col font-inter bg-[#0A0A0B] text-[#F5F4F1]">
           <div
             className="flex items-center justify-between px-5 pb-4 shrink-0"
             style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}
           >
-            <button onClick={() => setStep('ratio')} className="text-white/60 text-sm active:text-white">
+            <button onClick={() => setStep('ratio')} className="text-[#9C9BA1] text-[15px] font-medium active:text-[#F5F4F1]">
               ‹ Format
             </button>
-            <span className="font-semibold text-base">Choose Template</span>
-            <button onClick={handleClose} className="text-white/40">
+            <span className="font-bold text-[18px] tracking-[-0.01em]">Choose template</span>
+            <button onClick={handleClose} className="text-[#9C9BA1] active:text-[#F5F4F1]">
               <IconClose size={18} />
             </button>
           </div>
@@ -756,10 +571,10 @@ export default function HomeScreen() {
           <div className="flex gap-2 px-5 pb-3 overflow-x-auto scrollbar-hide shrink-0">
             {TEMPLATE_CATEGORIES.map(c => (
               <button key={c.id} onClick={() => setTemplateCat(c.id)}
-                className={`shrink-0 text-xs px-3.5 py-1.5 rounded-full border transition-colors ${
+                className={`shrink-0 text-[13px] px-3.5 py-1.5 rounded-full border transition-colors ${
                   templateCat === c.id
-                    ? 'bg-white text-black border-white font-semibold'
-                    : 'bg-white/8 text-white/60 border-white/10 active:bg-white/15'}`}>
+                    ? 'bg-[#C6A052] text-[#171205] border-[#C6A052] font-semibold'
+                    : 'bg-transparent text-[#9C9BA1] border-[#2E2F36] active:bg-[#1C1D22]'}`}>
                 {c.label}
               </button>
             ))}
@@ -769,24 +584,21 @@ export default function HomeScreen() {
             {/* Blank option */}
             <button
               onClick={() => handleTemplate({ id: 'blank', label: 'Blank', cells: [] })}
-              className="w-full mb-6 flex items-center gap-4 bg-white/6 rounded-2xl px-5 py-4 active:bg-white/12"
+              className="w-full mb-6 flex items-center gap-4 rounded-2xl px-5 py-4 bg-[#141518] border border-[#26272C] active:bg-[#1C1D22]"
             >
               <div
-                className="rounded-lg bg-white/10 border border-white/15 shrink-0"
-                style={{
-                  width: Math.round(52 * selectedRatio.w / selectedRatio.h),
-                  height: 52,
-                }}
+                className="rounded-lg bg-white/8 border border-white/10 shrink-0"
+                style={{ width: Math.round(52 * selectedRatio.w / selectedRatio.h), height: 52 }}
               />
               <div className="text-left">
-                <div className="text-sm font-semibold text-white">Blank</div>
-                <div className="text-xs text-white/40 mt-0.5">Start from scratch</div>
+                <div className="text-[15px] font-semibold text-[#F5F4F1]">Blank</div>
+                <div className="text-[12px] text-[#67666C] mt-0.5">Start from scratch</div>
               </div>
             </button>
 
             {singlePageTemplates.length > 0 && (
               <>
-                <div className="text-xs text-white/30 uppercase tracking-wider mb-3">Single Page</div>
+                <div className={`${sectionLabel} mb-3`}>Single page</div>
                 <div className="grid grid-cols-3 gap-3 mb-8">
                   {singlePageTemplates.map(t => (
                     <TemplateTile key={t.id} template={t} ratio={selectedRatio} onClick={() => handleTemplate(t)} />
@@ -797,7 +609,7 @@ export default function HomeScreen() {
 
             {multiPageTemplates.length > 0 && (
               <>
-                <div className="text-xs text-white/30 uppercase tracking-wider mb-3">Multi-Page</div>
+                <div className={`${sectionLabel} mb-3`}>Multi-page</div>
                 <div className="grid grid-cols-3 gap-3">
                   {multiPageTemplates.map(t => (
                     <TemplateTile key={t.id} template={t} ratio={selectedRatio} onClick={() => handleTemplate(t)} />
@@ -809,77 +621,70 @@ export default function HomeScreen() {
         </div>
       )}
 
-      {/* ── Per-card "…" action sheet ──────────────────────────────────────────── */}
+      {/* ── Per-card "…" action sheet (mockup frame 07) ───────────────────────── */}
       {menuProject && (
-        <div className="fixed inset-0 bg-black/80 flex items-end z-50" onClick={() => setMenuProject(null)}>
+        <div className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(6,6,8,.6)' }} onClick={() => setMenuProject(null)}>
           <div
-            className="w-full bg-[#161616] rounded-t-2xl p-3"
-            style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
+            className="w-full font-inter"
+            style={{ background: '#16171B', borderTop: '1px solid #2E2F36', borderRadius: '24px 24px 0 0', padding: '8px 0 0', paddingBottom: 'max(30px, env(safe-area-inset-bottom))', boxShadow: '0 -12px 44px rgba(0,0,0,.5)' }}
             onClick={e => e.stopPropagation()}
           >
-            <div className="px-3 pt-1 pb-2 text-xs text-white/40 truncate">{menuProject.name}</div>
-            <button
-              onClick={() => startRename(menuProject)}
-              className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-white active:bg-white/10"
-            >
-              <PencilIcon /> Rename
-            </button>
-            <button
-              onClick={() => handleDuplicate(menuProject)}
-              className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-white active:bg-white/10"
-            >
-              <CopyIcon /> Duplicate
-            </button>
-            <button
-              onClick={() => openFormatPicker(menuProject)}
-              className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-white active:bg-white/10"
-            >
-              <ResizeIcon /> Duplicate in another format
-            </button>
-            <button
-              onClick={() => handleExport(menuProject)}
-              className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-white active:bg-white/10"
-            >
-              <ShareIcon /> Export file
-            </button>
-            <button
+            <div className="mx-auto mt-1.5 mb-1.5" style={{ width: 36, height: 4, borderRadius: 2, background: '#34353B' }} />
+            {/* project header */}
+            <div className="flex items-center gap-3 px-5" style={{ padding: '12px 20px 14px' }}>
+              <div className="shrink-0 overflow-hidden" style={{ width: 40, height: 50, borderRadius: 8, background: 'linear-gradient(160deg,#4A3B2A,#2A2016)' }}>
+                {menuProject.thumbnail && <img src={menuProject.thumbnail} className="w-full h-full object-cover" alt="" draggable={false} />}
+              </div>
+              <div className="min-w-0">
+                <div className="text-[15px] font-semibold text-[#F5F4F1] truncate">{menuProject.name}</div>
+                <div className="text-[12px] font-medium text-[#67666C] mt-0.5">{sheetMeta(menuProject)}</div>
+              </div>
+            </div>
+            <div style={{ height: 1, background: '#26272C', margin: '0 0 6px' }} />
+
+            <MenuRow icon={<IconRename size={20} />} label="Rename" onClick={() => startRename(menuProject)} />
+            <MenuRow icon={<IconDuplicate size={20} />} label="Duplicate" onClick={() => handleDuplicate(menuProject)} />
+            <MenuRow icon={<IconFormat size={20} />} label="Duplicate in another format" onClick={() => openFormatPicker(menuProject)} />
+            <MenuRow icon={<IconExportTray size={20} />} label="Export file" onClick={() => handleExport(menuProject)} />
+
+            <div style={{ height: 1, background: '#26272C', margin: '6px 0' }} />
+            <MenuRow
+              icon={<IconTrash2 size={20} />} label="Delete" destructive
               onClick={() => { const p = menuProject; setMenuProject(null); setConfirmDelete(p) }}
-              className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-red-400 active:bg-white/10"
-            >
-              <TrashIcon /> Delete
-            </button>
+            />
           </div>
         </div>
       )}
 
       {/* ── Rename sheet ───────────────────────────────────────────────────────── */}
       {renameTarget && (
-        <div className="fixed inset-0 bg-black/80 flex items-end z-[60]" onClick={() => setRenameTarget(null)}>
+        <div className="fixed inset-0 z-[60] flex items-end" style={{ background: 'rgba(6,6,8,.66)' }} onClick={() => setRenameTarget(null)}>
           <div
-            className="w-full bg-[#161616] rounded-t-2xl p-6"
-            style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}
+            className="w-full font-inter"
+            style={{ background: '#16171B', borderTop: '1px solid #2E2F36', borderRadius: '24px 24px 0 0', padding: '8px 24px 0', paddingBottom: 'max(24px, env(safe-area-inset-bottom))', boxShadow: '0 -12px 44px rgba(0,0,0,.5)' }}
             onClick={e => e.stopPropagation()}
           >
-            <div className="text-base font-semibold mb-4">Rename project</div>
+            <div className="mx-auto mt-1.5 mb-3" style={{ width: 36, height: 4, borderRadius: 2, background: '#34353B' }} />
+            <div className="text-[18px] font-bold tracking-[-0.01em] mb-4">Rename project</div>
             <input
               autoFocus
               value={renameValue}
               onChange={e => setRenameValue(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') handleRenameSave() }}
-              className="w-full bg-white/8 border border-white/12 rounded-xl px-4 py-3 text-white text-[15px] outline-none focus:border-white/30"
+              className="w-full rounded-xl px-4 py-3 text-[15px] text-[#F5F4F1] outline-none bg-[#0E0F12] border border-[#2E2F36] focus:border-[#C6A052]"
               placeholder="Project name"
             />
             <div className="flex gap-2.5 mt-4">
               <button
                 onClick={() => setRenameTarget(null)}
-                className="flex-1 py-3 rounded-xl bg-white/10 text-white font-medium text-sm active:bg-white/15"
+                className="flex-1 h-[48px] rounded-full border border-[#2E2F36] bg-transparent text-[#F5F4F1] text-[15px] font-semibold active:bg-[#1C1D22] transition"
               >
                 Cancel
               </button>
               <button
                 onClick={handleRenameSave}
                 disabled={!renameValue.trim()}
-                className="flex-1 py-3 rounded-xl bg-white text-black font-semibold text-sm active:scale-[0.98] transition-transform disabled:opacity-40"
+                className="flex-1 h-[48px] rounded-full bg-[#C6A052] text-[#171205] text-[15px] font-semibold active:translate-y-px active:brightness-95 transition disabled:opacity-40"
               >
                 Save
               </button>
@@ -888,22 +693,28 @@ export default function HomeScreen() {
         </div>
       )}
 
-      {/* ── Delete confirmation ────────────────────────────────────────────────── */}
+      {/* ── Delete confirmation (mockup frame 06) ─────────────────────────────── */}
       {confirmDelete && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] px-8" onClick={() => setConfirmDelete(null)}>
-          <div className="w-full max-w-xs bg-[#1c1c1c] rounded-2xl p-5" onClick={e => e.stopPropagation()}>
-            <div className="text-[15px] font-semibold text-white">Delete “{confirmDelete.name}”?</div>
-            <div className="text-sm text-white/50 mt-1.5">This can’t be undone.</div>
-            <div className="flex gap-2.5 mt-5">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center px-[34px]" style={{ background: 'rgba(6,6,8,.66)' }} onClick={() => setConfirmDelete(null)}>
+          <div
+            className="w-full font-inter"
+            style={{ maxWidth: 308, background: '#16171B', border: '1px solid #2E2F36', borderRadius: 24, padding: 24, boxShadow: '0 24px 60px rgba(0,0,0,.55)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="text-[18px] font-bold tracking-[-0.01em] text-[#F5F4F1]">Delete this project?</div>
+            <div className="text-[15px] leading-[1.45] text-[#9C9BA1] mt-2.5">
+              “{confirmDelete.name}” will be removed from this device. This can&apos;t be undone.
+            </div>
+            <div className="flex gap-2.5 mt-[22px]">
               <button
                 onClick={() => setConfirmDelete(null)}
-                className="flex-1 py-3 rounded-xl bg-white/10 text-white font-medium text-sm active:bg-white/15"
+                className="flex-1 h-[48px] rounded-full border border-[#2E2F36] bg-transparent text-[#F5F4F1] text-[15px] font-semibold active:bg-[#1C1D22] transition"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDeleteConfirmed}
-                className="flex-1 py-3 rounded-xl bg-red-500 text-white font-semibold text-sm active:bg-red-600"
+                className="flex-1 h-[48px] rounded-full bg-[#DE5A50] text-white text-[15px] font-semibold active:brightness-95 transition"
               >
                 Delete
               </button>
@@ -912,47 +723,37 @@ export default function HomeScreen() {
         </div>
       )}
 
-      {/* ── Header overflow: import / back up all ──────────────────────────────── */}
+      {/* ── Header overflow: popover (mockup frame 08) ────────────────────────── */}
       {globalMenu && (
-        <div className="fixed inset-0 bg-black/80 flex items-end z-50" onClick={() => setGlobalMenu(false)}>
+        <div className="fixed inset-0 z-50" style={{ background: 'rgba(6,6,8,.5)' }} onClick={() => setGlobalMenu(false)}>
           <div
-            className="w-full bg-[#161616] rounded-t-2xl p-3"
-            style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
+            className="absolute font-inter"
+            style={{ top: 'calc(max(12px, env(safe-area-inset-top)) + 48px)', right: 20, width: 224, background: '#16171B', border: '1px solid #2E2F36', borderRadius: 16, padding: 6, boxShadow: '0 18px 44px rgba(0,0,0,.5)' }}
             onClick={e => e.stopPropagation()}
           >
-            <div className="px-3 pt-1 pb-2 text-xs text-white/40">Backup & transfer</div>
-            <button
-              onClick={handleImportPick}
-              className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-white active:bg-white/10"
-            >
-              <ImportIcon /> Import project file…
-            </button>
-            <button
-              onClick={handleBackupAll}
-              className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-white active:bg-white/10"
-            >
-              <ArchiveIcon /> Back up all projects
-            </button>
+            <PopoverRow icon={<IconImportTray size={18} />} label="Import project" onClick={handleImportPick} />
+            <PopoverRow icon={<IconBackup size={18} />} label="Back up all" onClick={handleBackupAll} />
           </div>
         </div>
       )}
 
-      {/* ── Duplicate in another format: ratio picker ──────────────────────────── */}
+      {/* ── Duplicate in another format: ratio picker (bottom sheet) ───────────── */}
       {formatTarget && (
-        <div className="fixed inset-0 bg-black/80 flex items-end z-[60]" onClick={() => setFormatTarget(null)}>
+        <div className="fixed inset-0 z-[60] flex items-end" style={{ background: 'rgba(6,6,8,.6)' }} onClick={() => setFormatTarget(null)}>
           <div
-            className="w-full bg-[#161616] rounded-t-2xl p-6"
-            style={{ paddingBottom: 'max(32px, env(safe-area-inset-bottom))' }}
+            className="w-full font-inter"
+            style={{ background: '#16171B', borderTop: '1px solid #2E2F36', borderRadius: '24px 24px 0 0', paddingBottom: 'max(30px, env(safe-area-inset-bottom))', boxShadow: '0 -12px 44px rgba(0,0,0,.5)' }}
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-base font-semibold">Duplicate as…</span>
-              <button onClick={() => setFormatTarget(null)} className="text-white/40"><IconClose size={18} /></button>
+            <div className="mx-auto mt-1.5 mb-1.5" style={{ width: 36, height: 4, borderRadius: 2, background: '#34353B' }} />
+            <div className="flex items-center justify-between px-6 pt-2 pb-1">
+              <span className="text-[18px] font-bold tracking-[-0.01em]">Duplicate as…</span>
+              <button onClick={() => setFormatTarget(null)} className="text-[#9C9BA1] active:text-[#F5F4F1]"><IconClose size={18} /></button>
             </div>
-            <div className="text-xs text-white/40 mb-5 truncate">
+            <div className="text-[12px] text-[#67666C] px-6 mb-4 truncate">
               A resized copy of “{formatTarget.name}” — the original stays untouched.
             </div>
-            <div className="flex gap-5 overflow-x-auto pb-1 scrollbar-hide">
+            <div className="flex gap-5 overflow-x-auto px-6 pb-2 scrollbar-hide">
               {RATIOS.map(r => {
                 const previewH = 80
                 const previewW = Math.round(previewH * (r.w / r.h))
@@ -963,9 +764,9 @@ export default function HomeScreen() {
                     onClick={() => handleFormatRatio(r)}
                     className="flex flex-col items-center gap-2.5 shrink-0 active:opacity-60"
                   >
-                    <div className="bg-white rounded-xl shadow-lg" style={{ width: previewW, height: previewH }} />
-                    <div className="text-xs text-white/70 font-medium">{r.label}</div>
-                    <div className="text-[11px] text-white/35">{r.value}{isCurrent ? ' · current' : ''}</div>
+                    <div className="rounded-xl shadow-lg" style={{ width: previewW, height: previewH, background: '#E7E4DD' }} />
+                    <div className="text-[13px] font-semibold text-[#C9C8CE]">{r.label}</div>
+                    <div className="text-[11px] text-[#67666C]">{r.value}{isCurrent ? ' · current' : ''}</div>
                   </button>
                 )
               })}
@@ -974,12 +775,12 @@ export default function HomeScreen() {
         </div>
       )}
 
-      {/* ── Blocking-op overlay (export / backup / import / resize) ─────────────── */}
+      {/* ── Blocking-op overlay (export / backup / import / resize) ────────────── */}
       {busy && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[80]" role="status" aria-live="polite">
-          <div className="bg-[#1c1c1c] rounded-2xl px-6 py-5 flex items-center gap-3">
-            <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-            <span className="text-sm text-white/80">{busy}</span>
+        <div className="fixed inset-0 z-[80] flex items-center justify-center" style={{ background: 'rgba(6,6,8,.7)' }} role="status" aria-live="polite">
+          <div className="font-inter flex items-center gap-3 rounded-2xl px-6 py-5" style={{ background: '#16171B', border: '1px solid #2E2F36' }}>
+            <div className="w-4 h-4 rounded-full border-2 border-white/25 border-t-[#C6A052] animate-spin" />
+            <span className="text-[14px] text-[#F5F4F1]">{busy}</span>
           </div>
         </div>
       )}
@@ -987,10 +788,11 @@ export default function HomeScreen() {
       {/* ── Transient success toast ────────────────────────────────────────────── */}
       {infoToast && (
         <div
-          className="fixed left-1/2 -translate-x-1/2 bottom-8 z-[70] bg-white/95 text-black text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg max-w-[90%] text-center"
-          style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
+          className="font-inter fixed left-1/2 -translate-x-1/2 bottom-8 z-[70] flex items-center gap-2 text-[14px] font-medium px-4 py-2.5 rounded-full shadow-lg max-w-[90%]"
+          style={{ marginBottom: 'env(safe-area-inset-bottom)', background: '#16171B', border: '1px solid #2E2F36', color: '#F5F4F1' }}
           role="status"
         >
+          <span className="shrink-0" style={{ width: 6, height: 6, borderRadius: '50%', background: '#C6A052' }} />
           {infoToast}
         </div>
       )}
@@ -998,13 +800,40 @@ export default function HomeScreen() {
       {/* ── Transient error toast ──────────────────────────────────────────────── */}
       {errorToast && (
         <div
-          className="fixed left-1/2 -translate-x-1/2 bottom-8 z-[70] bg-red-500/95 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg max-w-[90%] text-center"
-          style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
+          className="font-inter fixed left-1/2 -translate-x-1/2 bottom-8 z-[70] text-[14px] font-medium px-4 py-2.5 rounded-full shadow-lg max-w-[90%] text-center"
+          style={{ marginBottom: 'env(safe-area-inset-bottom)', background: '#DE5A50', color: '#fff' }}
           role="alert"
         >
           {errorToast}
         </div>
       )}
     </div>
+  )
+}
+
+// ─── Bottom-sheet row (mockup frame 07) ─────────────────────────────────────────
+function MenuRow({ icon, label, onClick, destructive }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full h-[52px] flex items-center gap-[14px] px-5 transition-colors ${
+        destructive ? 'active:bg-[rgba(210,86,75,.1)]' : 'active:bg-[#1C1D22]'}`}
+    >
+      <span className={`flex ${destructive ? 'text-[#DE5A50]' : 'text-[#9C9BA1]'}`}>{icon}</span>
+      <span className={`text-[16px] font-medium ${destructive ? 'text-[#DE5A50]' : 'text-[#F5F4F1]'}`}>{label}</span>
+    </button>
+  )
+}
+
+// ─── Popover row (mockup frame 08) ──────────────────────────────────────────────
+function PopoverRow({ icon, label, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full h-[44px] flex items-center gap-3 px-3 rounded-[10px] active:bg-[#1C1D22] transition-colors"
+    >
+      <span className="flex text-[#9C9BA1]">{icon}</span>
+      <span className="text-[15px] font-medium text-[#F5F4F1]">{label}</span>
+    </button>
   )
 }
