@@ -3,6 +3,7 @@ import { RATIOS, instantiateTemplate, templatePageBg } from './templates'
 import { preloadLayerFonts } from './fonts'
 import { clearImageCaches } from './blobCache'
 import { fitInCell, migrateLayers } from './ratioMigrate'
+import { ADJUSTMENT_PROPS } from './adjustments'
 
 const uid = () => Math.random().toString(36).slice(2)
 
@@ -725,6 +726,25 @@ export const useStore = create((set, get) => ({
   updateLayerWithHistory(id, props) {
     get()._pushHistory()
     get().updateLayer(id, props)
+  },
+
+  // Copy the source photo's FULL adjustment/filter set (every prop in
+  // ADJUSTMENT_PROPS — brightness/contrast/saturation/temperature/tint/vignette/
+  // grain) onto every image layer with a src, as ONE history entry so a single
+  // undo restores them all. The "consistent feed" workflow (issue #61). No-ops
+  // (pushing no history) when the source is missing or nothing would change.
+  applyAdjustmentsToAll(sourceId) {
+    const { layers } = get()
+    const source = layers.find(l => l.id === sourceId)
+    if (!source) return
+    const adj = {}
+    for (const k of ADJUSTMENT_PROPS) adj[k] = source[k] ?? 0
+    const targets = layers.filter(l => l.src && l.id !== sourceId)
+    // Skip when no other photo would actually change (avoids an empty undo entry).
+    const changes = targets.some(l => ADJUSTMENT_PROPS.some(k => (l[k] ?? 0) !== adj[k]))
+    if (!changes) return
+    get()._pushHistory()
+    set(s => ({ layers: s.layers.map(l => (l.src ? { ...l, ...adj } : l)) }))
   },
 
   // Manual per-layer lock. NOTE: distinct from `locked`, which flags a template

@@ -13,6 +13,7 @@ import {
 } from '../icons'
 import { FONTS, loadFont } from '../../fonts'
 import { SHAPE_LAYER_TYPES, STROKE_AWARE_SHAPES } from '../../shapes'
+import { FILTER_PRESETS, presetAdjust, presetMatches, buildFilterString, ADJUSTMENT_PROPS } from '../../adjustments'
 import ShapePreview from '../ShapePreview'
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
@@ -865,11 +866,88 @@ function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElemen
 
 // ─── Adjust panel ─────────────────────────────────────────────────────────────
 
+// A colourful sample surface so preset thumbnails show a real, live preview of
+// each look through the SHARED buildFilterString (skin/sky/foliage tones read
+// temperature, saturation, and B&W presets clearly). Grain is omitted in the
+// thumbnail; vignette is shown via the radial overlay below.
+const PRESET_SAMPLE_BG =
+  'linear-gradient(135deg, #f6cda2 0%, #e88a5a 24%, #6fb3d6 52%, #3a7d44 78%, #23304a 100%)'
+
+function PresetChip({ preset, active, onTap }) {
+  const filter = buildFilterString(presetAdjust(preset))
+  const vig = preset.adjust.vignette ?? 0
+  return (
+    <button onClick={onTap}
+      className="flex flex-col items-center gap-1.5 shrink-0 active:opacity-70"
+      style={{ scrollSnapAlign: 'start' }}>
+      <div className={`relative w-12 h-12 rounded-xl overflow-hidden border-2 transition-colors ${
+        active ? 'border-blue-400' : 'border-white/15'
+      }`}>
+        <div className="absolute inset-0" style={{ background: PRESET_SAMPLE_BG, filter }} />
+        {vig > 0 && (
+          <div className="absolute inset-0" style={{
+            background: `radial-gradient(circle at 50% 50%, transparent 45%, rgba(0,0,0,${(vig / 100) * 0.85}) 100%)`,
+          }} />
+        )}
+      </div>
+      <span className={`text-[10px] leading-none whitespace-nowrap ${active ? 'text-blue-400' : 'text-white/55'}`}>
+        {preset.name}
+      </span>
+    </button>
+  )
+}
+
+function AdjustSliderRow({ label, value, min, max, bipolar, onChange, onDone }) {
+  const display = bipolar && value > 0 ? `+${value}` : `${value}`
+  return (
+    <div className="py-3 border-b border-white/8 last:border-0">
+      <div className="text-sm font-semibold text-white mb-2.5">{label}</div>
+      <div className="flex items-center gap-3">
+        <input type="range" min={min} max={max} step={1} value={value}
+          onPointerDown={() => useStore.getState()._captureUndo()}
+          onChange={e => onChange(+e.target.value)}
+          onMouseUp={onDone} onTouchEnd={onDone}
+          className="flex-1 accent-white" />
+        <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[64px] text-right shrink-0">
+          <span className="text-white text-sm tabular-nums">{display}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function AdjustPanel({ layer, updateLayer, updateLayerWithHistory, setElementPanel }) {
-  const b = layer.brightness ?? 0
-  const c = layer.contrast   ?? 0
-  const s = layer.saturation ?? 0
-  const hasAdjustment = b !== 0 || c !== 0 || s !== 0
+  const layers = useStore(s => s.layers)
+  const applyAdjustmentsToAll = useStore(s => s.applyAdjustmentsToAll)
+  const [confirmAll, setConfirmAll] = useState(false)
+
+  const hasAdjustment = ADJUSTMENT_PROPS.some(k => (layer[k] ?? 0) !== 0)
+  // Other photos this "apply to all" would restyle (image layers with a src).
+  const otherPhotoCount = layers.filter(l => l.src && l.id !== layer.id).length
+
+  // Preset tap = one discrete history entry overwriting the full adjustment set.
+  const applyPreset = (preset) => {
+    const next = presetAdjust(preset)
+    const changed = ADJUSTMENT_PROPS.some(k => (layer[k] ?? 0) !== next[k])
+    applyDiscrete(() => updateLayer(layer.id, next), changed)
+  }
+
+  const resetAll = () => {
+    const cleared = {}
+    for (const k of ADJUSTMENT_PROPS) cleared[k] = 0
+    updateLayerWithHistory(layer.id, cleared)
+    setConfirmAll(false)
+  }
+
+  const SLIDERS = [
+    { label: 'Brightness',  key: 'brightness',  min: -100, max: 100, bipolar: true },
+    { label: 'Contrast',    key: 'contrast',    min: -100, max: 100, bipolar: true },
+    { label: 'Saturation',  key: 'saturation',  min: -100, max: 100, bipolar: true },
+    { label: 'Temperature', key: 'temperature', min: -100, max: 100, bipolar: true },
+    { label: 'Tint',        key: 'tint',        min: -100, max: 100, bipolar: true },
+    { label: 'Vignette',    key: 'vignette',    min: 0,    max: 100, bipolar: false },
+    { label: 'Grain',       key: 'grain',       min: 0,    max: 100, bipolar: false },
+  ]
 
   return (
     <div className="border-t border-white/10">
@@ -878,7 +956,7 @@ function AdjustPanel({ layer, updateLayer, updateLayerWithHistory, setElementPan
         <div className="flex items-center gap-3">
           {hasAdjustment && (
             <button
-              onClick={() => updateLayerWithHistory(layer.id, { brightness: 0, contrast: 0, saturation: 0 })}
+              onClick={resetAll}
               className="text-white text-sm font-semibold active:opacity-60 bg-white/10 px-3 py-1 rounded-full">
               Reset
             </button>
@@ -888,27 +966,60 @@ function AdjustPanel({ layer, updateLayer, updateLayerWithHistory, setElementPan
           </button>
         </div>
       </div>
-      <div className="px-5 pb-6 pt-2 space-y-0">
-        {[
-          { label: 'Brightness', key: 'brightness', val: b },
-          { label: 'Contrast',   key: 'contrast',   val: c },
-          { label: 'Saturation', key: 'saturation', val: s },
-        ].map(({ label, key, val }) => (
-          <div key={key} className="py-3 border-b border-white/8 last:border-0">
-            <div className="text-sm font-semibold text-white mb-2.5">{label}</div>
-            <div className="flex items-center gap-3">
-              <input type="range" min={-100} max={100} step={1} value={val}
-                onPointerDown={() => useStore.getState()._captureUndo()}
-                onChange={e => updateLayer(layer.id, { [key]: +e.target.value })}
-                onMouseUp={() => useStore.getState()._commitUndo()}
-                onTouchEnd={() => useStore.getState()._commitUndo()}
-                className="flex-1 accent-white" />
-              <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[64px] text-right shrink-0">
-                <span className="text-white text-sm tabular-nums">{val > 0 ? `+${val}` : val}</span>
-              </div>
-            </div>
-          </div>
+
+      {/* Preset strip — one-tap looks, live thumbnails through the shared filter */}
+      <div className="px-4 pt-3 pb-1">
+        <div className="text-[11px] text-white/35 uppercase tracking-wider mb-2">Filters</div>
+        <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide"
+          style={{ scrollSnapType: 'x mandatory' }}>
+          {FILTER_PRESETS.map(p => (
+            <PresetChip key={p.id} preset={p} active={presetMatches(layer, p)} onTap={() => applyPreset(p)} />
+          ))}
+        </div>
+      </div>
+
+      <div className="px-5 pt-1 overflow-y-auto" style={{ maxHeight: '42vh' }}>
+        {SLIDERS.map(({ label, key, min, max, bipolar }) => (
+          <AdjustSliderRow key={key} label={label}
+            value={layer[key] ?? 0} min={min} max={max} bipolar={bipolar}
+            onChange={v => updateLayer(layer.id, { [key]: v })}
+            onDone={() => useStore.getState()._commitUndo()} />
         ))}
+      </div>
+
+      {/* Apply to all slides — overwrites every other photo's adjustments (one undo) */}
+      <div className="px-4 py-3 border-t border-white/8">
+        {confirmAll ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-white/60 flex-1">
+              Overwrite {otherPhotoCount} other {otherPhotoCount === 1 ? 'photo' : 'photos'}?
+            </span>
+            <button onClick={() => setConfirmAll(false)}
+              className="text-xs text-white/70 bg-white/10 px-3 py-2 rounded-lg active:bg-white/15">
+              Cancel
+            </button>
+            <button
+              onClick={() => { applyAdjustmentsToAll(layer.id); setConfirmAll(false) }}
+              className="text-xs font-semibold text-white bg-blue-500 px-3 py-2 rounded-lg active:bg-blue-600">
+              Apply
+            </button>
+          </div>
+        ) : (
+          <button
+            disabled={otherPhotoCount === 0}
+            onClick={() => setConfirmAll(true)}
+            className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium transition-colors ${
+              otherPhotoCount === 0
+                ? 'bg-white/5 text-white/25'
+                : 'bg-white/12 text-white active:bg-white/20'
+            }`}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
+            </svg>
+            Apply to all slides
+          </button>
+        )}
       </div>
     </div>
   )
