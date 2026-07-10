@@ -389,6 +389,17 @@ export const useStore = create((set, get) => ({
       lineHeight: 1.2,
       letterSpacing: 0,
       opacity: 1,
+      // Text effects (issue #62). Shadow uses Konva Text's native prop names so the
+      // editor node can consume them directly; shadowColor null = no shadow. Outline
+      // uses dedicated textStroke/textStrokeWidth to stay distinct from the shape
+      // layer's stroke/strokeWidth semantics.
+      shadowColor: null,
+      shadowBlur: 0,
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowOpacity: 1,
+      textStroke: null,
+      textStrokeWidth: 0,
     }
     set(s => ({
       layers: [...s.layers, layer],

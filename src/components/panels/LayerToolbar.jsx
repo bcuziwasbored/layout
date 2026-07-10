@@ -17,6 +17,26 @@ import { SHADOW_PRESETS, shadowPresetMatches } from '../../shadow'
 import { FILTER_PRESETS, presetAdjust, presetMatches, buildFilterString, ADJUSTMENT_PROPS } from '../../adjustments'
 import ShapePreview from '../ShapePreview'
 
+// ─── Text style presets (issue #62) ─────────────────────────────────────────────
+// Curated one-tap combos of font + weight + color + shadow/outline + letterSpacing.
+// Each preset defines the FULL effect field set so applying one is a clean reset —
+// switching presets never leaves a stray shadow/outline from the previous choice.
+// Applied as a single discrete history entry (applyPreset), with the font loaded on
+// apply. shadow*/textStroke* field names match the layer defaults and render paths.
+const TEXT_PRESETS = [
+  { name: 'Clean',    fontFamily: 'Inter',              color: '#111111' },
+  { name: 'Headline', fontFamily: 'Anton',              color: '#111111', letterSpacing: 1 },
+  { name: 'Outline',  fontFamily: 'Poppins', bold: true, color: '#ffffff', textStroke: '#111111', textStrokeWidth: 7 },
+  { name: 'Glow',     fontFamily: 'Poppins', bold: true, color: '#ffffff', shadowColor: '#22d3ee', shadowBlur: 24, shadowOpacity: 0.9 },
+  { name: 'Soft',     fontFamily: 'Poppins',            color: '#1f2937', shadowColor: '#000000', shadowBlur: 10, shadowOffsetY: 6, shadowOpacity: 0.35 },
+  { name: 'Pop',      fontFamily: 'Montserrat', bold: true, color: '#ffffff', shadowColor: '#111111', shadowBlur: 0, shadowOffsetX: 6, shadowOffsetY: 6 },
+  { name: 'Sticker',  fontFamily: 'Bebas Neue',         color: '#ffffff', textStroke: '#111111', textStrokeWidth: 9, shadowColor: '#000000', shadowBlur: 4, shadowOffsetY: 4, shadowOpacity: 0.4 },
+  { name: 'Retro',    fontFamily: 'Playfair Display', bold: true, color: '#f5d76e', shadowColor: '#7b3f00', shadowBlur: 0, shadowOffsetX: 4, shadowOffsetY: 4 },
+  { name: 'Elegant',  fontFamily: 'Cormorant Garamond', italic: true, color: '#2d2a26', letterSpacing: 3 },
+  { name: 'Script',   fontFamily: 'Pacifico',           color: '#ec4899', shadowColor: '#000000', shadowBlur: 8, shadowOffsetX: 2, shadowOffsetY: 4, shadowOpacity: 0.3 },
+  { name: 'Neon',     fontFamily: 'Space Grotesk', bold: true, color: '#ff2d95', shadowColor: '#ff2d95', shadowBlur: 20, shadowOpacity: 1 },
+]
+
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
 // Capture-on-start / commit-on-release helper for <input type="color"> scrubbing,
@@ -491,10 +511,50 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
   const addRecentColor = useStore(s => s.addRecentColor)
   const colorScrub = useColorScrub()
   const textBgScrub = useColorScrub()
+  const shadowScrub = useColorScrub()
+  const strokeScrub = useColorScrub()
 
   const setFont = (family) => {
     loadFont(family)
     applyDiscrete(() => updateLayer(layer.id, { fontFamily: family }), family !== layer.fontFamily)
+  }
+
+  // One-tap preset: load the font and write the full effect field set as a single
+  // discrete history entry. Passing changed=true is safe — _commitUndo drops the
+  // entry if the snapshot is unchanged (re-tapping the active preset is a no-op).
+  const applyPreset = (p) => {
+    loadFont(p.fontFamily)
+    applyDiscrete(() => updateLayer(layer.id, {
+      fontFamily: p.fontFamily,
+      bold: !!p.bold,
+      italic: !!p.italic,
+      color: p.color,
+      letterSpacing: p.letterSpacing ?? 0,
+      shadowColor: p.shadowColor ?? null,
+      shadowBlur: p.shadowBlur ?? 0,
+      shadowOffsetX: p.shadowOffsetX ?? 0,
+      shadowOffsetY: p.shadowOffsetY ?? 0,
+      shadowOpacity: p.shadowOpacity ?? 1,
+      textStroke: p.textStroke ?? null,
+      textStrokeWidth: p.textStrokeWidth ?? 0,
+    }), true)
+  }
+
+  // Enable/disable the drop shadow. Enabling seeds sensible defaults (and keeps any
+  // prior blur/offset so re-toggling restores the user's tuning); disabling clears
+  // shadowColor, which is what both render paths gate the shadow on.
+  const toggleShadow = () => {
+    if (layer.shadowColor) {
+      applyDiscrete(() => updateLayer(layer.id, { shadowColor: null }), true)
+    } else {
+      applyDiscrete(() => updateLayer(layer.id, {
+        shadowColor: '#000000',
+        shadowBlur: layer.shadowBlur || 8,
+        shadowOffsetX: layer.shadowOffsetX ?? 0,
+        shadowOffsetY: layer.shadowOffsetY || 6,
+        shadowOpacity: layer.shadowOpacity ?? 1,
+      }), true)
+    }
   }
 
   // Group fonts by category for section headers
@@ -521,6 +581,23 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
 
   return (
     <div className="px-4 pb-6 pt-2 overflow-y-auto" style={{ maxHeight: '62vh' }}>
+
+      {/* Style presets — one-tap combos (issue #62) */}
+      <div className="mb-4">
+        <div className="text-xs text-white/35 uppercase tracking-wider mb-2">Presets</div>
+        <div className="flex gap-2 items-center overflow-x-auto pb-1 -mx-1 px-1">
+          {TEXT_PRESETS.map(p => (
+            <button
+              key={p.name}
+              onClick={() => applyPreset(p)}
+              style={{ fontFamily: p.fontFamily }}
+              className="shrink-0 px-3.5 py-2.5 rounded-xl text-sm whitespace-nowrap bg-white/10 text-white/85 active:bg-white/25 transition-colors"
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Font family — horizontal scroll */}
       <div className="mb-4">
@@ -672,6 +749,104 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
               <span className="text-white/40 text-[11px] ml-0.5">%</span>
             </div>
           </div>
+        )}
+      </div>
+
+      {/* Outline / stroke */}
+      <div className="py-3 border-b border-white/8">
+        <div className="text-sm font-semibold text-white mb-2.5">Outline</div>
+        <div className="flex items-center gap-3">
+          <input type="range" min={0} max={40} step={1}
+            value={layer.textStrokeWidth ?? 0}
+            onChange={e => {
+              const v = +e.target.value
+              updateLayer(layer.id, { textStrokeWidth: v, ...(v > 0 && !layer.textStroke ? { textStroke: '#000000' } : {}) })
+            }}
+            onPointerDown={() => useStore.getState()._captureUndo()}
+            onMouseUp={() => useStore.getState()._commitUndo()}
+            onTouchEnd={() => useStore.getState()._commitUndo()}
+            className="flex-1 accent-white" />
+          <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[56px] text-right shrink-0">
+            <span className="text-white text-sm tabular-nums">{layer.textStrokeWidth ?? 0}</span>
+            <span className="text-white/40 text-[11px] ml-0.5">px</span>
+          </div>
+        </div>
+        {(layer.textStrokeWidth ?? 0) > 0 && (
+          <button className="flex items-center gap-3 active:opacity-60 relative w-full mt-3">
+            <div className="w-8 h-8 rounded-full border-2 border-white/20"
+              style={{ background: layer.textStroke ?? '#000000' }} />
+            <span className="text-sm text-white/60">{(layer.textStroke ?? '#000000').toUpperCase()}</span>
+            <span className="text-white/30 text-lg ml-auto pr-1">›</span>
+            <input type="color" value={layer.textStroke ?? '#000000'}
+              onPointerDown={() => strokeScrub.start(layer.textStroke ?? '#000000')}
+              onFocus={() => strokeScrub.start(layer.textStroke ?? '#000000')}
+              onChange={e => { strokeScrub.start(layer.textStroke ?? '#000000'); updateLayer(layer.id, { textStroke: e.target.value }) }}
+              onBlur={e => { strokeScrub.end(e.target.value); addRecentColor(e.target.value) }}
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+          </button>
+        )}
+      </div>
+
+      {/* Drop shadow */}
+      <div className="py-3 border-b border-white/8">
+        <div className="flex items-center justify-between mb-2.5">
+          <div className="text-sm font-semibold text-white">Shadow</div>
+          <button onClick={toggleShadow}
+            className={`text-xs px-3 py-1.5 rounded-full transition-colors ${
+              layer.shadowColor ? 'bg-white text-black' : 'bg-white/10 text-white/60 active:bg-white/20'
+            }`}>
+            {layer.shadowColor ? 'On' : 'Off'}
+          </button>
+        </div>
+        {layer.shadowColor && (
+          <>
+            <button className="flex items-center gap-3 active:opacity-60 relative w-full mb-3">
+              <div className="w-8 h-8 rounded-full border-2 border-white/20"
+                style={{ background: layer.shadowColor }} />
+              <span className="text-sm text-white/60">{layer.shadowColor.toUpperCase()}</span>
+              <span className="text-white/30 text-lg ml-auto pr-1">›</span>
+              <input type="color" value={layer.shadowColor}
+                onPointerDown={() => shadowScrub.start(layer.shadowColor)}
+                onFocus={() => shadowScrub.start(layer.shadowColor)}
+                onChange={e => { shadowScrub.start(layer.shadowColor); updateLayer(layer.id, { shadowColor: e.target.value }) }}
+                onBlur={e => { shadowScrub.end(e.target.value); addRecentColor(e.target.value) }}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+            </button>
+            {[
+              { label: 'Blur',     prop: 'shadowBlur',    min: 0,   max: 50,  step: 1, unit: 'px', def: 0 },
+              { label: 'Offset X', prop: 'shadowOffsetX', min: -50, max: 50,  step: 1, unit: 'px', def: 0 },
+              { label: 'Offset Y', prop: 'shadowOffsetY', min: -50, max: 50,  step: 1, unit: 'px', def: 0 },
+            ].map(({ label, prop, min, max, step, unit, def }) => (
+              <div key={prop} className="flex items-center gap-3 mb-2">
+                <span className="text-xs text-white/50 w-16 shrink-0">{label}</span>
+                <input type="range" min={min} max={max} step={step}
+                  value={layer[prop] ?? def}
+                  onChange={e => updateLayer(layer.id, { [prop]: +e.target.value })}
+                  onPointerDown={() => useStore.getState()._captureUndo()}
+                  onMouseUp={() => useStore.getState()._commitUndo()}
+                  onTouchEnd={() => useStore.getState()._commitUndo()}
+                  className="flex-1 accent-white" />
+                <div className="bg-white/10 rounded-lg px-2 py-1 min-w-[48px] text-right shrink-0">
+                  <span className="text-white text-xs tabular-nums">{layer[prop] ?? def}</span>
+                  <span className="text-white/40 text-[10px] ml-0.5">{unit}</span>
+                </div>
+              </div>
+            ))}
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-white/50 w-16 shrink-0">Opacity</span>
+              <input type="range" min={0} max={100} step={1}
+                value={Math.round((layer.shadowOpacity ?? 1) * 100)}
+                onChange={e => updateLayer(layer.id, { shadowOpacity: +e.target.value / 100 })}
+                onPointerDown={() => useStore.getState()._captureUndo()}
+                onMouseUp={() => useStore.getState()._commitUndo()}
+                onTouchEnd={() => useStore.getState()._commitUndo()}
+                className="flex-1 accent-white" />
+              <div className="bg-white/10 rounded-lg px-2 py-1 min-w-[48px] text-right shrink-0">
+                <span className="text-white text-xs tabular-nums">{Math.round((layer.shadowOpacity ?? 1) * 100)}</span>
+                <span className="text-white/40 text-[10px] ml-0.5">%</span>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
