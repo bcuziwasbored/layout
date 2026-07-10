@@ -688,6 +688,27 @@ export const useStore = create((set, get) => ({
     set(s => ({ layers: [...s.layers, layer], activeLayerId: layer.id, panel: null }))
   },
 
+  // Place a rasterized sticker (a transparent PNG data URL) as a free-floating
+  // image layer, centred on the active slide at ~30% slide width, sized to the
+  // sticker's own aspect ratio, and auto-selected for immediate manipulation.
+  // Goes through the same image-layer shape as everything else (src/srcOriginal/
+  // imgId) so undo/redo, persistence and export are unchanged (issue #67).
+  addStickerLayer(src, naturalW, naturalH, imgId) {
+    get()._pushHistory()
+    const { ratio, activeSlideIdx } = get()
+    const si = activeSlideIdx
+    const w = Math.round(ratio.w * 0.3)
+    const h = Math.max(1, Math.round(w * (naturalH / naturalW)))
+    const fit = fitInCell(naturalW, naturalH, w, h)
+    const layer = {
+      id: uid(), type: 'image', src, srcOriginal: src, imgId: imgId ?? uid(),
+      x: si * ratio.w + Math.round((ratio.w - w) / 2),
+      y: Math.round((ratio.h - h) / 2),
+      w, h, opacity: 1, naturalW, naturalH, ...fit,
+    }
+    set(s => ({ layers: [...s.layers, layer], activeLayerId: layer.id, panel: null, elementPanel: null }))
+  },
+
   fillCells(processedImages, contextLayerId = null, replaceFilled = false) {
     // Fill cells with pre-processed images [{src, naturalW, naturalH}].
     // Scope: if the context layer belongs to a template group, fills cells across

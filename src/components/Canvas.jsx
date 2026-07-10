@@ -15,6 +15,12 @@ import { useCanvasPicker } from '../CanvasContext'
 
 const MAX_DIM = 2048
 
+// Source types that can carry an alpha channel. When we downscale one of these we
+// MUST re-encode as PNG — re-encoding to JPEG bakes an opaque (black/white)
+// background in and destroys transparency (issue #67). JPEG stays JPEG so photo
+// imports keep their size discipline.
+const ALPHA_SOURCE_TYPES = new Set(['image/png', 'image/webp', 'image/svg+xml', 'image/gif'])
+
 function processImageFile(file) {
   // Stable content id for this imported image. Travels with the image onto the
   // layer (as layer.imgId) so undo/redo can restore the exact image a snapshot
@@ -49,7 +55,9 @@ function processImageFile(file) {
           blobCache.set(rawUrl, file)
           resolve({ src: url, srcOriginal: rawUrl, naturalW: w, naturalH: h, imgId })
         },
-        'image/jpeg', 0.92,
+        // Keep PNG for alpha-capable sources so transparency survives the downscale;
+        // everything else re-encodes as JPEG q0.92 for size (issue #67).
+        ALPHA_SOURCE_TYPES.has(file.type) ? 'image/png' : 'image/jpeg', 0.92,
       )
     }
     img.onerror = () => { URL.revokeObjectURL(rawUrl); reject(new Error('load failed')) }
