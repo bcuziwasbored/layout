@@ -1353,6 +1353,265 @@ const STYLED_TEMPLATES = [
       { x: 0.2, y: 0.66, w: 0.6, h: 0.04, text: 'AUTUMN 2026', font: 'Space Grotesk', size: 0.018, color: '#C6A052', align: 'center', valign: 'top', bold: true, tracking: 0.0054 },
     ],
   },
+
+  // ===============================================================================
+  // -- Photo templates from Claude Design (batch 2, follows PR #79) ---------------
+  // 15 niche "photo" designs, converted with the batch-1 conventions (page-relative
+  // x -> x_repo = page + x_src; fontSize -> size; tracking = letterSpacing x
+  // fontSize; width-fraction cell cornerRadius; text valign 'top'). New in this
+  // batch: optional `rotation` (deg) on cells/shapes/text -> freeRotation, and
+  // `behind: true` polaroid frames that render under their photo cell. "Seamless
+  // Panorama" collapses its two full-page cells into one cross-slide spanning cell
+  // (x:0, w:2), matching its "ONE PHOTO . TWO SLIDES" intent.
+  // ===============================================================================
+  {
+    id: 'full-frame-story', label: 'Full Frame Story', category: 'photo', pageSpan: 3,
+    bg: { color: '#100F0D' },
+    cells: [
+      { x: 0, y: 0, w: 1, h: 1 },
+      { x: 1, y: 0, w: 1, h: 1 },
+      { x: 2, y: 0, w: 1, h: 1 },
+    ],
+    shapeLayers: [
+      { shapeType: 'rect', x: 0, y: 0.6, w: 1, h: 0.4, fill: '#0B0A08', opacity: 0.5 },
+    ],
+    textLayers: [
+      { x: 0.07, y: 0.79, w: 0.6, h: 0.03, text: 'PHOTO STORY', font: 'Work Sans', size: 0.015, color: '#C6A052', align: 'left', valign: 'top', bold: true, lineHeight: 1.2, tracking: 0.0039 },
+      { x: 0.07, y: 0.825, w: 0.8, h: 0.09, text: 'A weekend north', font: 'Playfair Display', size: 0.05, color: '#FFFFFF', align: 'left', valign: 'top', bold: true, lineHeight: 1.05 },
+      { x: 1.82, y: 0.9, w: 0.12, h: 0.04, text: '02', font: 'Space Grotesk', size: 0.018, color: '#FFFFFF', align: 'right', valign: 'top', bold: true, lineHeight: 1.2, tracking: 0.0009 },
+      { x: 2.82, y: 0.9, w: 0.12, h: 0.04, text: '03', font: 'Space Grotesk', size: 0.018, color: '#FFFFFF', align: 'right', valign: 'top', bold: true, lineHeight: 1.2, tracking: 0.0009 },
+    ],
+  },
+  {
+    id: 'polaroid-spread', label: 'Polaroid Spread', category: 'photo', pageSpan: 2,
+    bg: { color: '#ECE4D6' },
+    cells: [
+      { x: 0.085, y: 0.225, w: 0.37, h: 0.42 },
+      { x: 0.545, y: 0.325, w: 0.37, h: 0.42 },
+      { x: 1.085, y: 0.325, w: 0.37, h: 0.42 },
+      { x: 1.545, y: 0.185, w: 0.37, h: 0.42 },
+    ],
+    shapeLayers: [
+      { shapeType: 'rect', x: 0.06, y: 0.2, w: 0.42, h: 0.54, fill: '#FBF8F2', cornerRadius: 0.006, behind: true },
+      { shapeType: 'rect', x: 0.52, y: 0.3, w: 0.42, h: 0.54, fill: '#FBF8F2', cornerRadius: 0.006, behind: true },
+      { shapeType: 'rect', x: 1.06, y: 0.3, w: 0.42, h: 0.54, fill: '#FBF8F2', cornerRadius: 0.006, behind: true },
+      { shapeType: 'rect', x: 1.52, y: 0.16, w: 0.42, h: 0.54, fill: '#FBF8F2', cornerRadius: 0.006, behind: true },
+    ],
+    textLayers: [
+      { x: 0.08, y: 0.06, w: 0.7, h: 0.08, text: 'the film roll', font: 'Dancing Script', size: 0.045, color: '#4A3B2A', align: 'left', valign: 'top', bold: true, lineHeight: 1 },
+    ],
+  },
+  {
+    id: 'collage-mix', label: 'Collage Mix', category: 'photo', pageSpan: 3,
+    bg: { color: '#F1EEE7' },
+    cells: [
+      { x: 0.06, y: 0.08, w: 0.88, h: 0.82, cornerRadius: 0.02 },
+      { x: 1.06, y: 0.09, w: 0.43, h: 0.4, cornerRadius: 0.02 },
+      { x: 1.51, y: 0.09, w: 0.43, h: 0.4, cornerRadius: 0.02 },
+      { x: 1.06, y: 0.51, w: 0.43, h: 0.4, cornerRadius: 0.02 },
+      { x: 1.51, y: 0.51, w: 0.43, h: 0.4, cornerRadius: 0.02 },
+      { x: 2.06, y: 0.09, w: 0.88, h: 0.48, cornerRadius: 0.02 },
+      { x: 2.06, y: 0.61, w: 0.43, h: 0.3, cornerRadius: 0.02 },
+      { x: 2.51, y: 0.61, w: 0.43, h: 0.3, cornerRadius: 0.02 },
+    ],
+    textLayers: [
+      { x: 0.06, y: 0.925, w: 0.88, h: 0.03, text: 'SWIPE FOR MORE →', font: 'Space Grotesk', size: 0.014, color: '#A9A295', align: 'center', valign: 'top', lineHeight: 1.2, tracking: 0.00196 },
+    ],
+  },
+  {
+    id: 'scattered-film', label: 'Scattered Film', category: 'photo', pageSpan: 2,
+    bg: { color: '#E6DECF' },
+    cells: [
+      { x: 0.1, y: 0.19, w: 0.36, h: 0.4, rotation: -7 },
+      { x: 0.54, y: 0.36, w: 0.36, h: 0.4, rotation: 6 },
+      { x: 1.32, y: 0.11, w: 0.36, h: 0.36, rotation: 4 },
+      { x: 1.08, y: 0.52, w: 0.34, h: 0.34, rotation: -5 },
+      { x: 1.58, y: 0.54, w: 0.34, h: 0.34, rotation: 7 },
+    ],
+    shapeLayers: [
+      { shapeType: 'rect', x: 0.08, y: 0.17, w: 0.4, h: 0.5, fill: '#FCFAF4', cornerRadius: 0.006, rotation: -7, behind: true },
+      { shapeType: 'rect', x: 0.52, y: 0.34, w: 0.4, h: 0.5, fill: '#FCFAF4', cornerRadius: 0.006, rotation: 6, behind: true },
+      { shapeType: 'rect', x: 1.3, y: 0.09, w: 0.4, h: 0.46, fill: '#FCFAF4', cornerRadius: 0.006, rotation: 4, behind: true },
+      { shapeType: 'rect', x: 1.06, y: 0.5, w: 0.38, h: 0.44, fill: '#FCFAF4', cornerRadius: 0.006, rotation: -5, behind: true },
+      { shapeType: 'rect', x: 1.56, y: 0.52, w: 0.38, h: 0.44, fill: '#FCFAF4', cornerRadius: 0.006, rotation: 7, behind: true },
+    ],
+    textLayers: [
+      { x: 0.08, y: 0.055, w: 0.76, h: 0.08, text: 'summer, unfiltered', font: 'Dancing Script', size: 0.042, color: '#4A3B2A', align: 'left', valign: 'top', bold: true, lineHeight: 1, rotation: -2 },
+    ],
+  },
+  {
+    id: 'taped-snapshots', label: 'Taped Snapshots', category: 'photo',
+    bg: { color: '#EDE9E0' },
+    cells: [
+      { x: 0.08, y: 0.13, w: 0.42, h: 0.32, cornerRadius: 0.004, rotation: -4 },
+      { x: 0.52, y: 0.3, w: 0.42, h: 0.32, cornerRadius: 0.004, rotation: 5 },
+      { x: 0.08, y: 0.6, w: 0.4, h: 0.32, cornerRadius: 0.004, rotation: 3 },
+    ],
+    shapeLayers: [
+      { shapeType: 'rect', x: 0.24, y: 0.105, w: 0.1, h: 0.035, fill: '#D9CDAF', opacity: 0.85, cornerRadius: 0.002, rotation: -4 },
+      { shapeType: 'rect', x: 0.66, y: 0.275, w: 0.1, h: 0.035, fill: '#D9CDAF', opacity: 0.85, cornerRadius: 0.002, rotation: 5 },
+      { shapeType: 'rect', x: 0.22, y: 0.575, w: 0.1, h: 0.035, fill: '#D9CDAF', opacity: 0.85, cornerRadius: 0.002, rotation: 3 },
+    ],
+    textLayers: [
+      { x: 0.08, y: 0.055, w: 0.8, h: 0.03, text: '// the week in frames', font: 'Space Grotesk', size: 0.016, color: '#8A7F6B', align: 'left', valign: 'top', lineHeight: 1.2, tracking: 0.00096 },
+    ],
+  },
+  {
+    id: 'editorial-spread', label: 'Editorial Spread', category: 'photo', pageSpan: 2,
+    bg: { color: '#F2EFE8' },
+    cells: [
+      { x: 0.08, y: 0.12, w: 0.84, h: 0.64, cornerRadius: 0.008 },
+      { x: 1.08, y: 0.1, w: 0.4, h: 0.58, cornerRadius: 0.008 },
+      { x: 1.52, y: 0.1, w: 0.4, h: 0.58, cornerRadius: 0.008 },
+    ],
+    textLayers: [
+      { x: 0.08, y: 0.065, w: 0.4, h: 0.03, text: 'N° 12', font: 'Space Grotesk', size: 0.015, color: '#A79B84', align: 'left', valign: 'top', lineHeight: 1.2, tracking: 0.0015 },
+      { x: 0.52, y: 0.065, w: 0.4, h: 0.03, text: 'SHOT ON 35MM', font: 'Space Grotesk', size: 0.015, color: '#A79B84', align: 'right', valign: 'top', lineHeight: 1.2, tracking: 0.0018 },
+      { x: 0.08, y: 0.8, w: 0.84, h: 0.12, text: 'Golden hour, somewhere off the coast.', font: 'Cormorant Garamond', size: 0.038, color: '#33302A', align: 'left', valign: 'top', italic: true, lineHeight: 1.2 },
+      { x: 1.08, y: 0.73, w: 0.84, h: 0.1, text: 'Two frames, one long afternoon.', font: 'Cormorant Garamond', size: 0.034, color: '#33302A', align: 'center', valign: 'top', italic: true, lineHeight: 1.25 },
+    ],
+  },
+  {
+    id: 'seamless-panorama', label: 'Seamless Panorama', category: 'photo', pageSpan: 2,
+    bg: { color: '#0E0D0C' },
+    cells: [
+      { x: 0, y: 0, w: 2, h: 1 },
+    ],
+    shapeLayers: [
+      { shapeType: 'rect', x: 0, y: 0.82, w: 1, h: 0.18, fill: '#0B0A08', opacity: 0.42 },
+    ],
+    textLayers: [
+      { x: 0.06, y: 0.905, w: 0.7, h: 0.03, text: 'ONE PHOTO · TWO SLIDES →', font: 'Space Grotesk', size: 0.014, color: '#C6A052', align: 'left', valign: 'top', bold: true, lineHeight: 1.2, tracking: 0.00252 },
+    ],
+  },
+  {
+    id: 'nine-up', label: 'Nine Up', category: 'photo',
+    bg: { color: '#141310' },
+    cells: [
+      { x: 0.05, y: 0.12, w: 0.286, h: 0.24, cornerRadius: 0.006 },
+      { x: 0.357, y: 0.12, w: 0.286, h: 0.24, cornerRadius: 0.006 },
+      { x: 0.664, y: 0.12, w: 0.286, h: 0.24, cornerRadius: 0.006 },
+      { x: 0.05, y: 0.38, w: 0.286, h: 0.24, cornerRadius: 0.006 },
+      { x: 0.357, y: 0.38, w: 0.286, h: 0.24, cornerRadius: 0.006 },
+      { x: 0.664, y: 0.38, w: 0.286, h: 0.24, cornerRadius: 0.006 },
+      { x: 0.05, y: 0.64, w: 0.286, h: 0.24, cornerRadius: 0.006 },
+      { x: 0.357, y: 0.64, w: 0.286, h: 0.24, cornerRadius: 0.006 },
+      { x: 0.664, y: 0.64, w: 0.286, h: 0.24, cornerRadius: 0.006 },
+    ],
+    textLayers: [
+      { x: 0.05, y: 0.055, w: 0.6, h: 0.03, text: 'NINE UP', font: 'Space Grotesk', size: 0.018, color: '#C6A052', align: 'left', valign: 'top', bold: true, lineHeight: 1.2, tracking: 0.0036 },
+      { x: 0.45, y: 0.06, w: 0.5, h: 0.03, text: 'ROLL 07', font: 'Space Grotesk', size: 0.015, color: '#7A756A', align: 'right', valign: 'top', lineHeight: 1.2, tracking: 0.0012 },
+    ],
+  },
+  {
+    id: 'filmstrip-stack', label: 'Filmstrip Stack', category: 'photo',
+    bg: { color: '#16150F' },
+    cells: [
+      { x: 0.06, y: 0.13, w: 0.88, h: 0.24, cornerRadius: 0.006 },
+      { x: 0.06, y: 0.39, w: 0.88, h: 0.24, cornerRadius: 0.006 },
+      { x: 0.06, y: 0.65, w: 0.88, h: 0.24, cornerRadius: 0.006 },
+    ],
+    textLayers: [
+      { x: 0.06, y: 0.055, w: 0.8, h: 0.03, text: '// contact strip', font: 'Space Grotesk', size: 0.016, color: '#C6A052', align: 'left', valign: 'top', lineHeight: 1.2, tracking: 0.00096 },
+    ],
+  },
+  {
+    id: 'portrait-duo', label: 'Portrait Duo', category: 'photo',
+    bg: { color: '#E8E0D2' },
+    cells: [
+      { x: 0.06, y: 0.08, w: 0.43, h: 0.72, cornerRadius: 0.01 },
+      { x: 0.51, y: 0.18, w: 0.43, h: 0.72, cornerRadius: 0.01 },
+    ],
+    textLayers: [
+      { x: 0.06, y: 0.845, w: 0.42, h: 0.07, text: 'a slow week', font: 'Dancing Script', size: 0.036, color: '#4A3B2A', align: 'left', valign: 'top', bold: true, lineHeight: 1, rotation: -2 },
+    ],
+  },
+  {
+    id: 'feature-note', label: 'Feature Note', category: 'photo', pageSpan: 2,
+    bg: { color: '#ECE4D6' },
+    cells: [
+      { x: 0.06, y: 0.08, w: 0.88, h: 0.46, cornerRadius: 0.012 },
+      { x: 0.185, y: 0.59, w: 0.41, h: 0.27, rotation: -4 },
+      { x: 1.06, y: 0.08, w: 0.6, h: 0.42, cornerRadius: 0.01, rotation: -3 },
+      { x: 1.4, y: 0.52, w: 0.54, h: 0.4, cornerRadius: 0.01, rotation: 4 },
+    ],
+    shapeLayers: [
+      { shapeType: 'rect', x: 0.16, y: 0.57, w: 0.46, h: 0.37, fill: '#FCFAF4', cornerRadius: 0.006, rotation: -4, behind: true },
+    ],
+    textLayers: [
+      { x: 0.62, y: 0.68, w: 0.34, h: 0.08, text: 'the good ones', font: 'Dancing Script', size: 0.038, color: '#4A3B2A', align: 'left', valign: 'top', bold: true, lineHeight: 1.05, rotation: 4 },
+    ],
+  },
+  {
+    id: 'polaroid-moment', label: 'Polaroid Moment', category: 'photo',
+    bg: { color: '#E9E1D3' },
+    cells: [
+      { x: 0.215, y: 0.19, w: 0.57, h: 0.505, cornerRadius: 0.004 },
+    ],
+    shapeLayers: [
+      { shapeType: 'rect', x: 0.18, y: 0.155, w: 0.64, h: 0.665, fill: '#FBF8F2', cornerRadius: 0.008, behind: true },
+    ],
+    textLayers: [
+      { x: 0.1, y: 0.075, w: 0.5, h: 0.03, text: 'PHOTO DUMP', font: 'Work Sans', size: 0.015, color: '#A0895F', align: 'left', valign: 'top', bold: true, lineHeight: 1.2, tracking: 0.0045 },
+      { x: 0.44, y: 0.075, w: 0.5, h: 0.03, text: '07 · 26', font: 'Space Grotesk', size: 0.016, color: '#A0895F', align: 'right', valign: 'top', lineHeight: 1.2, tracking: 0.0016 },
+      { x: 0.18, y: 0.715, w: 0.64, h: 0.09, text: 'sunday, unedited', font: 'Dancing Script', size: 0.045, color: '#3A2F22', align: 'center', valign: 'top', bold: true, lineHeight: 1 },
+    ],
+  },
+  {
+    id: 'the-weekend-edit', label: 'The Weekend Edit', category: 'photo',
+    bg: { color: '#ECE7DD' },
+    cells: [
+      { x: 0.06, y: 0.27, w: 0.88, h: 0.4, cornerRadius: 0.012 },
+      { x: 0.06, y: 0.695, w: 0.43, h: 0.235, cornerRadius: 0.012 },
+      { x: 0.51, y: 0.695, w: 0.43, h: 0.235, cornerRadius: 0.012 },
+    ],
+    shapeLayers: [
+      { shapeType: 'rect', x: 0.06, y: 0.235, w: 0.88, h: 0.003, fill: '#CDBFA6' },
+    ],
+    textLayers: [
+      { x: 0.06, y: 0.075, w: 0.88, h: 0.03, text: 'VOL. 07 — AUTUMN NOTES', font: 'Work Sans', size: 0.015, color: '#9C7B4E', align: 'center', valign: 'top', bold: true, lineHeight: 1.2, tracking: 0.0039 },
+      { x: 0.06, y: 0.11, w: 0.88, h: 0.11, text: 'The Weekend Edit', font: 'Cormorant Garamond', size: 0.066, color: '#24211C', align: 'center', valign: 'top', bold: true, lineHeight: 1 },
+    ],
+  },
+  {
+    id: 'contact-sheet', label: 'Contact Sheet', category: 'photo',
+    bg: { color: '#131211' },
+    cells: [
+      { x: 0.06, y: 0.15, w: 0.43, h: 0.24, cornerRadius: 0.006 },
+      { x: 0.51, y: 0.15, w: 0.43, h: 0.24, cornerRadius: 0.006 },
+      { x: 0.06, y: 0.41, w: 0.43, h: 0.24, cornerRadius: 0.006 },
+      { x: 0.51, y: 0.41, w: 0.43, h: 0.24, cornerRadius: 0.006 },
+      { x: 0.06, y: 0.67, w: 0.43, h: 0.24, cornerRadius: 0.006 },
+      { x: 0.51, y: 0.67, w: 0.43, h: 0.24, cornerRadius: 0.006 },
+    ],
+    shapeLayers: [
+      { shapeType: 'rect', x: 0.06, y: 0.115, w: 0.88, h: 0.003, fill: '#2E2B26' },
+    ],
+    textLayers: [
+      { x: 0.06, y: 0.06, w: 0.6, h: 0.03, text: 'CONTACT SHEET', font: 'Space Grotesk', size: 0.02, color: '#C6A052', align: 'left', valign: 'top', bold: true, lineHeight: 1.2, tracking: 0.0036 },
+      { x: 0.44, y: 0.065, w: 0.5, h: 0.03, text: 'ROLL 04 · 36 EXP', font: 'Space Grotesk', size: 0.016, color: '#7A756A', align: 'right', valign: 'top', lineHeight: 1.2, tracking: 0.00128 },
+      { x: 0.06, y: 0.925, w: 0.88, h: 0.03, text: '// selects — keep six, cut the rest', font: 'Space Grotesk', size: 0.015, color: '#67635B', align: 'left', valign: 'top', lineHeight: 1.2, tracking: 0.0006 },
+    ],
+  },
+  {
+    id: 'in-frames-triptych', label: 'In Frames Triptych', category: 'photo',
+    bg: { color: '#1A1815' },
+    cells: [
+      { x: 0.068, y: 0.238, w: 0.247, h: 0.47 },
+      { x: 0.376, y: 0.238, w: 0.247, h: 0.47 },
+      { x: 0.685, y: 0.238, w: 0.247, h: 0.47 },
+    ],
+    shapeLayers: [
+      { shapeType: 'rect', x: 0.05, y: 0.22, w: 0.283, h: 0.56, fill: '#F3EEE4', cornerRadius: 0.004, behind: true },
+      { shapeType: 'rect', x: 0.358, y: 0.22, w: 0.283, h: 0.56, fill: '#F3EEE4', cornerRadius: 0.004, behind: true },
+      { shapeType: 'rect', x: 0.667, y: 0.22, w: 0.283, h: 0.56, fill: '#F3EEE4', cornerRadius: 0.004, behind: true },
+    ],
+    textLayers: [
+      { x: 0.05, y: 0.11, w: 0.6, h: 0.03, text: 'IN FRAMES', font: 'Work Sans', size: 0.017, color: '#C6A052', align: 'left', valign: 'top', bold: true, lineHeight: 1.2, tracking: 0.00476 },
+      { x: 0.55, y: 0.115, w: 0.4, h: 0.03, text: 'NO. 03', font: 'Space Grotesk', size: 0.015, color: '#7C766A', align: 'right', valign: 'top', lineHeight: 1.2, tracking: 0.0015 },
+      { x: 0.08, y: 0.83, w: 0.84, h: 0.08, text: 'three ways to slow down', font: 'Cormorant Garamond', size: 0.042, color: '#EDE6D8', align: 'center', valign: 'top', italic: true, lineHeight: 1.15 },
+    ],
+  },
 ]
 
 export const TEMPLATES = [...GRID_TEMPLATES, ...STYLED_TEMPLATES]
@@ -1413,6 +1672,29 @@ export function instantiateTemplate(template, ratio, offsetX, mkId, placeholderF
   const gy = f => Math.round(f * ratio.h)
   const gw = f => Math.round(f * ratio.w)
   const gh = f => Math.round(f * ratio.h)
+  // Optional `rotation` (degrees) on any cell/shape/text maps to the app's
+  // freeRotation prop; both app and source pivot about the layer centre, so the
+  // mapping is direct. Emitted only when rotated so unrotated layers are unchanged.
+  const rot = deg => (deg ? { freeRotation: deg } : {})
+
+  const pushShape = sh => {
+    layers.push({
+      id: mkId(), type: 'shape', shapeType: sh.shapeType ?? 'rect',
+      x: gx(sh.x), y: gy(sh.y), w: gw(sh.w), h: gh(sh.h),
+      fill: sh.fill ?? '#000000',
+      stroke: sh.stroke ?? null,
+      strokeWidth: sh.strokeWidth ? Math.round(sh.strokeWidth * ratio.h) : 0,
+      cornerRadius: sh.cornerRadius ? Math.round(sh.cornerRadius * ratio.h) : 0,
+      opacity: sh.opacity ?? 1,
+      ...rot(sh.rotation),
+    })
+  }
+
+  // A shape may set `behind: true` to render UNDER the image cells (e.g. a
+  // polaroid frame beneath its photo). Back-to-front order: behind shapes, image
+  // cells, front shapes, text. Default (no `behind`) keeps shapes in front.
+  const shapeLayers = template.shapeLayers ?? []
+  for (const sh of shapeLayers) if (sh.behind) pushShape(sh)
 
   const groupId = mkId()
   for (const cell of template.cells ?? []) {
@@ -1428,6 +1710,7 @@ export function instantiateTemplate(template, ratio, offsetX, mkId, placeholderF
         id: mkId(), type: 'shape', shapeType: shape,
         x: gx(cell.x), y: gy(cell.y), w: gw(cell.w), h: gh(cell.h),
         fill: placeholderFill, stroke: null, strokeWidth: 0, cornerRadius, opacity: 1,
+        ...rot(cell.rotation),
       })
     } else {
       layers.push({
@@ -1436,21 +1719,12 @@ export function instantiateTemplate(template, ratio, offsetX, mkId, placeholderF
         imgX: 0, imgY: 0, imgScale: 1, opacity: 1, naturalW: null, naturalH: null, cellGap: 0,
         ...(shape !== 'rect' ? { shape } : {}),
         ...(cornerRadius ? { cornerRadius } : {}),
+        ...rot(cell.rotation),
       })
     }
   }
 
-  for (const sh of template.shapeLayers ?? []) {
-    layers.push({
-      id: mkId(), type: 'shape', shapeType: sh.shapeType ?? 'rect',
-      x: gx(sh.x), y: gy(sh.y), w: gw(sh.w), h: gh(sh.h),
-      fill: sh.fill ?? '#000000',
-      stroke: sh.stroke ?? null,
-      strokeWidth: sh.strokeWidth ? Math.round(sh.strokeWidth * ratio.h) : 0,
-      cornerRadius: sh.cornerRadius ? Math.round(sh.cornerRadius * ratio.h) : 0,
-      opacity: sh.opacity ?? 1,
-    })
-  }
+  for (const sh of shapeLayers) if (!sh.behind) pushShape(sh)
 
   for (const t of template.textLayers ?? []) {
     layers.push({
@@ -1468,6 +1742,7 @@ export function instantiateTemplate(template, ratio, offsetX, mkId, placeholderF
       letterSpacing: t.tracking ? Math.round(t.tracking * ratio.h) : 0,
       opacity: t.opacity ?? 1,
       ...(t.textBg ? { textBg: t.textBg, textBgOpacity: t.textBgOpacity ?? 1 } : {}),
+      ...rot(t.rotation),
     })
   }
 
