@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useStore } from '../useStore'
-import { RATIOS, TEMPLATES } from '../templates'
+import { RATIOS, TEMPLATES, TEMPLATE_CATEGORIES, templateCategory, isStyledTemplate } from '../templates'
 import { IconClose } from './icons'
+import TemplatePreview from './TemplatePreview'
 import {
   listProjects, loadProject, deleteProject, renameProject, duplicateProject,
   exportProject, backupAllProjects, importProjectFile, duplicateProjectInFormat,
@@ -129,28 +130,36 @@ function ArchiveIcon() {
 
 function TemplateTile({ template, ratio, onClick }) {
   const ps = template.pageSpan ?? 1
+  const styled = isStyledTemplate(template)
   return (
     <button onClick={onClick} className="flex flex-col items-center gap-2 active:opacity-60">
       <div
         className="w-full relative bg-white/8 rounded-xl overflow-hidden border border-white/12"
         style={{ aspectRatio: `${ratio.w * ps} / ${ratio.h}` }}
       >
-        {ps > 1 && Array.from({ length: ps - 1 }, (_, i) => (
-          <div key={`pd${i}`} className="absolute top-0 bottom-0 w-px bg-white/30"
-            style={{ left: `${(i + 1) * 100 / ps}%` }} />
-        ))}
-        {template.cells.length === 0 ? (
-          <div className="absolute inset-0" />
+        {styled ? (
+          // Live canvas preview (real fonts/colors/shapes) for styled templates.
+          <TemplatePreview template={template} ratio={ratio} />
         ) : (
-          template.cells.map((c, i) => (
-            <div key={i} className="absolute bg-white/20 border border-white/15"
-              style={{
-                left:   `${c.x * 100 / ps}%`,
-                top:    `${c.y * 100}%`,
-                width:  `${c.w * 100 / ps}%`,
-                height: `${c.h * 100}%`,
-              }} />
-          ))
+          <>
+            {ps > 1 && Array.from({ length: ps - 1 }, (_, i) => (
+              <div key={`pd${i}`} className="absolute top-0 bottom-0 w-px bg-white/30"
+                style={{ left: `${(i + 1) * 100 / ps}%` }} />
+            ))}
+            {template.cells.length === 0 ? (
+              <div className="absolute inset-0" />
+            ) : (
+              template.cells.map((c, i) => (
+                <div key={i} className="absolute bg-white/20 border border-white/15"
+                  style={{
+                    left:   `${c.x * 100 / ps}%`,
+                    top:    `${c.y * 100}%`,
+                    width:  `${c.w * 100 / ps}%`,
+                    height: `${c.h * 100}%`,
+                  }} />
+              ))
+            )}
+          </>
         )}
         {ps > 1 && (
           <div className="absolute bottom-1.5 right-1.5 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded-full font-medium leading-none">
@@ -353,6 +362,7 @@ export default function HomeScreen() {
 
   const [step, setStep]                   = useState(null)
   const [selectedRatio, setSelectedRatio] = useState(null)
+  const [templateCat, setTemplateCat]     = useState('all')
   const [projects, setProjects]           = useState([])
   const [projectsLoading, setProjectsLoading] = useState(true)
   const [projectsError, setProjectsError] = useState(false)
@@ -558,8 +568,11 @@ export default function HomeScreen() {
     setSelectedRatio(null)
   }
 
-  const singlePageTemplates = TEMPLATES.filter(t => !t.pageSpan || t.pageSpan === 1)
-  const multiPageTemplates  = TEMPLATES.filter(t => t.pageSpan && t.pageSpan > 1)
+  const visibleTemplates = TEMPLATES.filter(t =>
+    t.id !== 'blank' && t.id !== 'single' &&
+    (templateCat === 'all' || templateCategory(t) === templateCat))
+  const singlePageTemplates = visibleTemplates.filter(t => !t.pageSpan || t.pageSpan === 1)
+  const multiPageTemplates  = visibleTemplates.filter(t => t.pageSpan && t.pageSpan > 1)
 
   const isFirstTime = !projectsLoading && !projectsError && projects.length === 0
 
@@ -739,6 +752,19 @@ export default function HomeScreen() {
             </button>
           </div>
 
+          {/* Category tabs */}
+          <div className="flex gap-2 px-5 pb-3 overflow-x-auto scrollbar-hide shrink-0">
+            {TEMPLATE_CATEGORIES.map(c => (
+              <button key={c.id} onClick={() => setTemplateCat(c.id)}
+                className={`shrink-0 text-xs px-3.5 py-1.5 rounded-full border transition-colors ${
+                  templateCat === c.id
+                    ? 'bg-white text-black border-white font-semibold'
+                    : 'bg-white/8 text-white/60 border-white/10 active:bg-white/15'}`}>
+                {c.label}
+              </button>
+            ))}
+          </div>
+
           <div className="flex-1 overflow-y-auto px-5 pb-10">
             {/* Blank option */}
             <button
@@ -758,21 +784,27 @@ export default function HomeScreen() {
               </div>
             </button>
 
-            <div className="text-xs text-white/30 uppercase tracking-wider mb-3">Single Page</div>
-            <div className="grid grid-cols-3 gap-3 mb-8">
-              {singlePageTemplates
-                .filter(t => t.id !== 'blank' && t.id !== 'single')
-                .map(t => (
-                  <TemplateTile key={t.id} template={t} ratio={selectedRatio} onClick={() => handleTemplate(t)} />
-                ))}
-            </div>
+            {singlePageTemplates.length > 0 && (
+              <>
+                <div className="text-xs text-white/30 uppercase tracking-wider mb-3">Single Page</div>
+                <div className="grid grid-cols-3 gap-3 mb-8">
+                  {singlePageTemplates.map(t => (
+                    <TemplateTile key={t.id} template={t} ratio={selectedRatio} onClick={() => handleTemplate(t)} />
+                  ))}
+                </div>
+              </>
+            )}
 
-            <div className="text-xs text-white/30 uppercase tracking-wider mb-3">Multi-Page</div>
-            <div className="grid grid-cols-3 gap-3">
-              {multiPageTemplates.map(t => (
-                <TemplateTile key={t.id} template={t} ratio={selectedRatio} onClick={() => handleTemplate(t)} />
-              ))}
-            </div>
+            {multiPageTemplates.length > 0 && (
+              <>
+                <div className="text-xs text-white/30 uppercase tracking-wider mb-3">Multi-Page</div>
+                <div className="grid grid-cols-3 gap-3">
+                  {multiPageTemplates.map(t => (
+                    <TemplateTile key={t.id} template={t} ratio={selectedRatio} onClick={() => handleTemplate(t)} />
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
