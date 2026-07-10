@@ -1135,6 +1135,224 @@ const STYLED_TEMPLATES = [
         size: 0.032, color: '#0B0B0B', align: 'center', valign: 'middle', tracking: 0.005 },
     ],
   },
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // ── Designer templates from Claude Design (issue #63) ────────────────────────────
+  // Converted from user-provided design specs. Source schema: page-relative x
+  // (x_repo = page + x_src), fontSize→size (height fraction, direct), tracking =
+  // letterSpacing_src × fontSize_src, background solid/gradient → bg. photoCells →
+  // cells carrying an optional crop `shape` (circle/blob) and width-fraction
+  // `cornerRadius` (see instantiateTemplate). Text uses valign 'top' since the
+  // source anchors each box by its top-left corner.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  {
+    id: 'serif-quiet-quote', label: 'Serif Quiet Quote', category: 'quotes',
+    bg: { color: '#F4EEE4' },
+    shapeLayers: [
+      { shapeType: 'rect', x: 0.46, y: 0.275, w: 0.08, h: 0.005, fill: '#B5654A' },
+    ],
+    textLayers: [
+      { x: 0.15, y: 0.2, w: 0.7, h: 0.04, text: 'A NOTE ON CRAFT', font: 'Work Sans', size: 0.018, color: '#B5654A', align: 'center', valign: 'top', bold: true, tracking: 0.00576 },
+      { x: 0.12, y: 0.37, w: 0.76, h: 0.28, text: 'Good design is as little design as possible.', font: 'Playfair Display', size: 0.056, color: '#2B2823', align: 'center', valign: 'top', italic: true, lineHeight: 1.28 },
+      { x: 0.15, y: 0.7, w: 0.7, h: 0.04, text: 'DIETER RAMS', font: 'Work Sans', size: 0.017, color: '#2B2823', align: 'center', valign: 'top', bold: true, tracking: 0.00408 },
+      { x: 0.15, y: 0.745, w: 0.7, h: 0.03, text: 'Industrial Designer', font: 'Lora', size: 0.018, color: '#8A7E6C', align: 'center', valign: 'top', italic: true },
+    ],
+  },
+  {
+    id: 'bold-statement-quote', label: 'Bold Statement Quote', category: 'quotes',
+    bg: { gradient: { angle: 155, stops: ['#1B1613', '#2C221A'] } },
+    shapeLayers: [
+      { shapeType: 'rect', x: 0.08, y: 0.195, w: 0.1, h: 0.006, fill: '#C6A052' },
+    ],
+    textLayers: [
+      { x: 0.08, y: 0.14, w: 0.6, h: 0.04, text: 'STUDIO MANTRA', font: 'Oswald', size: 0.02, color: '#C6A052', align: 'left', valign: 'top', bold: true, tracking: 0.0056 },
+      { x: 0.08, y: 0.3, w: 0.86, h: 0.4, text: "Buy once.\nCry once.", font: 'Anton', size: 0.115, color: '#F2ECE1', align: 'left', valign: 'top', lineHeight: 0.98, tracking: 0.000575 },
+      { x: 0.08, y: 0.8, w: 0.8, h: 0.08, text: 'On the true cost of doing it right the first time.', font: 'DM Sans', size: 0.024, color: '#B4A895', align: 'left', valign: 'top', italic: true, lineHeight: 1.35 },
+    ],
+  },
+  {
+    id: 'bold-hook-tips', label: 'Bold Hook Tips', category: 'tips', pageSpan: 3,
+    bg: { gradient: { angle: 135, stops: ['#1A1A2E', '#16213E'] } },
+    cells: [
+      { x: 1.08, y: 0.66, w: 0.84, h: 0.27, cornerRadius: 0.03 },
+      { x: 2.08, y: 0.66, w: 0.84, h: 0.27, cornerRadius: 0.03 },
+    ],
+    shapeLayers: [
+      { shapeType: 'circle', x: 0.6, y: -0.12, w: 0.52, h: 0.416, fill: '#E94560' },
+      { shapeType: 'rect', x: 1.08, y: 0.33, w: 0.14, h: 0.006, fill: '#E94560' },
+      { shapeType: 'rect', x: 2.08, y: 0.33, w: 0.14, h: 0.006, fill: '#E94560' },
+    ],
+    textLayers: [
+      { x: 0.08, y: 0.13, w: 0.6, h: 0.04, text: 'GROWTH PLAYBOOK', font: 'Space Grotesk', size: 0.019, color: '#E94560', align: 'left', valign: 'top', bold: true, tracking: 0.00418 },
+      { x: 0.08, y: 0.26, w: 0.82, h: 0.4, text: '5 mistakes killing your engagement', font: 'Anton', size: 0.082, color: '#FFFFFF', align: 'left', valign: 'top', lineHeight: 1.02 },
+      { x: 0.08, y: 0.7, w: 0.74, h: 0.06, text: 'Save this before you post again.', font: 'DM Sans', size: 0.026, color: '#C9C9DB', align: 'left', valign: 'top', lineHeight: 1.3 },
+      { x: 0.08, y: 0.87, w: 0.5, h: 0.035, text: 'SWIPE →', font: 'Space Grotesk', size: 0.018, color: '#E94560', align: 'left', valign: 'top', bold: true, tracking: 0.0036 },
+      { x: 1.08, y: 0.12, w: 0.4, h: 0.18, text: '01', font: 'Anton', size: 0.15, color: '#E94560', align: 'left', valign: 'top', lineHeight: 1 },
+      { x: 1.08, y: 0.37, w: 0.84, h: 0.1, text: 'A weak first line', font: 'Space Grotesk', size: 0.046, color: '#FFFFFF', align: 'left', valign: 'top', bold: true, lineHeight: 1.1 },
+      { x: 1.08, y: 0.5, w: 0.84, h: 0.14, text: 'Your hook does 90% of the work. Lead with the payoff — never a slow warm-up.', font: 'DM Sans', size: 0.028, color: '#C9C9DB', align: 'left', valign: 'top', lineHeight: 1.45 },
+      { x: 2.08, y: 0.12, w: 0.4, h: 0.18, text: '02', font: 'Anton', size: 0.15, color: '#E94560', align: 'left', valign: 'top', lineHeight: 1 },
+      { x: 2.08, y: 0.37, w: 0.84, h: 0.1, text: 'No clear next step', font: 'Space Grotesk', size: 0.046, color: '#FFFFFF', align: 'left', valign: 'top', bold: true, lineHeight: 1.1 },
+      { x: 2.08, y: 0.5, w: 0.84, h: 0.14, text: 'Tell people exactly what to do next. One clear ask beats five polite hints.', font: 'DM Sans', size: 0.028, color: '#C9C9DB', align: 'left', valign: 'top', lineHeight: 1.45 },
+    ],
+  },
+  {
+    id: 'editorial-field-guide', label: 'Editorial Field Guide', category: 'tips', pageSpan: 3,
+    bg: { color: '#F5F1E8' },
+    cells: [
+      { x: 1.08, y: 0.55, w: 0.84, h: 0.37, cornerRadius: 0.015 },
+      { x: 2.08, y: 0.55, w: 0.84, h: 0.37, cornerRadius: 0.015 },
+    ],
+    shapeLayers: [
+      { shapeType: 'rect', x: 0.08, y: 0.16, w: 0.86, h: 0.003, fill: '#D8CFBE' },
+    ],
+    textLayers: [
+      { x: 0.08, y: 0.1, w: 0.5, h: 0.035, text: 'THE FIELD GUIDE', font: 'Work Sans', size: 0.017, color: '#BC4B2B', align: 'left', valign: 'top', bold: true, tracking: 0.00442 },
+      { x: 0.84, y: 0.1, w: 0.1, h: 0.035, text: '01', font: 'Space Grotesk', size: 0.02, color: '#8C8579', align: 'right', valign: 'top', tracking: 0.001 },
+      { x: 0.08, y: 0.3, w: 0.82, h: 0.34, text: 'Three habits of wildly consistent creators', font: 'Playfair Display', size: 0.062, color: '#23211C', align: 'left', valign: 'top', bold: true, lineHeight: 1.12 },
+      { x: 0.08, y: 0.68, w: 0.78, h: 0.08, text: "A short guide to showing up when the motivation doesn't.", font: 'Lora', size: 0.026, color: '#6E675A', align: 'left', valign: 'top', italic: true, lineHeight: 1.4 },
+      { x: 0.08, y: 0.89, w: 0.6, h: 0.03, text: 'SWIPE TO READ →', font: 'Work Sans', size: 0.015, color: '#BC4B2B', align: 'left', valign: 'top', bold: true, tracking: 0.003 },
+      { x: 1.08, y: 0.11, w: 0.3, h: 0.1, text: '01', font: 'Playfair Display', size: 0.075, color: '#BC4B2B', align: 'left', valign: 'top', italic: true, lineHeight: 1 },
+      { x: 1.08, y: 0.24, w: 0.84, h: 0.1, text: 'Systems over streaks', font: 'Playfair Display', size: 0.05, color: '#23211C', align: 'left', valign: 'top', bold: true, lineHeight: 1.1 },
+      { x: 1.08, y: 0.36, w: 0.84, h: 0.15, text: "Don't chase a perfect run. Build a weekly cadence you can hit even on your worst day.", font: 'Work Sans', size: 0.026, color: '#4A453B', align: 'left', valign: 'top', lineHeight: 1.5 },
+      { x: 2.08, y: 0.11, w: 0.3, h: 0.1, text: '02', font: 'Playfair Display', size: 0.075, color: '#BC4B2B', align: 'left', valign: 'top', italic: true, lineHeight: 1 },
+      { x: 2.08, y: 0.24, w: 0.84, h: 0.1, text: 'Batch, then breathe', font: 'Playfair Display', size: 0.05, color: '#23211C', align: 'left', valign: 'top', bold: true, lineHeight: 1.1 },
+      { x: 2.08, y: 0.36, w: 0.84, h: 0.15, text: 'Film a month in a single day. Future-you gets calm mornings and a full shelf of content.', font: 'Work Sans', size: 0.026, color: '#4A453B', align: 'left', valign: 'top', lineHeight: 1.5 },
+    ],
+  },
+  {
+    id: 'punchy-toolkit-tips', label: 'Punchy Toolkit Tips', category: 'tips', pageSpan: 2,
+    bg: { color: '#FFD23F' },
+    cells: [
+      { x: 1.08, y: 0.64, w: 0.84, h: 0.28, cornerRadius: 0.02 },
+    ],
+    shapeLayers: [
+      { shapeType: 'rect', x: 0, y: 0, w: 1, h: 0.22, fill: '#17150F' },
+      { shapeType: 'circle', x: 1.08, y: 0.1, w: 0.18, h: 0.144, fill: '#17150F' },
+    ],
+    textLayers: [
+      { x: 0.08, y: 0.08, w: 0.84, h: 0.06, text: 'THE TOOLKIT', font: 'Space Grotesk', size: 0.03, color: '#FFD23F', align: 'left', valign: 'top', bold: true, tracking: 0.006 },
+      { x: 0.08, y: 0.3, w: 0.84, h: 0.42, text: '4 tools that saved me 10 hours a week', font: 'Anton', size: 0.078, color: '#17150F', align: 'left', valign: 'top', lineHeight: 1.02 },
+      { x: 0.08, y: 0.82, w: 0.72, h: 0.06, text: 'Free, fast, and boring in the best way.', font: 'Space Grotesk', size: 0.026, color: '#17150F', align: 'left', valign: 'top', lineHeight: 1.3 },
+      { x: 1.08, y: 0.138, w: 0.18, h: 0.08, text: '1', font: 'Space Grotesk', size: 0.05, color: '#FFD23F', align: 'center', valign: 'top', bold: true, lineHeight: 1 },
+      { x: 1.08, y: 0.3, w: 0.84, h: 0.12, text: 'Batch your captions', font: 'Space Grotesk', size: 0.05, color: '#17150F', align: 'left', valign: 'top', bold: true, lineHeight: 1.05 },
+      { x: 1.08, y: 0.44, w: 0.84, h: 0.16, text: "Write ten at once in a plain doc. You'll sound sharper and post faster all week long.", font: 'Outfit', size: 0.03, color: '#2A2820', align: 'left', valign: 'top', lineHeight: 1.45 },
+    ],
+  },
+  {
+    id: 'minimal-product-drop', label: 'Minimal Product Drop', category: 'promo',
+    bg: { color: '#FAF7F2' },
+    cells: [
+      { x: 0.14, y: 0.18, w: 0.72, h: 0.46, cornerRadius: 0.02 },
+    ],
+    shapeLayers: [
+      { shapeType: 'rect', x: 0.08, y: 0.87, w: 0.42, h: 0.07, fill: '#1A1714', cornerRadius: 0.032 },
+    ],
+    textLayers: [
+      { x: 0.08, y: 0.09, w: 0.6, h: 0.035, text: 'NEW THIS WEEK', font: 'Outfit', size: 0.017, color: '#A9803E', align: 'left', valign: 'top', bold: true, tracking: 0.00408 },
+      { x: 0.08, y: 0.67, w: 0.6, h: 0.13, text: 'The Everyday Carryall', font: 'Playfair Display', size: 0.046, color: '#1A1714', align: 'left', valign: 'top', lineHeight: 1.1 },
+      { x: 0.66, y: 0.67, w: 0.28, h: 0.06, text: '$248', font: 'Outfit', size: 0.032, color: '#1A1714', align: 'right', valign: 'top', bold: true, lineHeight: 1.1 },
+      { x: 0.08, y: 0.8, w: 0.72, h: 0.05, text: 'Full-grain leather. Made to age well.', font: 'Outfit', size: 0.022, color: '#6E675C', align: 'left', valign: 'top', lineHeight: 1.35 },
+      { x: 0.08, y: 0.888, w: 0.42, h: 0.04, text: 'SHOP NOW', font: 'Outfit', size: 0.02, color: '#FAF7F2', align: 'center', valign: 'top', bold: true, tracking: 0.0036 },
+    ],
+  },
+  {
+    id: 'flash-sale-promo', label: 'Flash Sale Promo', category: 'promo',
+    bg: { gradient: { angle: 150, stops: ['#FF3D68', '#B5177E'] } },
+    cells: [
+      { x: 0.62, y: 0.46, w: 0.3, h: 0.24, shape: 'circle' },
+    ],
+    shapeLayers: [
+      { shapeType: 'rect', x: 0.08, y: 0.46, w: 0.5, h: 0.12, fill: '#FFD23F', cornerRadius: 0.016 },
+      { shapeType: 'rect', x: 0.08, y: 0.85, w: 0.55, h: 0.075, fill: '#17150F', cornerRadius: 0.036 },
+    ],
+    textLayers: [
+      { x: 0.08, y: 0.1, w: 0.7, h: 0.04, text: '48 HOURS ONLY', font: 'Space Grotesk', size: 0.02, color: '#FFFFFF', align: 'left', valign: 'top', bold: true, tracking: 0.0048 },
+      { x: 0.08, y: 0.17, w: 0.84, h: 0.26, text: "FLASH\nSALE", font: 'Anton', size: 0.12, color: '#FFFFFF', align: 'left', valign: 'top', lineHeight: 0.92 },
+      { x: 0.08, y: 0.485, w: 0.5, h: 0.09, text: '50% OFF', font: 'Anton', size: 0.06, color: '#B5177E', align: 'center', valign: 'top', lineHeight: 1 },
+      { x: 0.08, y: 0.63, w: 0.5, h: 0.08, text: 'Everything in store. Code: FLASH50.', font: 'Space Grotesk', size: 0.022, color: '#FFE1EC', align: 'left', valign: 'top', lineHeight: 1.4 },
+      { x: 0.08, y: 0.87, w: 0.55, h: 0.04, text: 'SHOP THE SALE →', font: 'Space Grotesk', size: 0.02, color: '#FFFFFF', align: 'center', valign: 'top', bold: true, tracking: 0.0024 },
+    ],
+  },
+  {
+    id: 'grid-moodboard', label: 'Grid Moodboard', category: 'photo',
+    bg: { color: '#E7DFD3' },
+    cells: [
+      { x: 0.06, y: 0.24, w: 0.43, h: 0.34, cornerRadius: 0.015 },
+      { x: 0.51, y: 0.24, w: 0.43, h: 0.34, cornerRadius: 0.015 },
+      { x: 0.06, y: 0.6, w: 0.43, h: 0.34, cornerRadius: 0.015 },
+      { x: 0.51, y: 0.6, w: 0.43, h: 0.34, cornerRadius: 0.015 },
+    ],
+    textLayers: [
+      { x: 0.06, y: 0.07, w: 0.5, h: 0.03, text: 'CURATED', font: 'Work Sans', size: 0.015, color: '#A2795A', align: 'left', valign: 'top', bold: true, tracking: 0.0045 },
+      { x: 0.06, y: 0.1, w: 0.6, h: 0.09, text: 'Autumn moodboard', font: 'Cormorant Garamond', size: 0.052, color: '#33291F', align: 'left', valign: 'top', bold: true, lineHeight: 1 },
+      { x: 0.7, y: 0.115, w: 0.24, h: 0.04, text: "NOV '26", font: 'Work Sans', size: 0.016, color: '#7A6A57', align: 'right', valign: 'top', tracking: 0.0024 },
+    ],
+  },
+  {
+    id: 'scrapbook-dump', label: 'Scrapbook Dump', category: 'photo',
+    bg: { color: '#EFE6D6' },
+    cells: [
+      { x: 0.06, y: 0.23, w: 0.52, h: 0.44, cornerRadius: 0.02 },
+      { x: 0.62, y: 0.23, w: 0.32, h: 0.256, shape: 'circle' },
+      { x: 0.62, y: 0.52, w: 0.32, h: 0.28, shape: 'blob' },
+      { x: 0.06, y: 0.71, w: 0.52, h: 0.23, cornerRadius: 0.02 },
+    ],
+    textLayers: [
+      { x: 0.06, y: 0.06, w: 0.6, h: 0.03, text: 'PHOTO DUMP', font: 'Work Sans', size: 0.015, color: '#9A8B72', align: 'left', valign: 'top', bold: true, tracking: 0.0045 },
+      { x: 0.06, y: 0.085, w: 0.8, h: 0.11, text: 'this week, mostly', font: 'Dancing Script', size: 0.058, color: '#3A2F22', align: 'left', valign: 'top', bold: true, lineHeight: 1 },
+      { x: 0.62, y: 0.85, w: 0.32, h: 0.05, text: '07 / 26', font: 'Space Grotesk', size: 0.02, color: '#7A6A57', align: 'right', valign: 'top', tracking: 0.002 },
+    ],
+  },
+  {
+    id: 'before-and-after', label: 'Before & After', category: 'beforeafter',
+    bg: { color: '#EEEAE1' },
+    cells: [
+      { x: 0.06, y: 0.24, w: 0.42, h: 0.58, cornerRadius: 0.02 },
+      { x: 0.52, y: 0.24, w: 0.42, h: 0.58, cornerRadius: 0.02 },
+    ],
+    shapeLayers: [
+      { shapeType: 'rect', x: 0.06, y: 0.24, w: 0.22, h: 0.055, fill: '#23211C', opacity: 0.9, cornerRadius: 0.008 },
+      { shapeType: 'rect', x: 0.72, y: 0.24, w: 0.22, h: 0.055, fill: '#2E7D6B', cornerRadius: 0.008 },
+      { shapeType: 'circle', x: 0.435, y: 0.475, w: 0.13, h: 0.104, fill: '#EEEAE1' },
+      { shapeType: 'arrow', x: 0.45, y: 0.495, w: 0.1, h: 0.065, fill: '#2E7D6B' },
+    ],
+    textLayers: [
+      { x: 0.06, y: 0.08, w: 0.88, h: 0.06, text: 'The 30-day transformation', font: 'Poppins', size: 0.034, color: '#23211C', align: 'center', valign: 'top', bold: true, lineHeight: 1.1 },
+      { x: 0.1, y: 0.145, w: 0.8, h: 0.035, text: 'Same room, one weekend of work', font: 'Poppins', size: 0.02, color: '#7A756A', align: 'center', valign: 'top' },
+      { x: 0.06, y: 0.252, w: 0.22, h: 0.035, text: 'BEFORE', font: 'Poppins', size: 0.018, color: '#FFFFFF', align: 'center', valign: 'top', bold: true, tracking: 0.0027 },
+      { x: 0.72, y: 0.252, w: 0.22, h: 0.035, text: 'AFTER', font: 'Poppins', size: 0.018, color: '#FFFFFF', align: 'center', valign: 'top', bold: true, tracking: 0.0027 },
+      { x: 0.1, y: 0.86, w: 0.8, h: 0.05, text: 'Swipe to see how we did it →', font: 'Poppins', size: 0.02, color: '#2E7D6B', align: 'center', valign: 'top', bold: true, tracking: 0.002 },
+    ],
+  },
+  {
+    id: 'launch-announcement', label: 'Launch Announcement', category: 'announce',
+    bg: { gradient: { angle: 140, stops: ['#2A1A5E', '#0E1E5B'] } },
+    shapeLayers: [
+      { shapeType: 'circle', x: 0.62, y: -0.08, w: 0.4, h: 0.32, fill: '#FF7A59' },
+      { shapeType: 'rect', x: 0.08, y: 0.74, w: 0.86, h: 0.003, fill: '#3A3A7A' },
+    ],
+    textLayers: [
+      { x: 0.08, y: 0.12, w: 0.7, h: 0.04, text: 'INTRODUCING', font: 'Montserrat', size: 0.02, color: '#FFC24B', align: 'left', valign: 'top', bold: true, tracking: 0.006 },
+      { x: 0.08, y: 0.24, w: 0.86, h: 0.34, text: "The studio is\nnow open", font: 'Anton', size: 0.088, color: '#FFFFFF', align: 'left', valign: 'top', lineHeight: 1 },
+      { x: 0.08, y: 0.6, w: 0.72, h: 0.08, text: 'Bookings for automotive and brand films are officially live.', font: 'Montserrat', size: 0.024, color: '#C9CBE8', align: 'left', valign: 'top', lineHeight: 1.4 },
+      { x: 0.08, y: 0.78, w: 0.4, h: 0.03, text: 'OPENS', font: 'Space Grotesk', size: 0.015, color: '#8A8CC0', align: 'left', valign: 'top', bold: true, tracking: 0.003 },
+      { x: 0.08, y: 0.81, w: 0.5, h: 0.06, text: '09 JUL 2026', font: 'Space Grotesk', size: 0.03, color: '#FFFFFF', align: 'left', valign: 'top', bold: true },
+      { x: 0.6, y: 0.815, w: 0.34, h: 0.06, text: 'vantagestudios.co', font: 'Space Grotesk', size: 0.02, color: '#FFC24B', align: 'right', valign: 'top' },
+    ],
+  },
+  {
+    id: 'coming-soon-teaser', label: 'Coming Soon Teaser', category: 'announce',
+    bg: { gradient: { angle: 160, stops: ['#101012', '#1D1B17'] } },
+    shapeLayers: [
+      { shapeType: 'rect', x: 0.44, y: 0.365, w: 0.12, h: 0.004, fill: '#C6A052', opacity: 0.8 },
+    ],
+    textLayers: [
+      { x: 0.1, y: 0.3, w: 0.8, h: 0.04, text: 'VANTAGE STUDIOS', font: 'Oswald', size: 0.018, color: '#C6A052', align: 'center', valign: 'top', tracking: 0.0072 },
+      { x: 0.06, y: 0.42, w: 0.88, h: 0.14, text: 'COMING SOON', font: 'Bebas Neue', size: 0.1, color: '#F2ECE1', align: 'center', valign: 'top', lineHeight: 0.95, tracking: 0.002 },
+      { x: 0.15, y: 0.56, w: 0.7, h: 0.05, text: 'A new chapter of cinematic work.', font: 'Cormorant Garamond', size: 0.028, color: '#B8AE9E', align: 'center', valign: 'top', italic: true, lineHeight: 1.3 },
+      { x: 0.2, y: 0.66, w: 0.6, h: 0.04, text: 'AUTUMN 2026', font: 'Space Grotesk', size: 0.018, color: '#C6A052', align: 'center', valign: 'top', bold: true, tracking: 0.0054 },
+    ],
+  },
 ]
 
 export const TEMPLATES = [...GRID_TEMPLATES, ...STYLED_TEMPLATES]
@@ -1150,6 +1368,7 @@ export const TEMPLATE_CATEGORIES = [
   { id: 'promo',       label: 'Promo' },
   { id: 'photo',       label: 'Photo' },
   { id: 'beforeafter', label: 'Before/After' },
+  { id: 'announce',    label: 'Launch' },
 ]
 
 // A template's niche. Bare grids carry no `category`, so they fall under 'grids'.
@@ -1197,17 +1416,26 @@ export function instantiateTemplate(template, ratio, offsetX, mkId, placeholderF
 
   const groupId = mkId()
   for (const cell of template.cells ?? []) {
+    // Optional per-cell crop shape (rect/circle/blob/…) and cornerRadius. Unlike
+    // shapeLayers (whose radius is a HEIGHT fraction), a cell's cornerRadius is a
+    // WIDTH fraction — matching how CropControls stores it on real image layers —
+    // so it scales by page width, and shape maps straight onto layer.shape, which
+    // the image render path already honours for shaped/rounded crops.
+    const shape = cell.shape ?? 'rect'
+    const cornerRadius = cell.cornerRadius ? Math.round(cell.cornerRadius * ratio.w) : 0
     if (placeholderFill) {
       layers.push({
-        id: mkId(), type: 'shape', shapeType: 'rect',
+        id: mkId(), type: 'shape', shapeType: shape,
         x: gx(cell.x), y: gy(cell.y), w: gw(cell.w), h: gh(cell.h),
-        fill: placeholderFill, stroke: null, strokeWidth: 0, cornerRadius: 0, opacity: 1,
+        fill: placeholderFill, stroke: null, strokeWidth: 0, cornerRadius, opacity: 1,
       })
     } else {
       layers.push({
         id: mkId(), type: 'image', locked: true, groupId, src: null,
         x: gx(cell.x), y: gy(cell.y), w: gw(cell.w), h: gh(cell.h),
         imgX: 0, imgY: 0, imgScale: 1, opacity: 1, naturalW: null, naturalH: null, cellGap: 0,
+        ...(shape !== 'rect' ? { shape } : {}),
+        ...(cornerRadius ? { cornerRadius } : {}),
       })
     }
   }
