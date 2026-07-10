@@ -1,8 +1,33 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useStore } from '../useStore'
 import { RATIOS, TEMPLATES } from '../templates'
 import { IconClose } from './icons'
-import { listProjects, loadProject, deleteProject, renameProject, duplicateProject } from '../projectStorage'
+import {
+  listProjects, loadProject, deleteProject, renameProject, duplicateProject,
+  exportProject, backupAllProjects, importProjectFile, duplicateProjectInFormat,
+} from '../projectStorage'
+
+// ─── File delivery ──────────────────────────────────────────────────────────────
+// Same channel logic as ExportScreen: share a File via the OS share sheet when the
+// Web Share API can take files (iOS standalone PWA / Android Chrome), otherwise an
+// <a download> (desktop / in-browser). Implemented locally per the #68 scope.
+async function deliverFile(blob, filename) {
+  const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' })
+  const canShare = typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })
+  if (canShare) {
+    try { await navigator.share({ files: [file], title: filename }) }
+    catch { /* user cancelled or share failed — ignore */ }
+    return
+  }
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -57,6 +82,45 @@ function CopyIcon() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <rect x="9" y="9" width="12" height="12" rx="2" />
       <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+    </svg>
+  )
+}
+
+function ShareIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 15V3" />
+      <path d="M8 7l4-4 4 4" />
+      <path d="M4 12v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6" />
+    </svg>
+  )
+}
+
+function ResizeIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="10" height="14" rx="1.5" />
+      <path d="M15 9h6v12h-8v-4" />
+    </svg>
+  )
+}
+
+function ImportIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v12" />
+      <path d="M8 11l4 4 4-4" />
+      <path d="M4 12v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6" />
+    </svg>
+  )
+}
+
+function ArchiveIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+      <path d="M10 12h4" />
     </svg>
   )
 }
@@ -209,9 +273,10 @@ function SampleCarousel({ carousel, slideW, slideH }) {
 
 // ─── Onboarding hero ──────────────────────────────────────────────────────────
 
-function OnboardingScreen({ onStart }) {
+function OnboardingScreen({ onStart, onImportFile }) {
   const SLIDE_W = 136
   const SLIDE_H = 170
+  const importRef = useRef(null)
 
   return (
     <div className="flex flex-col h-full bg-black text-white">
@@ -260,7 +325,20 @@ function OnboardingScreen({ onStart }) {
           >
             Start creating
           </button>
-          <p className="text-center text-white/20 text-xs mt-3">Free · No account needed · Works offline</p>
+          <button
+            onClick={() => importRef.current?.click()}
+            className="w-full text-white/50 text-sm mt-3 py-2 active:text-white/80"
+          >
+            Have a backup? Import a project file
+          </button>
+          <input
+            ref={importRef}
+            type="file"
+            accept=".layout,.zip,application/zip"
+            onChange={onImportFile}
+            className="hidden"
+          />
+          <p className="text-center text-white/20 text-xs mt-2">Free · No account needed · Works offline</p>
         </div>
       </div>
     </div>
@@ -285,6 +363,11 @@ export default function HomeScreen() {
   const [renameTarget, setRenameTarget]     = useState(null)  // rename sheet
   const [renameValue, setRenameValue]       = useState('')
   const [errorToast, setErrorToast]         = useState(null)  // transient error banner
+  const [infoToast, setInfoToast]           = useState(null)  // transient success banner
+  const [globalMenu, setGlobalMenu]         = useState(false) // header overflow (import / back up all)
+  const [formatTarget, setFormatTarget]     = useState(null)  // project being duplicated to another ratio
+  const [busy, setBusy]                     = useState(null)  // blocking-op label (export / backup / import)
+  const importInputRef = useRef(null)
 
   // Fetch the project list. State updates happen only in async callbacks, so this
   // is safe to call from an effect body without triggering a synchronous cascade.
@@ -308,6 +391,13 @@ export default function HomeScreen() {
     const t = setTimeout(() => setErrorToast(null), 3500)
     return () => clearTimeout(t)
   }, [errorToast])
+
+  // Auto-dismiss the success toast.
+  useEffect(() => {
+    if (!infoToast) return
+    const t = setTimeout(() => setInfoToast(null), 3000)
+    return () => clearTimeout(t)
+  }, [infoToast])
 
   const handleOpenProject = async (id) => {
     try {
@@ -366,6 +456,92 @@ export default function HomeScreen() {
     }
   }
 
+  // Export one project to a portable .layout file via the share sheet / download.
+  const handleExport = async (project) => {
+    setMenuProject(null)
+    setBusy('Preparing file…')
+    try {
+      const { blob, filename } = await exportProject(project.id)
+      await deliverFile(blob, filename)
+    } catch (err) {
+      console.error('Failed to export project', err)
+      setErrorToast("Couldn't export this project. Please try again.")
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // Back up every project into one archive.
+  const handleBackupAll = async () => {
+    setGlobalMenu(false)
+    if (!projects.length) { setErrorToast('No projects to back up yet.'); return }
+    setBusy('Building backup…')
+    try {
+      const { blob, filename } = await backupAllProjects()
+      await deliverFile(blob, filename)
+    } catch (err) {
+      console.error('Failed to back up projects', err)
+      setErrorToast("Couldn't create a backup. Please try again.")
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // Import a .layout file picked from disk / Files.
+  const handleImportPick = () => {
+    setGlobalMenu(false)
+    importInputRef.current?.click()
+  }
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''  // reset so re-picking the same file fires change again
+    if (!file) return
+    setBusy('Importing…')
+    try {
+      const buffer = await file.arrayBuffer()
+      const created = await importProjectFile(buffer)
+      if (created?.length) {
+        setProjects(prev => {
+          const incoming = new Set(created.map(p => p.id))
+          return [...created, ...prev.filter(p => !incoming.has(p.id))]
+            .sort((a, b) => b.updatedAt - a.updatedAt)
+        })
+        setInfoToast(created.length > 1 ? `Imported ${created.length} projects.` : 'Project imported.')
+      }
+    } catch (err) {
+      console.error('Failed to import file', err)
+      setErrorToast(err?.message || "Couldn't import this file.")
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // Duplicate a project into a different ratio (Magic-Resize lite).
+  const openFormatPicker = (project) => {
+    setMenuProject(null)
+    setFormatTarget(project)
+  }
+
+  const handleFormatRatio = async (r) => {
+    const target = formatTarget
+    setFormatTarget(null)
+    if (!target) return
+    setBusy('Resizing…')
+    try {
+      const dup = await duplicateProjectInFormat(target.id, r)
+      if (dup) {
+        setProjects(prev => [dup, ...prev].sort((a, b) => b.updatedAt - a.updatedAt))
+        setInfoToast(`Created a ${r.value} copy.`)
+      }
+    } catch (err) {
+      console.error('Failed to duplicate in format', err)
+      setErrorToast("Couldn't create that copy. Please try again.")
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const handleRatio = (r) => {
     setSelectedRatio(r)
     setStep('template')
@@ -388,7 +564,28 @@ export default function HomeScreen() {
   const isFirstTime = !projectsLoading && !projectsError && projects.length === 0
 
   if (isFirstTime && step === null) {
-    return <OnboardingScreen onStart={() => setStep('ratio')} />
+    return (
+      <>
+        <OnboardingScreen onStart={() => setStep('ratio')} onImportFile={handleImportFile} />
+        {busy && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[80]" role="status" aria-live="polite">
+            <div className="bg-[#1c1c1c] rounded-2xl px-6 py-5 flex items-center gap-3">
+              <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+              <span className="text-sm text-white/80">{busy}</span>
+            </div>
+          </div>
+        )}
+        {errorToast && (
+          <div
+            className="fixed left-1/2 -translate-x-1/2 bottom-8 z-[70] bg-red-500/95 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg max-w-[90%] text-center"
+            style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
+            role="alert"
+          >
+            {errorToast}
+          </div>
+        )}
+      </>
+    )
   }
 
   // ── Returning user home ──────────────────────────────────────────────────────
@@ -400,13 +597,31 @@ export default function HomeScreen() {
         style={{ paddingTop: 'max(52px, env(safe-area-inset-top))' }}
       >
         <span className="text-lg font-bold tracking-tight">Layout</span>
-        <button
-          onClick={() => setStep('ratio')}
-          className="bg-white text-black font-semibold text-sm px-4 py-2 rounded-xl active:scale-95 transition-transform"
-        >
-          + New
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            aria-label="Backup & import"
+            onClick={() => setGlobalMenu(true)}
+            className="text-white/70 bg-white/8 rounded-xl p-2 active:bg-white/15 active:text-white"
+          >
+            <DotsIcon />
+          </button>
+          <button
+            onClick={() => setStep('ratio')}
+            className="bg-white text-black font-semibold text-sm px-4 py-2 rounded-xl active:scale-95 transition-transform"
+          >
+            + New
+          </button>
+        </div>
       </div>
+
+      {/* Hidden file input for importing .layout files */}
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".layout,.zip,application/zip"
+        onChange={handleImportFile}
+        className="hidden"
+      />
 
       {/* Projects */}
       <div className="flex-1 px-5 pb-10">
@@ -584,6 +799,18 @@ export default function HomeScreen() {
               <CopyIcon /> Duplicate
             </button>
             <button
+              onClick={() => openFormatPicker(menuProject)}
+              className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-white active:bg-white/10"
+            >
+              <ResizeIcon /> Duplicate in another format
+            </button>
+            <button
+              onClick={() => handleExport(menuProject)}
+              className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-white active:bg-white/10"
+            >
+              <ShareIcon /> Export file
+            </button>
+            <button
               onClick={() => { const p = menuProject; setMenuProject(null); setConfirmDelete(p) }}
               className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-red-400 active:bg-white/10"
             >
@@ -650,6 +877,89 @@ export default function HomeScreen() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Header overflow: import / back up all ──────────────────────────────── */}
+      {globalMenu && (
+        <div className="fixed inset-0 bg-black/80 flex items-end z-50" onClick={() => setGlobalMenu(false)}>
+          <div
+            className="w-full bg-[#161616] rounded-t-2xl p-3"
+            style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-3 pt-1 pb-2 text-xs text-white/40">Backup & transfer</div>
+            <button
+              onClick={handleImportPick}
+              className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-white active:bg-white/10"
+            >
+              <ImportIcon /> Import project file…
+            </button>
+            <button
+              onClick={handleBackupAll}
+              className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left text-[15px] text-white active:bg-white/10"
+            >
+              <ArchiveIcon /> Back up all projects
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Duplicate in another format: ratio picker ──────────────────────────── */}
+      {formatTarget && (
+        <div className="fixed inset-0 bg-black/80 flex items-end z-[60]" onClick={() => setFormatTarget(null)}>
+          <div
+            className="w-full bg-[#161616] rounded-t-2xl p-6"
+            style={{ paddingBottom: 'max(32px, env(safe-area-inset-bottom))' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-base font-semibold">Duplicate as…</span>
+              <button onClick={() => setFormatTarget(null)} className="text-white/40"><IconClose size={18} /></button>
+            </div>
+            <div className="text-xs text-white/40 mb-5 truncate">
+              A resized copy of “{formatTarget.name}” — the original stays untouched.
+            </div>
+            <div className="flex gap-5 overflow-x-auto pb-1 scrollbar-hide">
+              {RATIOS.map(r => {
+                const previewH = 80
+                const previewW = Math.round(previewH * (r.w / r.h))
+                const isCurrent = formatTarget.ratio?.value === r.value
+                return (
+                  <button
+                    key={r.value}
+                    onClick={() => handleFormatRatio(r)}
+                    className="flex flex-col items-center gap-2.5 shrink-0 active:opacity-60"
+                  >
+                    <div className="bg-white rounded-xl shadow-lg" style={{ width: previewW, height: previewH }} />
+                    <div className="text-xs text-white/70 font-medium">{r.label}</div>
+                    <div className="text-[11px] text-white/35">{r.value}{isCurrent ? ' · current' : ''}</div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Blocking-op overlay (export / backup / import / resize) ─────────────── */}
+      {busy && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[80]" role="status" aria-live="polite">
+          <div className="bg-[#1c1c1c] rounded-2xl px-6 py-5 flex items-center gap-3">
+            <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+            <span className="text-sm text-white/80">{busy}</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Transient success toast ────────────────────────────────────────────── */}
+      {infoToast && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 bottom-8 z-[70] bg-white/95 text-black text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg max-w-[90%] text-center"
+          style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
+          role="status"
+        >
+          {infoToast}
         </div>
       )}
 

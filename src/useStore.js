@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { RATIOS } from './templates'
 import { preloadLayerFonts } from './fonts'
 import { clearImageCaches } from './blobCache'
+import { fitInCell, migrateLayers } from './ratioMigrate'
 
 const uid = () => Math.random().toString(36).slice(2)
 
@@ -64,16 +65,9 @@ function sanitizeSelection(s, restoredLayers, restoredSlides) {
   return { activeLayerId, activeCellId, activeSlideIdx, cropMode, cropAspect }
 }
 
-function fitInCell(naturalW, naturalH, cellW, cellH) {
-  const scale = Math.max(cellW / naturalW, cellH / naturalH)
-  const imgW = naturalW * scale
-  const imgH = naturalH * scale
-  return {
-    imgScale: scale,
-    imgX: (cellW - imgW) / 2,
-    imgY: (cellH - imgH) / 2,
-  }
-}
+// fitInCell now lives in ratioMigrate.js (imported above) so the ratio-migration
+// math has no store dependency; re-exported at the bottom of this file for the
+// in-editor callers (Canvas, LayerToolbar, CropControls) that import it here.
 
 // Session-wide registry of imgId → { src, srcOriginal }, where imgId is a stable
 // CONTENT id minted whenever a new image enters a layer. Keying by content (not
@@ -513,37 +507,9 @@ export const useStore = create((set, get) => ({
     // ratio. Without this, layers keep absolute global coords while slide width
     // changes, so slide N's boundary (N*w) moves and every layer past slide 0
     // lands mid-slide or is reassigned to the wrong slide by floor(x/ratio.w).
-    const migrated = get().layers.map(l => {
-      // Slide ownership by the layer's left edge under the OLD ratio.
-      const si = Math.floor(l.x / oldRatio.w)
-      // Intra-slide geometry as fractions of the old slide box.
-      const fracX = (l.x - si * oldRatio.w) / oldRatio.w
-      const fracY = l.y / oldRatio.h
-      const fracW = l.w / oldRatio.w
-      const fracH = l.h / oldRatio.h
-      // Recreate at the same fractions under the NEW ratio.
-      const x = Math.round(si * newRatio.w + fracX * newRatio.w)
-      const y = Math.round(fracY * newRatio.h)
-      const w = Math.round(fracW * newRatio.w)
-      const h = Math.round(fracH * newRatio.h)
-      const next = { ...l, x, y, w, h }
-
-      // Scale text proportionally by the height ratio so it keeps relative size.
-      if (l.type === 'text' && typeof l.fontSize === 'number') {
-        next.fontSize = Math.round(l.fontSize * (newRatio.h / oldRatio.h))
-      }
-
-      // Refit cell images to the new cell box (minus gap) so photos still cover
-      // their cells. Preserves src/srcOriginal/imgId/naturalW/naturalH.
-      if (l.type === 'image' && l.src && l.naturalW && l.naturalH) {
-        const gap = l.cellGap ?? 0
-        const fit = fitInCell(l.naturalW, l.naturalH, w - gap, h - gap)
-        next.imgScale = fit.imgScale
-        next.imgX = fit.imgX
-        next.imgY = fit.imgY
-      }
-      return next
-    })
+    // The pure math lives in ratioMigrate.migrateLayers so the home-screen
+    // "Duplicate in another format" action retargets identically (#68).
+    const migrated = migrateLayers(get().layers, oldRatio, newRatio)
 
     set(s => ({ ratio: newRatio, layers: migrated, panel: null, dirtyCounter: s.dirtyCounter + 1 }))
   },
