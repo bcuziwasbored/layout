@@ -96,7 +96,35 @@ function wrapTextLines(ctx, rawText, width, height, letterSpacing, lineHeightPx,
   return lines
 }
 
-function renderTextLayer(ctx, layer, sliceStart) {
+// Parse a CSS color (hex #rgb/#rrggbb or rgb/rgba()) into {r,g,b,a}, mirroring
+// Konva's Util.colorToRGBA for the cases our color inputs produce. Falls back to
+// opaque black on anything unrecognized.
+function colorToRGBA(color) {
+  if (typeof color !== 'string') return { r: 0, g: 0, b: 0, a: 1 }
+  const c = color.trim()
+  if (c[0] === '#') {
+    let hex = c.slice(1)
+    if (hex.length === 3) hex = hex.split('').map(ch => ch + ch).join('')
+    if (hex.length === 6 || hex.length === 8) {
+      const r = parseInt(hex.slice(0, 2), 16)
+      const g = parseInt(hex.slice(2, 4), 16)
+      const b = parseInt(hex.slice(4, 6), 16)
+      const a = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1
+      return { r, g, b, a }
+    }
+  }
+  const m = c.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/i)
+  if (m) return { r: +m[1], g: +m[2], b: +m[3], a: m[4] != null ? +m[4] : 1 }
+  return { r: 0, g: 0, b: 0, a: 1 }
+}
+
+// Konva folds shadowOpacity into the shadow color's alpha (Shape._getShadowRGBA).
+function shadowRGBA(color, shadowOpacity) {
+  const { r, g, b, a } = colorToRGBA(color)
+  return `rgba(${r},${g},${b},${a * (shadowOpacity ?? 1)})`
+}
+
+function renderTextLayer(ctx, layer, sliceStart, scale = 1) {
   const x = layer.x - sliceStart
   const y = layer.y
   const w = layer.w
@@ -124,7 +152,8 @@ function renderTextLayer(ctx, layer, sliceStart) {
   const fontSize = layer.fontSize ?? 72
   const fontFamily = layer.fontFamily ?? 'Inter'
 
-  ctx.font = `${fontStyle} ${fontSize}px "${fontFamily}"`
+  const fontString = `${fontStyle} ${fontSize}px "${fontFamily}"`
+  ctx.font = fontString
   ctx.fillStyle = layer.color ?? '#000000'
   // Draw each line left-anchored and compute the align offset ourselves (Konva
   // keeps textAlign='left' and positions lines manually).
@@ -151,25 +180,89 @@ function renderTextLayer(ctx, layer, sliceStart) {
   if (va === 'middle') alignY = (h - lines.length * lineHeightPx) / 2
   else if (va === 'bottom') alignY = h - lines.length * lineHeightPx
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const lineWidth = measureLineWidth(ctx, line, letterSpacing)
-    let lineX = x
-    if (align === 'right') lineX = x + w - lineWidth
-    else if (align === 'center') lineX = x + (w - lineWidth) / 2
-    const baseY = y + alignY + translateY + i * lineHeightPx
+  // ── Text effects (issue #62): outline (stroke) + drop shadow ──────────────
+  // Outline: dedicated textStroke/textStrokeWidth. Konva strokeWidth scales with
+  // the transform (strokeScaleEnabled default), so we set lineWidth in logical
+  // units and let ctx.scale handle export scaling — no manual *scale here.
+  const strokeWidth = layer.textStrokeWidth ?? 0
+  const strokeColor = strokeWidth > 0 && layer.textStroke ? layer.textStroke : null
+  // Shadow: matches Konva Text.hasShadow (shadowColor && shadowOpacity !== 0).
+  const shadowOn = !!layer.shadowColor && (layer.shadowOpacity ?? 1) !== 0
 
-    if (letterSpacing !== 0) {
-      // Manual letter-spaced drawing so it works on iOS Safari < 18.4, which
-      // ignores ctx.letterSpacing.
-      let cx = lineX
-      for (const ch of Array.from(line)) {
-        ctx.fillText(ch, cx, baseY)
-        cx += ctx.measureText(ch).width + letterSpacing
+  // Draw every line with the target ctx's current fill/stroke settings. Mirrors
+  // Konva's fillAfterStrokeEnabled=true ordering (stroke first, fill on top) so
+  // the outline sits behind the glyph. Letter-spaced text is drawn char-by-char
+  // (iOS Safari < 18.4 ignores ctx.letterSpacing) — identical fillText/strokeText
+  // calls to the non-spaced path, one per glyph, so shadow/outline apply per call
+  // exactly as Konva's per-glyph _partialText rendering does.
+  const drawLines = (tctx) => {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      const lineWidth = measureLineWidth(tctx, line, letterSpacing)
+      let lineX = x
+      if (align === 'right') lineX = x + w - lineWidth
+      else if (align === 'center') lineX = x + (w - lineWidth) / 2
+      const baseY = y + alignY + translateY + i * lineHeightPx
+
+      if (letterSpacing !== 0) {
+        let cx = lineX
+        for (const ch of Array.from(line)) {
+          if (strokeColor) tctx.strokeText(ch, cx, baseY)
+          tctx.fillText(ch, cx, baseY)
+          cx += tctx.measureText(ch).width + letterSpacing
+        }
+      } else {
+        if (strokeColor) tctx.strokeText(line, lineX, baseY)
+        tctx.fillText(line, lineX, baseY)
       }
-    } else {
-      ctx.fillText(line, lineX, baseY)
     }
+  }
+
+  if (shadowOn && strokeColor) {
+    // Konva renders fill+stroke text to a buffer canvas and casts a SINGLE shadow
+    // from the composited shape (_useBufferCanvas: hasFill && hasStroke && hasShadow
+    // && shadowForStrokeEnabled). Replicate that: draw the glyphs (no shadow) into a
+    // device-sized buffer under the SAME transform, then composite once with the
+    // shadow set in device space.
+    const buf = document.createElement('canvas')
+    buf.width = ctx.canvas.width
+    buf.height = ctx.canvas.height
+    const bctx = buf.getContext('2d')
+    bctx.setTransform(ctx.getTransform())
+    bctx.font = fontString
+    bctx.textAlign = 'left'
+    bctx.textBaseline = 'alphabetic'
+    bctx.fillStyle = layer.color ?? '#000000'
+    bctx.strokeStyle = strokeColor
+    bctx.lineWidth = strokeWidth
+    bctx.lineJoin = 'round'
+    drawLines(bctx)
+
+    ctx.save()
+    // Canvas shadow params ignore the CTM, so they live in device pixels. Konva
+    // pre-multiplies blur/offset by absoluteScale*pixelRatio; here the export
+    // `scale` plays that role (pixelRatio is 1 on the export canvas). Composite
+    // under an identity transform so drawImage is a 1:1 device blit.
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.shadowColor = shadowRGBA(layer.shadowColor, layer.shadowOpacity)
+    ctx.shadowBlur = (layer.shadowBlur ?? 0) * scale
+    ctx.shadowOffsetX = (layer.shadowOffsetX ?? 0) * scale
+    ctx.shadowOffsetY = (layer.shadowOffsetY ?? 0) * scale
+    ctx.drawImage(buf, 0, 0)
+    ctx.restore()
+  } else {
+    if (shadowOn) {
+      ctx.shadowColor = shadowRGBA(layer.shadowColor, layer.shadowOpacity)
+      ctx.shadowBlur = (layer.shadowBlur ?? 0) * scale
+      ctx.shadowOffsetX = (layer.shadowOffsetX ?? 0) * scale
+      ctx.shadowOffsetY = (layer.shadowOffsetY ?? 0) * scale
+    }
+    if (strokeColor) {
+      ctx.strokeStyle = strokeColor
+      ctx.lineWidth = strokeWidth
+      ctx.lineJoin = 'round'
+    }
+    drawLines(ctx)
   }
   ctx.restore()
 }
@@ -443,7 +536,7 @@ export async function renderSlide(slideIdx, args) {
       // No slice-based early-return here: the `relevant` filter above already
       // culls using rotated extents, so a rotated text overhanging a slide edge
       // is still drawn (the old unrotated bounds check dropped it).
-      renderTextLayer(ctx, layer, sliceStart)
+      renderTextLayer(ctx, layer, sliceStart, scale)
     } else if (layer.type === 'shape') {
       renderShapeLayer(ctx, layer, sliceStart)
     }

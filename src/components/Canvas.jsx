@@ -400,6 +400,10 @@ function TextCell({ layer, isEditing }) {
       )}
       {/* While inline-editing, the HTML textarea overlay shows the text instead
           (true WYSIWYG). We keep the textBg + hit area but hide the Konva text. */}
+      {/* Text effects (issue #62): Konva consumes shadow* natively; export
+          (renderTextLayer) mirrors them exactly. Outline maps to Konva's
+          stroke/strokeWidth with fillAfterStrokeEnabled so the fill draws over the
+          outline, and lineJoin='round' for smooth glyph corners. */}
       {isEditing ? null : hasText ? (
         <Text
           key={fontsVersion}
@@ -415,6 +419,16 @@ function TextCell({ layer, isEditing }) {
           lineHeight={layer.lineHeight ?? 1.2}
           letterSpacing={layer.letterSpacing ?? 0}
           wrap="word"
+          shadowColor={layer.shadowColor || undefined}
+          shadowEnabled={!!layer.shadowColor}
+          shadowBlur={layer.shadowBlur ?? 0}
+          shadowOffsetX={layer.shadowOffsetX ?? 0}
+          shadowOffsetY={layer.shadowOffsetY ?? 0}
+          shadowOpacity={layer.shadowOpacity ?? 1}
+          stroke={(layer.textStrokeWidth > 0 && layer.textStroke) ? layer.textStroke : undefined}
+          strokeWidth={layer.textStrokeWidth ?? 0}
+          fillAfterStrokeEnabled={true}
+          lineJoin="round"
           listening={false}
         />
       ) : (
