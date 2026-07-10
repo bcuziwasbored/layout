@@ -51,6 +51,53 @@ function canShareFiles(files) {
   return typeof navigator.canShare === 'function' && navigator.canShare({ files })
 }
 
+// Share files, attaching the caption as share text ONLY when the platform reports
+// it can share text alongside files (issue #71). iOS often drops the text when
+// files are present — that's acceptable; the guard's job is purely to never break
+// image sharing, so any failure falls back to a files-only share (unchanged
+// behaviour). `payload` already contains `files` (+ optional title).
+function shareWithCaption(payload, caption) {
+  const trimmed = caption?.trim()
+  if (
+    trimmed &&
+    typeof navigator.canShare === 'function' &&
+    navigator.canShare({ ...payload, text: trimmed })
+  ) {
+    return navigator.share({ ...payload, text: trimmed })
+  }
+  return navigator.share(payload)
+}
+
+// Copy caption text to the clipboard, falling back to a hidden-textarea +
+// execCommand('copy') on browsers without the async Clipboard API (older iOS
+// Safari). Returns true on success.
+async function copyCaptionText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    /* fall through to execCommand */
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'fixed'
+    ta.style.top = '0'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
+
 // Detect the right delivery channel *once* — these don't change during the
 // session. `standalone` = installed PWA with no browser chrome / download
 // manager (iOS home-screen app). `fileShare` = the Web Share API can share
@@ -107,11 +154,11 @@ function triggerDownload(dataURL, filename) {
 // Per-slide save. Shares the single file via the OS share sheet when possible,
 // otherwise opens it in a new tab. (Desktop uses a real <a download> in the
 // markup and never reaches here.)
-async function saveOne(dataURL, index, ext) {
+async function saveOne(dataURL, index, ext, caption) {
   const file = fileFromDataURL(dataURL, `slide-${index + 1}.${ext}`)
   if (canShareFiles([file])) {
     try {
-      await navigator.share({ files: [file], title: `Slide ${index + 1}` })
+      await shareWithCaption({ files: [file], title: `Slide ${index + 1}` }, caption)
     } catch {
       /* user cancelled or share failed — ignore */
     }
@@ -123,12 +170,12 @@ async function saveOne(dataURL, index, ext) {
 // Save every slide in a single user gesture. With file share we hand the whole
 // batch to one share sheet; on desktop we fire all downloads synchronously
 // (never behind awaited timeouts, which browsers block as non-gesture).
-async function saveAll(rendered, mode, ext) {
+async function saveAll(rendered, mode, ext, caption) {
   if (mode === 'share') {
     const files = rendered.map((src, i) => fileFromDataURL(src, `slide-${i + 1}.${ext}`))
     if (canShareFiles(files)) {
       try {
-        await navigator.share({ files })
+        await shareWithCaption({ files }, caption)
       } catch {
         /* user cancelled or share failed — ignore */
       }
@@ -145,6 +192,7 @@ export default function ExportScreen({ onClose }) {
   const ratio       = useStore(s => s.ratio)
   const bgColor     = useStore(s => s.bgColor)
   const bgGradient  = useStore(s => s.bgGradient)
+  const caption     = useStore(s => s.caption)
 
   // `rendered` grows one entry at a time, in slide order, as each slide
   // finishes; `renderDone` flips true once every slide is rendered.
@@ -169,6 +217,19 @@ export default function ExportScreen({ onClose }) {
 
   // Delivery channel is fixed for the session; compute it once.
   const [{ mode }] = useState(detectDelivery)
+
+  // Caption preview + copy (issue #71). `captionExpanded` toggles the collapsed
+  // preview; `copied` drives the transient "Caption copied" toast.
+  const [captionExpanded, setCaptionExpanded] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const handleCopyCaption = async () => {
+    const ok = await copyCaptionText(caption)
+    if (ok) {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    }
+  }
 
   // Change an option: persist it and kick off a fresh render (reusing the same
   // renderKey/retry machinery so the serial render restarts cleanly).
@@ -372,7 +433,7 @@ export default function ExportScreen({ onClose }) {
             ) : (
               <button
                 key={i}
-                onClick={() => saveOne(src, i, ext)}
+                onClick={() => saveOne(src, i, ext, caption)}
                 className="relative shrink-0 active:opacity-60"
               >
                 {thumb}
@@ -440,6 +501,35 @@ export default function ExportScreen({ onClose }) {
           )}
         </div>
 
+        {/* Caption preview + Copy (issue #71). Collapsed by default; the whole
+            preview is copyable so creators paste into IG without a notes-app trip. */}
+        {caption.trim() && (
+          <div className="mb-3 rounded-xl bg-white/5 px-3.5 py-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] uppercase tracking-wide text-white/40">Caption</span>
+              <button
+                onClick={handleCopyCaption}
+                className="flex items-center gap-1.5 text-xs font-semibold bg-white text-black px-3 py-1 rounded-full active:opacity-70"
+              >
+                {copied ? 'Copied' : 'Copy caption'}
+              </button>
+            </div>
+            <div
+              className={`text-sm text-white/80 whitespace-pre-wrap break-words ${captionExpanded ? '' : 'line-clamp-3'}`}
+            >
+              {caption}
+            </div>
+            {caption.length > 120 && (
+              <button
+                onClick={() => setCaptionExpanded(v => !v)}
+                className="mt-1 text-[11px] text-white/45 active:text-white"
+              >
+                {captionExpanded ? 'Show less' : 'Show more'}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Missing-photo warning — shown before the user shares/saves so an
             incomplete export is never a silent surprise. */}
         {failedCount > 0 && (
@@ -464,7 +554,7 @@ export default function ExportScreen({ onClose }) {
           </div>
         ) : (
           <button
-            onClick={() => saveAll(rendered, mode, ext)}
+            onClick={() => saveAll(rendered, mode, ext, caption)}
             disabled={isRendering}
             className="w-full py-3.5 rounded-2xl font-semibold text-base transition-opacity active:opacity-70 disabled:opacity-30"
             style={{ background: 'white', color: 'black' }}
@@ -473,6 +563,15 @@ export default function ExportScreen({ onClose }) {
           </button>
         )}
       </div>
+      )}
+
+      {/* Confirmation toast after a successful caption copy. */}
+      {copied && (
+        <div className="absolute inset-x-0 flex justify-center pointer-events-none z-10" style={{ bottom: 'max(96px, calc(env(safe-area-inset-bottom) + 96px))' }}>
+          <div className="bg-white text-black text-sm font-medium px-4 py-2 rounded-full shadow-lg">
+            Caption copied
+          </div>
+        </div>
       )}
     </div>
   )

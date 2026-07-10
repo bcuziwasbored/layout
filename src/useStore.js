@@ -114,6 +114,10 @@ export const useStore = create((set, get) => ({
   clipboard: null,
   currentProjectId: null,
   projectName: 'Untitled',
+  // Per-project caption (notes/hashtags for the posting moment, issue #71).
+  // Metadata like projectName — NOT part of undo history / _snapshot — but a
+  // change must still autosave, so setCaption bumps dirtyCounter (see below).
+  caption: '',
   recentColors: [],
   savedAt: 0,
   // 'idle' | 'saving' | 'saved' | 'error' — drives the TopBar save indicator
@@ -287,6 +291,7 @@ export const useStore = create((set, get) => ({
       future: [],
       currentProjectId: projectId,
       projectName,
+      caption: '',
     })
     // Harmless for fresh templates (image-only), but keeps behaviour uniform if
     // a starting template ever ships with text.
@@ -327,6 +332,8 @@ export const useStore = create((set, get) => ({
       _undoSnap: null,
       currentProjectId: savedState.projectId,
       projectName: savedState.projectName,
+      // Restore the saved caption (older projects saved before #71 have none).
+      caption: savedState.caption ?? '',
     })
     // Inject the Google Fonts stylesheets for every family used by this
     // project's text layers. Without this, reopened projects render (and
@@ -336,6 +343,13 @@ export const useStore = create((set, get) => ({
 
   setProjectName(name) {
     set(s => ({ projectName: name, dirtyCounter: s.dirtyCounter + 1 }))
+  },
+
+  // Caption is project metadata, not undoable content (like projectName), so it
+  // pushes NO history entry. It MUST persist, so bump dirtyCounter to trigger the
+  // autosave debounce keyed on it in Editor. See issue #71.
+  setCaption(caption) {
+    set(s => ({ caption, dirtyCounter: s.dirtyCounter + 1 }))
   },
 
   setPanel(panel) {

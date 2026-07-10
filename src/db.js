@@ -1,14 +1,18 @@
 // Thin IndexedDB wrapper
 // Object stores:
-//   'projects' — project metadata + layer refs (no blob data)
-//   'blobs'    — image blobs keyed by layer ID, stored separately for fast project loads
+//   'projects'      — project metadata + layer refs (no blob data)
+//   'blobs'         — image blobs keyed by layer ID, stored separately for fast project loads
+//   'hashtagGroups' — GLOBAL (not per-project) reusable hashtag sets (issue #71).
+//                     Each record is { id, name, tags } and is read/written through
+//                     the generic dbGet/dbPut/dbDelete/dbGetAll helpers below — no
+//                     dedicated wrappers needed since a group is just a small record.
 
 let dbPromise = null
 
 function openDB() {
   if (dbPromise) return dbPromise
   dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open('layout-app', 2)
+    const req = indexedDB.open('layout-app', 3)
     req.onupgradeneeded = e => {
       const db = e.target.result
       if (!db.objectStoreNames.contains('projects')) {
@@ -17,6 +21,11 @@ function openDB() {
       // Version 2: dedicated blob store so project records stay small
       if (!db.objectStoreNames.contains('blobs')) {
         db.createObjectStore('blobs', { keyPath: 'id' })
+      }
+      // Version 3: global hashtag groups (issue #71). Guarded by contains() like
+      // the others, so upgrading from either v1 or v2 creates it exactly once.
+      if (!db.objectStoreNames.contains('hashtagGroups')) {
+        db.createObjectStore('hashtagGroups', { keyPath: 'id' })
       }
     }
     req.onsuccess = e => resolve(e.target.result)
