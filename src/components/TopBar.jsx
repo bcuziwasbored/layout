@@ -35,6 +35,9 @@ function SaveIndicator() {
     return <span className="text-[10px] text-red-400 leading-none">Save failed · tap to retry</span>
   }
   if ((saveStatus === 'saved' || saveStatus === 'idle') && savedAt) {
+    // this label IS the current time relative to the last save; the component re-renders
+    // on a 1s interval.
+    // eslint-disable-next-line react-hooks/purity
     const ago = Date.now() - savedAt
     const label = ago < 5000 ? 'Saved' : `Saved ${formatRelative(ago)}`
     return <span className="text-[10px] text-white/40 leading-none">{label}</span>

@@ -1002,7 +1002,7 @@ function TextQuickBar({ layer, updateLayer, updateLayerWithHistory, moreActive, 
 
 // ─── Shape style panel ────────────────────────────────────────────────────────
 
-function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory, setElementPanel }) {
+function ShapeStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
   const fillRef   = useRef()
   const strokeRef = useRef()
   const addRecentColor = useStore(s => s.addRecentColor)
@@ -1368,6 +1368,31 @@ function PositionPanel({ layer, activeLayerId, ratio, activeSlideIdx, layers, re
 
 // ─── Main toolbar ──────────────────────────────────────────────────────────────
 
+// Toolbar buttons. Declared at module scope (not inside LayerToolbar) so React
+// sees one stable component type across renders — a component created during
+// render remounts its subtree every time (react-hooks/static-components).
+function Btn({ label, active, onClick, danger }) {
+  return (
+    <button onClick={onClick}
+      className={`flex flex-col items-center gap-1 px-2 py-2 rounded-xl text-xs transition-colors active:opacity-60 ${
+        danger ? 'text-red-400' : active ? 'text-blue-400' : 'text-white/60'
+      }`}>
+      {label}
+    </button>
+  )
+}
+
+function CellBtn({ label, active, onClick, primary }) {
+  return (
+    <button onClick={onClick}
+      className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl text-xs transition-colors active:opacity-60 ${
+        primary ? 'text-white font-medium' : active ? 'text-blue-400' : 'text-white/60'
+      }`}>
+      {label}
+    </button>
+  )
+}
+
 export default function LayerToolbar() {
   const activeLayerId  = useStore(s => s.activeLayerId)
   const activeCellId   = useStore(s => s.activeCellId)
@@ -1384,7 +1409,6 @@ export default function LayerToolbar() {
   const setCropMode    = useStore(s => s.setCropMode)
   const cropMode       = useStore(s => s.cropMode)
   const setActiveCellId = useStore(s => s.setActiveCellId)
-  const textEditId     = useStore(s => s.textEditId)
   const setTextEditId  = useStore(s => s.setTextEditId)
   const openPickerRef  = useCanvasPicker()
 
@@ -1403,14 +1427,6 @@ export default function LayerToolbar() {
     const minScale = cell
       ? Math.max(innerW / (cell.naturalW ?? 1), innerH / (cell.naturalH ?? 1))
       : 0.1
-    const CellBtn = ({ label, active, onClick, primary }) => (
-      <button onClick={onClick}
-        className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl text-xs transition-colors active:opacity-60 ${
-          primary ? 'text-white font-medium' : active ? 'text-blue-400' : 'text-white/60'
-        }`}>
-        {label}
-      </button>
-    )
     return (
       <div className="bg-black border-t border-white/10">
         {/* Top row: Done + label + actions */}
@@ -1476,15 +1492,6 @@ export default function LayerToolbar() {
       </div>
     )
   }
-
-  const Btn = ({ label, active, onClick, danger }) => (
-    <button onClick={onClick}
-      className={`flex flex-col items-center gap-1 px-2 py-2 rounded-xl text-xs transition-colors active:opacity-60 ${
-        danger ? 'text-red-400' : active ? 'text-blue-400' : 'text-white/60'
-      }`}>
-      {label}
-    </button>
-  )
 
   // ── Group mode ────────────────────────────────────────────────────────────
   if (layer.locked) {
@@ -1641,8 +1648,7 @@ export default function LayerToolbar() {
             </div>
             <ShapeStylePanel
               layer={layer} updateLayer={updateLayer}
-              updateLayerWithHistory={updateLayerWithHistory}
-              setElementPanel={setElementPanel} />
+              updateLayerWithHistory={updateLayerWithHistory} />
           </div>
         )}
 

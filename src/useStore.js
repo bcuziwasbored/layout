@@ -11,12 +11,6 @@ const uid = () => Math.random().toString(36).slice(2)
 // Layer x coords are in GLOBAL space: slide N occupies x ∈ [N*ratio.w, (N+1)*ratio.w]
 // A cross-slide image can have x < N*ratio.w and x+w > N*ratio.w
 
-function layersInSlide(layers, idx, ratio) {
-  const start = idx * ratio.w
-  const end = (idx + 1) * ratio.w
-  return layers.filter(l => l.x < end && l.x + l.w > start)
-}
-
 // Width of a layer that lies inside slide `idx`'s column (0 if it doesn't reach it).
 function overlapWidth(layer, idx, ratio) {
   const start = idx * ratio.w
@@ -24,8 +18,8 @@ function overlapWidth(layer, idx, ratio) {
   return Math.max(0, Math.min(layer.x + layer.w, end) - Math.max(layer.x, start))
 }
 
-// Inclusive range of slide indices a layer overlaps, using the same strict-overlap
-// semantics as layersInSlide. `first` may be negative for a layer dragged past the
+// Inclusive range of slide indices a layer overlaps, using strict-overlap
+// semantics. `first` may be negative for a layer dragged past the
 // left edge; callers that need an ownership index clamp via ownerSlide.
 function slideSpan(layer, ratio) {
   const first = Math.floor(layer.x / ratio.w)
@@ -34,7 +28,7 @@ function slideSpan(layer, ratio) {
 }
 
 // The slide that OWNS a layer: the one holding the majority of the layer's width
-// (ties → leftmost, matching layersInSlide's left-bias). Cross-slide "Width 2×"
+// (ties → leftmost). Cross-slide "Width 2×"
 // images are exactly 50/50, so the tie makes their left slide the owner. Clamped
 // to >= 0 so a layer dragged to x < 0 is owned by slide 0 rather than index -1.
 function ownerSlide(layer, ratio) {

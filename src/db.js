@@ -114,7 +114,7 @@ export async function dbDeleteBlob(id) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction('blobs', 'readwrite')
     const req = tx.objectStore('blobs').delete(id)
-    req.onsuccess = e => resolve()
+    req.onsuccess = () => resolve()
     req.onerror = e => reject(e.target.error)
   })
 }

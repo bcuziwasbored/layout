@@ -126,6 +126,9 @@ export default function CaptionSheet({ onClose }) {
     }
   }, [])
 
+  // loadGroups is an async IDB read; its setGroups lands in a later tick, not
+  // synchronously.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadGroups() }, [loadGroups])
 
   const len = caption.length
