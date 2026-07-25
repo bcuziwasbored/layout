@@ -206,20 +206,15 @@ export const CASES = [
   },
   {
     id: 'shape-shadow-stroked',
-    name: 'Stroked shape with drop shadow (known gap: shadow silhouette)',
-    // KNOWN, MEASURED DISCREPANCY — this tolerance is deliberately looser than
-    // every other case, and is the one number here that documents a real bug
-    // rather than rasterization noise:
-    //   Konva renders a fill+stroke+shadow shape through a buffer canvas and
-    //   casts ONE shadow from the COMPOSITE (fill ∪ stroke) silhouette, so the
-    //   shadow is half a stroke-width larger all round. renderShapeLayer casts
-    //   the shadow from the FILL only and strokes on top afterwards. The result
-    //   is a faint halo mismatch (peaks at ~18/255 with a 8px stroke and 26px
-    //   blur — invisible in practice, hence pctTol stays tight at 0.1).
-    // Tighten meanTol to ~0.15 once the exporter casts the shadow from the
-    // stroked silhouette; the assertion below still pins the amplitude so the
-    // gap cannot silently grow.
-    meanTol: 0.85, pctTol: 0.1,
+    name: 'Stroked shape with drop shadow (buffer-canvas path)',
+    // Konva renders a fill+stroke+shadow shape through a buffer canvas and casts
+    // ONE shadow from the COMPOSITE (fill ∪ stroke) silhouette. renderShapeLayer
+    // used to cast the shadow from the FILL only and stroke on top afterwards,
+    // making the exported shadow half a stroke-width small (mean 0.569, peaks at
+    // 18/255 — issue #100). Now that the exporter mirrors Konva's buffer, this
+    // case holds the SAME tight tolerance as its unstroked twin `shape-shadow`,
+    // so any regression back to the fill-only silhouette fails the suite.
+    meanTol: 0.15, pctTol: 0.1,
     bgColor: '#ecfeff',
     slides: ONE_SLIDE, slideIdx: 0,
     layers: [{
