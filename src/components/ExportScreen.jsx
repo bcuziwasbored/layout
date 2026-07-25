@@ -1,6 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import { useStore } from '../useStore'
 import { renderSlide } from '../renderSlide'
+import { ScreenFallback } from './LazyFallback'
+
+// The swipe preview (issue #89) is an optional detour on the way to saving, so
+// its gesture engine and phone-frame mock are fetched on demand — same pattern
+// as the export screen itself (issue #87). It renders nothing: it replays the
+// data URLs this screen already produced.
+const CarouselPreview = lazy(() => import('./CarouselPreview'))
 
 // Persisted export options. Kept in localStorage (no server-side state) so the
 // last-used format/resolution/quality stick across exports and sessions.
@@ -202,6 +209,10 @@ export default function ExportScreen({ onClose }) {
   const [error, setError] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
 
+  // Carousel preview overlay (issue #89). Purely additive: it sits on top of
+  // this screen, so closing it leaves every bit of export state untouched.
+  const [previewOpen, setPreviewOpen] = useState(false)
+
   // Image-load failures surfaced by renderSlide during this run. `failedCount`
   // counts unique photos (by layer id); `failedSlides` marks which slides are
   // affected so we can flag their thumbnails before the user shares/saves.
@@ -305,6 +316,7 @@ export default function ExportScreen({ onClose }) {
   }
 
   const isRendering = !error && !renderDone
+  const previewReady = !error && renderDone && rendered.length > 0
 
   // Preview size: fit within screen on both axes, maintain aspect ratio
   const maxW = window.innerWidth - 48
@@ -565,23 +577,47 @@ export default function ExportScreen({ onClose }) {
           </div>
         )}
 
-        {mode === 'open' ? (
-          // No share sheet and no download manager: the grid above is the
-          // delivery mechanism. Tap a slide to open it, then long-press to save.
-          <div className="w-full py-3.5 text-center text-white/50 text-sm">
-            {isRendering ? progressLabel : 'Tap a slide to open, then press and hold to save'}
-          </div>
-        ) : (
+        {/* Preview + save. Preview only makes sense once every slide has an
+            image to swipe through, so it waits for the run to finish. */}
+        <div className="flex items-stretch gap-2">
           <button
-            onClick={() => saveAll(rendered, mode, ext, caption)}
-            disabled={isRendering}
-            className="w-full py-3.5 rounded-2xl font-semibold text-base transition-opacity active:opacity-70 disabled:opacity-30"
-            style={{ background: 'white', color: 'black' }}
+            onClick={() => setPreviewOpen(true)}
+            disabled={!previewReady}
+            className="shrink-0 px-5 py-3.5 rounded-2xl font-semibold text-base bg-white/10 text-white transition-opacity active:opacity-70 disabled:opacity-30"
           >
-            {isRendering ? progressLabel : saveAllLabel}
+            Preview
           </button>
-        )}
+          {mode === 'open' ? (
+            // No share sheet and no download manager: the grid above is the
+            // delivery mechanism. Tap a slide to open it, then long-press to save.
+            <div className="flex-1 py-3.5 text-center text-white/50 text-sm">
+              {isRendering ? progressLabel : 'Tap a slide to open, then press and hold to save'}
+            </div>
+          ) : (
+            <button
+              onClick={() => saveAll(rendered, mode, ext, caption)}
+              disabled={isRendering}
+              className="flex-1 py-3.5 rounded-2xl font-semibold text-base transition-opacity active:opacity-70 disabled:opacity-30"
+              style={{ background: 'white', color: 'black' }}
+            >
+              {isRendering ? progressLabel : saveAllLabel}
+            </button>
+          )}
+        </div>
       </div>
+      )}
+
+      {/* Swipe preview. Mounted over this screen — unmounting it restores the
+          export screen exactly as it was (nothing here is reset or re-rendered). */}
+      {previewOpen && previewReady && (
+        <Suspense fallback={<ScreenFallback label="Opening preview…" dark="#0A0A0B" />}>
+          <CarouselPreview
+            images={rendered}
+            ratio={ratio}
+            startIndex={activeIdx}
+            onClose={() => setPreviewOpen(false)}
+          />
+        </Suspense>
       )}
 
       {/* Confirmation toast after a successful caption copy. */}
