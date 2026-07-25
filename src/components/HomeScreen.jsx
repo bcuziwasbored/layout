@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { useStore } from '../useStore'
 import { RATIOS } from '../templates'
 import {
@@ -9,6 +9,7 @@ import {
 import BrandMark from './home/BrandMark'
 import WelcomeHero from './home/WelcomeHero'
 import ProjectCard from './home/ProjectCard'
+import SearchField from './SearchField'
 import {
   listProjects, loadProject, deleteProject, renameProject, duplicateProject,
   duplicateProjectInFormat,
@@ -85,6 +86,52 @@ function sheetMeta(p) {
 
 const RATIO_4x5 = RATIOS.find(r => r.value === '4:5') ?? RATIOS[0]
 
+// ─── Project search & sort (issue #91) ──────────────────────────────────────────
+// The controls are a scale affordance, not a fixture: below this many projects
+// the grid is scannable on its own and the header stays completely bare.
+const CONTROLS_MIN_PROJECTS = 8
+
+const SORTS = [
+  { id: 'recent', label: 'Recent', heading: 'Recent' },
+  { id: 'name',   label: 'Name',   heading: 'By name' },
+  { id: 'ratio',  label: 'Ratio',  heading: 'By format' },
+]
+const SORT_IDS = new Set(SORTS.map(s => s.id))
+const SORT_KEY = 'layout.homeSort'
+
+function readStoredSort() {
+  try {
+    const stored = localStorage.getItem(SORT_KEY)
+    return SORT_IDS.has(stored) ? stored : 'recent'
+  } catch { return 'recent' }
+}
+
+// Format order follows the ratio picker (portrait → square → story → landscape)
+// rather than alphabetical, so "Ratio" reads the same way the format sheet does.
+const RATIO_ORDER = new Map(RATIOS.map((r, i) => [r.value, i]))
+const ratioRank = p => RATIO_ORDER.get(p.ratio?.value) ?? RATIOS.length
+
+const byRecent = (a, b) => b.updatedAt - a.updatedAt
+
+// Sort comparators. Everything falls back to recency so equal keys keep the
+// familiar newest-first order inside their group.
+const COMPARATORS = {
+  recent: byRecent,
+  name: (a, b) =>
+    (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base', numeric: true })
+    || byRecent(a, b),
+  ratio: (a, b) => ratioRank(a) - ratioRank(b) || byRecent(a, b),
+}
+
+// Case-insensitive substring over the project name.
+function filterAndSortProjects(projects, query, sort) {
+  const needle = query.trim().toLowerCase()
+  const matched = needle
+    ? projects.filter(p => (p.name ?? '').toLowerCase().includes(needle))
+    : projects
+  return [...matched].sort(COMPARATORS[sort] ?? byRecent)
+}
+
 // Skeleton aspect ratios — a deliberate mix so the shimmer masonry reads like a
 // real feed of portrait / square / story cards (mockup frame 05).
 const SKELETON_ASPECTS = ['4 / 5', '1 / 1', '9 / 16', '4 / 5']
@@ -100,6 +147,16 @@ export default function HomeScreen() {
   const [projects, setProjects]           = useState([])
   const [projectsLoading, setProjectsLoading] = useState(true)
   const [projectsError, setProjectsError] = useState(false)
+
+  // Project search & sort (issue #91). The query is session-only — a stale filter
+  // hiding your projects on next launch would read as data loss — while the sort
+  // choice is a preference and persists.
+  const [query, setQuery] = useState('')
+  const [sort, setSort]   = useState(readStoredSort)
+  const chooseSort = (id) => {
+    setSort(id)
+    try { localStorage.setItem(SORT_KEY, id) } catch { /* private mode — ignore */ }
+  }
 
   // Whether the user has ever gotten past the first-run welcome. Persisted so an
   // empty list from a returning user shows the "no projects yet" state (frame 03),
@@ -369,6 +426,20 @@ export default function HomeScreen() {
 
   const showWelcome = !projectsLoading && !projectsError && projects.length === 0 && !onboarded && step === null
 
+  // Search/sort chrome earns its place only once the grid is long enough to get
+  // away from you; a handful of projects needs no help being scanned.
+  const showListControls = projects.length > CONTROLS_MIN_PROJECTS
+  const searching = showListControls && query.trim().length > 0
+  const visibleProjects = useMemo(
+    () => showListControls
+      ? filterAndSortProjects(projects, query, sort)
+      : projects,
+    [projects, query, sort, showListControls],
+  )
+  const listHeading = showListControls
+    ? (SORTS.find(s => s.id === sort)?.heading ?? 'Recent')
+    : 'Recent'
+
   // Reusable pieces ────────────────────────────────────────────────────────────
   const NewProjectButton = (
     <div className="px-5 pt-4">
@@ -478,18 +549,57 @@ export default function HomeScreen() {
                 <TemplateShelf ratio={RATIO_4x5} onPick={startFromTemplate} onSeeAll={openTemplatePicker} />
               </Suspense>
               <div className="px-5 pt-[26px]">
-                <div className={`${sectionLabel} mb-3.5`}>Recent</div>
-                <div style={{ columnCount: 2, columnGap: 12 }}>
-                  {projects.map(project => (
-                    <ProjectCard
-                      key={project.id}
-                      project={project}
-                      metaLabel={cardMeta(project)}
-                      onOpen={() => handleOpenProject(project.id)}
-                      onMenu={() => setMenuProject(project)}
-                    />
-                  ))}
+                <div className="flex items-baseline justify-between gap-3 mb-3.5">
+                  <div className={sectionLabel}>{listHeading}</div>
+                  {searching && (
+                    <span className="text-[11px] font-medium tabular-nums text-[#67666C]">
+                      {visibleProjects.length} of {projects.length}
+                    </span>
+                  )}
                 </div>
+
+                {/* Search + sort — only past CONTROLS_MIN_PROJECTS (issue #91) */}
+                {showListControls && (
+                  <div className="mb-[18px]">
+                    <SearchField
+                      value={query}
+                      onChange={setQuery}
+                      variant="home"
+                      placeholder="Search projects"
+                    />
+                    <div className="flex gap-2 mt-2.5 overflow-x-auto scrollbar-hide">
+                      {SORTS.map(s => (
+                        <button
+                          key={s.id}
+                          onClick={() => chooseSort(s.id)}
+                          aria-pressed={sort === s.id}
+                          className={`shrink-0 text-[12px] px-3 py-1.5 rounded-full border transition-colors ${
+                            sort === s.id
+                              ? 'bg-[#C6A052] text-[#171205] border-[#C6A052] font-semibold'
+                              : 'bg-transparent text-[#9C9BA1] border-[#2E2F36] active:bg-[#1C1D22]'}`}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {visibleProjects.length === 0 ? (
+                  <div className="text-[13px] text-[#67666C] text-center py-12">No matches</div>
+                ) : (
+                  <div style={{ columnCount: 2, columnGap: 12 }}>
+                    {visibleProjects.map(project => (
+                      <ProjectCard
+                        key={project.id}
+                        project={project}
+                        metaLabel={cardMeta(project)}
+                        onOpen={() => handleOpenProject(project.id)}
+                        onMenu={() => setMenuProject(project)}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           ) : (
