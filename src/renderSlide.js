@@ -268,6 +268,22 @@ function renderTextLayer(ctx, layer, sliceStart, scale = 1) {
   ctx.restore()
 }
 
+// Device-space (post-CTM) axis-aligned bounding box of a logical rect. Used to
+// size the shadow buffer below: the CTM here can carry the export scale AND a
+// free-rotation, so the box is derived from all four transformed corners.
+// Snapped outwards to whole device pixels so the buffer can later be blitted at
+// an integer offset (no resampling, identical antialiasing to a direct draw).
+function deviceBounds(ctx, x, y, w, h) {
+  const t = ctx.getTransform()
+  const px = (cx, cy) => ({ x: t.a * cx + t.c * cy + t.e, y: t.b * cx + t.d * cy + t.f })
+  const pts = [px(x, y), px(x + w, y), px(x, y + h), px(x + w, y + h)]
+  const minX = Math.floor(Math.min(...pts.map(p => p.x)))
+  const minY = Math.floor(Math.min(...pts.map(p => p.y)))
+  const maxX = Math.ceil(Math.max(...pts.map(p => p.x)))
+  const maxY = Math.ceil(Math.max(...pts.map(p => p.y)))
+  return { x: minX, y: minY, w: Math.max(1, maxX - minX), h: Math.max(1, maxY - minY), t }
+}
+
 function renderShapeLayer(ctx, layer, sliceStart, scale = 1) {
   const x = layer.x - sliceStart, y = layer.y, w = layer.w, h = layer.h
   // Same drawShapePath as the editor's ShapeCell sceneFunc (Canvas.jsx) — the
@@ -275,26 +291,77 @@ function renderShapeLayer(ctx, layer, sliceStart, scale = 1) {
   // inside drawShapePath; strokeWidth feeds the stroke-aware line/arrow geometry.
   const shapeType = layer.shapeType ?? 'rect'
   const sw = layer.strokeWidth ?? 0
-  ctx.save()
-  ctx.globalAlpha = layer.opacity ?? 1
+  const cr = layer.cornerRadius ?? 0
   // Editor falls back to #000000 (fill ?? '#000000'); a null-fill shape is black
   // in the editor, so it must be black in export too.
-  ctx.fillStyle = layer.fill ?? '#000000'
-  // Drop shadow follows the filled outline (matches ShapeCell). Applied to the
-  // fill pass only; cleared before the stroke pass so we cast a single shadow of
-  // the fill silhouette (Konva also casts one shadow for the composite node).
-  if (hasShadow(layer)) applyCanvasShadow(ctx, layer, scale)
-  ctx.beginPath()
-  drawShapePath(ctx, x, y, w, h, shapeType, layer.cornerRadius ?? 0, false, sw)
-  ctx.fill()
-  if (hasShadow(layer)) clearCanvasShadow(ctx)
-  // No outline pass for line/arrow — their strokeWidth is geometry thickness.
-  if (sw > 0 && layer.stroke && !STROKE_AWARE_SHAPES.has(shapeType)) {
-    ctx.strokeStyle = layer.stroke
-    ctx.lineWidth = sw
-    ctx.beginPath()
-    drawShapePath(ctx, x, y, w, h, shapeType, layer.cornerRadius ?? 0, false, sw)
-    ctx.stroke()
+  const fill = layer.fill ?? '#000000'
+  // Outline pass matches ShapeCell: only when a stroke colour is actually set,
+  // and never for the stroke-aware line/arrow — their strokeWidth is geometry
+  // thickness, not an outline.
+  const strokeColor = sw > 0 && layer.stroke && !STROKE_AWARE_SHAPES.has(shapeType)
+    ? layer.stroke : null
+  const shadowOn = hasShadow(layer)
+  const path = (c) => {
+    c.beginPath()
+    drawShapePath(c, x, y, w, h, shapeType, cr, false, sw)
+  }
+
+  ctx.save()
+  ctx.globalAlpha = layer.opacity ?? 1
+
+  if (shadowOn && strokeColor) {
+    // Konva renders a fill+stroke+shadow shape through a buffer canvas and casts
+    // a SINGLE shadow from the COMPOSITE (fill ∪ stroke) silhouette
+    // (Shape._useBufferCanvas: hasFill && hasStroke && hasShadow &&
+    // shadowForStrokeEnabled). Shadowing the fill path alone loses half a stroke
+    // width all round (issue #100). Replicate the buffer: draw fill+stroke with
+    // NO shadow under the SAME transform, then composite once with the shadow —
+    // the exact pattern renderTextLayer uses for outline+shadow text (#62).
+    //
+    // The buffer covers the shape's device-space bounds plus a stroke margin
+    // (miter joins on sharp corners — star points — can reach well past sw/2, so
+    // the margin is deliberately generous); no blur margin is needed because the
+    // shadow is cast at composite time and is free to spill outside the image.
+    const margin = sw * 5 + 2
+    const b = deviceBounds(ctx, x - margin, y - margin, w + margin * 2, h + margin * 2)
+    const buf = document.createElement('canvas')
+    buf.width = b.w
+    buf.height = b.h
+    const bctx = buf.getContext('2d')
+    // Same CTM as the slide canvas, shifted so the bounds origin lands at (0,0):
+    // the shape is drawn in the very same logical coordinates, and the export
+    // scale keeps flowing through the transform exactly as on the direct path.
+    bctx.setTransform(b.t.a, b.t.b, b.t.c, b.t.d, b.t.e - b.x, b.t.f - b.y)
+    bctx.fillStyle = fill
+    path(bctx)
+    bctx.fill()
+    bctx.strokeStyle = strokeColor
+    bctx.lineWidth = sw
+    path(bctx)
+    bctx.stroke()
+
+    // Canvas shadow params ignore the CTM, so they live in device pixels —
+    // applyCanvasShadow bakes in the export scale, matching Konva's
+    // absoluteScale × pixelRatio. Composite under an identity transform at the
+    // integer bounds origin so drawImage is a 1:1 device blit. globalAlpha
+    // (layer opacity) is applied here on the composite, as Konva does.
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    applyCanvasShadow(ctx, layer, scale)
+    ctx.drawImage(buf, b.x, b.y)
+  } else {
+    // Unstroked (or stroke-aware) shapes: the fill path IS the whole silhouette,
+    // so a direct shadowed fill is already pixel-identical to the editor.
+    ctx.fillStyle = fill
+    if (shadowOn) applyCanvasShadow(ctx, layer, scale)
+    path(ctx)
+    ctx.fill()
+    if (shadowOn) clearCanvasShadow(ctx)
+    if (strokeColor) {
+      ctx.strokeStyle = strokeColor
+      ctx.lineWidth = sw
+      path(ctx)
+      ctx.stroke()
+    }
   }
   ctx.restore()
 }
