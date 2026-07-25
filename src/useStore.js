@@ -113,6 +113,14 @@ export const useStore = create((set, get) => ({
   // the image content and undo registry keep working). Not persisted — saveProject
   // only serializes ratio/bg/slides/layers, so this never reaches disk.
   clipboard: null,
+  // Instagram safe-zone guides (issue #88). A pure VIEW option: when true the
+  // canvas draws IG's chrome zones (header / caption / action rail) plus a margin
+  // guide over every slide. Session-only and deliberately NOT persisted —
+  // saveProject serializes only ratio/bg/slides/caption/layers, and the overlay is
+  // drawn by Canvas rather than being a layer, so it can never reach an export or
+  // a project thumbnail. Defaults off; survives project switches within a session
+  // because no reset (newProject/openProject/goHome) touches it.
+  safeZones: false,
   currentProjectId: null,
   projectName: 'Untitled',
   // Per-project caption (notes/hashtags for the posting moment, issue #71).
@@ -378,6 +386,11 @@ export const useStore = create((set, get) => ({
 
   setPanel(panel) {
     set(s => ({ panel: s.panel === panel ? null : panel, elementPanel: null, cropMode: false }))
+  },
+
+  // View-only toggle — no history entry, no dirtyCounter bump (nothing to save).
+  toggleSafeZones() {
+    set(s => ({ safeZones: !s.safeZones }))
   },
 
   setElementPanel(ep) {

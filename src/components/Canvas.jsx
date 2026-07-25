@@ -656,6 +656,111 @@ export function FilledCell({ layer }) {
   )
 }
 
+// ─── Instagram safe zones (issue #88) ──────────────────────────────────────────
+// Instagram draws its own chrome over every post — the profile header at the top,
+// the caption + action row at the bottom, and (on portrait feed posts) the action
+// rail down the right edge. Text placed under any of those is unreadable in the
+// app even though it looks fine here. These guides shade those regions so the
+// creator can see them while composing.
+//
+// This is a VIEW overlay, never document content: it is not a layer, it lives in
+// no snapshot, and nothing in the save/export path (saveProject → renderSlide)
+// can see it. Rendered inside the same pan/zoom-transformed Group as the slides,
+// so it tracks the viewport for free, and with listening={false} so every tap
+// falls through to the layer underneath.
+
+// Fractions of the slide box. Approximations of current IG chrome — they are
+// guides, not pixel-exact masks, and err slightly generous.
+const FEED_ZONES    = { top: 0.12, bottom: 0.18, rail: 0     }  // 1:1, 1.91:1
+const PORTRAIT_ZONES = { top: 0.12, bottom: 0.18, rail: 0.12 }  // 4:5, 3:4 — has the action rail
+const STORY_ZONES   = { top: 0.13, bottom: 0.20, rail: 0     }  // 9:16 — taller intrusions
+// Uniform composition margin, as a fraction of slide WIDTH so the inset reads
+// evenly on all four sides regardless of how tall the ratio is.
+const SAFE_MARGIN = 0.06
+
+function safeZonesFor(ratioValue) {
+  if (ratioValue === '9:16') return STORY_ZONES
+  if (ratioValue === '4:5' || ratioValue === '3:4') return PORTRAIT_ZONES
+  return FEED_ZONES
+}
+
+// One shaded + hatched band. Drawn as a single Konva Shape (one node, one path)
+// rather than a stack of Lines — the whole overlay stays a handful of nodes even
+// with a dozen slides in view. Hatch geometry is in canvas units so it scales
+// with the artwork; only the stroke width is un-scaled (÷ vs) to stay hairline.
+function ZoneBand({ x, y, w, h, vs, dim = 0.34 }) {
+  return (
+    <Shape
+      listening={false}
+      sceneFunc={(kctx) => {
+        // Native 2D context — same escape hatch the adjustment overlays use. The
+        // parent Group's pan/zoom transform is already applied to it.
+        const ctx = kctx._context ?? kctx
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(x, y, w, h)
+        ctx.clip()
+        ctx.fillStyle = `rgba(0,0,0,${dim})`
+        ctx.fillRect(x, y, w, h)
+        const step = Math.max(w, h) / 14
+        ctx.strokeStyle = 'rgba(255,255,255,0.13)'
+        ctx.lineWidth = 1 / vs
+        ctx.beginPath()
+        for (let i = -h; i < w; i += step) {
+          ctx.moveTo(x + i, y + h)
+          ctx.lineTo(x + i + h, y)
+        }
+        ctx.stroke()
+        ctx.restore()
+      }}
+    />
+  )
+}
+
+function SafeZoneGuides({ ratio, slideCount, vs }) {
+  const z = safeZonesFor(ratio.value)
+  const topH  = ratio.h * z.top
+  const botH  = ratio.h * z.bottom
+  const railW = ratio.w * z.rail
+  const m     = ratio.w * SAFE_MARGIN
+  const fs    = ratio.w * 0.026
+  const labelProps = {
+    fontFamily: 'Inter, system-ui',
+    fill: 'rgba(255,255,255,0.5)',
+    letterSpacing: fs * 0.12,
+    listening: false,
+  }
+  return (
+    <Group listening={false}>
+      {Array.from({ length: slideCount }, (_, i) => (
+        <Group key={i} x={i * ratio.w} listening={false}>
+          {/* Profile header */}
+          <ZoneBand x={0} y={0} w={ratio.w} h={topH} vs={vs} />
+          <Text {...labelProps} text="HEADER" fontSize={fs}
+            x={m} y={topH - fs * 1.5} />
+          {/* Caption + actions */}
+          <ZoneBand x={0} y={ratio.h - botH} w={ratio.w} h={botH} vs={vs} />
+          <Text {...labelProps} text="CAPTION ZONE" fontSize={fs}
+            x={m} y={ratio.h - botH + fs * 0.5} />
+          {/* Action rail (portrait feed only) — lighter, it only clips the edge */}
+          {railW > 0 && (
+            <>
+              <ZoneBand x={ratio.w - railW} y={topH} w={railW} h={ratio.h - topH - botH}
+                vs={vs} dim={0.22} />
+              <Text {...labelProps} text="ACTIONS" fontSize={fs * 0.7}
+                x={ratio.w - railW} y={topH + fs} width={railW} align="center" />
+            </>
+          )}
+          {/* Composition margin */}
+          <Rect x={m} y={m} width={ratio.w - m * 2} height={ratio.h - m * 2}
+            stroke="rgba(255,255,255,0.3)" strokeWidth={1 / vs}
+            dash={[8 / vs, 6 / vs]} listening={false} />
+        </Group>
+      ))}
+    </Group>
+  )
+}
+
 function SelectionOverlay({ layer, vs }) {
   const hr = HANDLE_R_PX / vs
   const rotOffset = 36 / vs   // stem length above top edge
@@ -1004,6 +1109,7 @@ export default function Canvas({ openPickerRef }) {
   const activeCellId    = useStore(s => s.activeCellId)
   const cropMode        = useStore(s => s.cropMode)
   const cropAspect      = useStore(s => s.cropAspect)
+  const safeZones       = useStore(s => s.safeZones)
   const textEditId      = useStore(s => s.textEditId)
   const setTextEditId   = useStore(s => s.setTextEditId)
   const setActiveLayer  = useStore(s => s.setActiveLayer)
@@ -2176,6 +2282,14 @@ export default function Canvas({ openPickerRef }) {
                 </>
               )
             })()}
+
+            {/* Instagram safe-zone guides (issue #88) — editor-only view overlay,
+                above the artwork but below the selection handles so the guides
+                never hide what the user is manipulating. Hidden while cropping,
+                which already dims the whole canvas. */}
+            {!cropMode && safeZones && (
+              <SafeZoneGuides ratio={ratio} slideCount={slides.length} vs={vs} />
+            )}
 
             {/* Selection border + resize handles (outside clip) */}
             {!cropMode && activeLayer && (() => {
