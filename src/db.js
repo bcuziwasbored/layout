@@ -9,13 +9,19 @@
 //   'brandkit'      — GLOBAL single-record brand kit (issue #64): saved palette,
 //                     default heading/body fonts, and an uploaded logo. One record
 //                     keyed 'default', read/written via the generic helpers.
+//   'versions'      — per-project history snapshots (issue #90). Records are
+//                     { id, projectId, timestamp, thumbnail, state } with the
+//                     layers' image data stripped out; see versionHistory.js for
+//                     the storage rationale. Indexed by projectId so one
+//                     project's snapshots can be listed/pruned/deleted without
+//                     scanning every record.
 
 let dbPromise = null
 
 function openDB() {
   if (dbPromise) return dbPromise
   dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open('layout-app', 4)
+    const req = indexedDB.open('layout-app', 5)
     req.onupgradeneeded = e => {
       const db = e.target.result
       if (!db.objectStoreNames.contains('projects')) {
@@ -34,6 +40,13 @@ function openDB() {
       // upgrading from any earlier version creates the single-record store once.
       if (!db.objectStoreNames.contains('brandkit')) {
         db.createObjectStore('brandkit', { keyPath: 'id' })
+      }
+      // Version 5: per-project version history (issue #90). Same guarded-contains
+      // pattern, so upgrading from any earlier version creates it exactly once —
+      // and the projectId index is created with the store, in the same guard.
+      if (!db.objectStoreNames.contains('versions')) {
+        const versions = db.createObjectStore('versions', { keyPath: 'id' })
+        versions.createIndex('projectId', 'projectId')
       }
     }
     req.onsuccess = e => resolve(e.target.result)
@@ -77,6 +90,32 @@ export async function dbGetAll(store) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(store, 'readonly')
     const req = tx.objectStore(store).getAll()
+    req.onsuccess = e => resolve(e.target.result)
+    req.onerror = e => reject(e.target.error)
+  })
+}
+
+// ─── Index reads ───────────────────────────────────────────────────────────────
+// Used by the version history (issue #90) to work with one project's snapshots.
+// The keys-only variant matters: version ids encode their timestamp, so the
+// autosave path can check "when was the last snapshot?" and prune the oldest
+// without deserializing a single snapshot payload.
+
+export async function dbGetAllByIndex(store, indexName, key) {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readonly')
+    const req = tx.objectStore(store).index(indexName).getAll(key)
+    req.onsuccess = e => resolve(e.target.result)
+    req.onerror = e => reject(e.target.error)
+  })
+}
+
+export async function dbGetAllKeysByIndex(store, indexName, key) {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readonly')
+    const req = tx.objectStore(store).index(indexName).getAllKeys(key)
     req.onsuccess = e => resolve(e.target.result)
     req.onerror = e => reject(e.target.error)
   })

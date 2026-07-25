@@ -4,7 +4,7 @@ import { RATIOS } from '../templates'
 import {
   IconClose, IconPlus, IconMoreH, IconImportTray, IconExportTray, IconRename,
   IconDuplicate, IconFormat, IconTrash2, IconBackup, IconEmptyFrames,
-  IconAlertTriangle, IconRetry,
+  IconAlertTriangle, IconRetry, IconHistory,
 } from './icons'
 import BrandMark from './home/BrandMark'
 import WelcomeHero from './home/WelcomeHero'
@@ -12,8 +12,9 @@ import ProjectCard from './home/ProjectCard'
 import SearchField from './SearchField'
 import {
   listProjects, loadProject, deleteProject, renameProject, duplicateProject,
-  duplicateProjectInFormat,
+  duplicateProjectInFormat, restoreVersion, previewVersionRestore,
 } from '../projectStorage'
+import { listVersions, captureOpenVersion } from '../versionHistory'
 import { checkStorageHealth, markNudgeSeen, formatBytes } from '../storageHealth'
 import { ShelfFallback, ScreenFallback } from './LazyFallback'
 
@@ -67,6 +68,13 @@ function formatRelativeTime(timestamp) {
     return `${h}h ago`
   }
   return new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+// Exact stamp under a version row — "Jul 24, 2:05 PM".
+function formatExactTime(timestamp) {
+  return new Date(timestamp).toLocaleString('en-US', {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  })
 }
 
 // Card meta line — "edited 2h ago · 4:5" (mockup frame 02).
@@ -181,6 +189,13 @@ export default function HomeScreen() {
   const [busy, setBusy]                     = useState(null)  // blocking-op label (export / backup / import)
   const importInputRef = useRef(null)
 
+  // Version history (#90): the project whose snapshots are listed, the list
+  // itself, and the version awaiting a Restore confirmation.
+  const [versionsTarget, setVersionsTarget]   = useState(null)
+  const [versions, setVersions]               = useState([])
+  const [versionsLoading, setVersionsLoading] = useState(false)
+  const [restoreTarget, setRestoreTarget]     = useState(null)  // { version, missing }
+
   // Storage health banner (#84): { kind: 'pressure' | 'nudge', estimate } or null.
   // Checked once per home-screen mount, after the project list settles (the nudge
   // rule needs the project count). Dismissal is session-local: real pressure is
@@ -239,7 +254,14 @@ export default function HomeScreen() {
   const handleOpenProject = async (id) => {
     try {
       const savedState = await loadProject(id)
-      if (savedState) openProject(savedState)
+      if (savedState) {
+        // Snapshot the project as it is on disk BEFORE this session's first
+        // autosave can overwrite it (#90). Awaited — it's one small record write
+        // — but never allowed to block opening.
+        try { await captureOpenVersion(id) }
+        catch (err) { console.warn('version snapshot on open failed', err) }
+        openProject(savedState)
+      }
       else setErrorToast("Couldn't open this project — it may have been deleted.")
     } catch (err) {
       console.error('Failed to load project', err)
@@ -362,6 +384,66 @@ export default function HomeScreen() {
     } catch (err) {
       console.error('Failed to import file', err)
       setErrorToast(err?.message || "Couldn't import this file.")
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // ── Version history (#90) ───────────────────────────────────────────────────
+
+  const openVersionHistory = async (project) => {
+    setMenuProject(null)
+    setVersionsTarget(project)
+    setVersions([])
+    setVersionsLoading(true)
+    try {
+      setVersions(await listVersions(project.id))
+    } catch (err) {
+      console.error('Failed to list versions', err)
+      setErrorToast("Couldn't load this project's history.")
+    } finally {
+      setVersionsLoading(false)
+    }
+  }
+
+  const closeVersionHistory = () => {
+    setVersionsTarget(null)
+    setVersions([])
+    setRestoreTarget(null)
+  }
+
+  // Tapping a row asks for confirmation, and the confirmation tells the user up
+  // front how many photos can't come back (replaced or deleted since).
+  const askRestore = async (version) => {
+    setRestoreTarget({ version, missing: 0 })
+    try {
+      const { missing } = await previewVersionRestore(versionsTarget.id, version.id)
+      setRestoreTarget(prev => (prev?.version.id === version.id ? { ...prev, missing } : prev))
+    } catch (err) {
+      console.warn('Failed to preview restore', err)
+    }
+  }
+
+  const handleRestoreConfirmed = async () => {
+    const target = versionsTarget
+    const version = restoreTarget?.version
+    setRestoreTarget(null)
+    if (!target || !version) return
+    setBusy('Restoring…')
+    try {
+      const result = await restoreVersion(target.id, version.id)
+      if (!result) { setErrorToast("Couldn't restore that version."); return }
+      setProjects(prev => prev
+        .map(p => (p.id === target.id ? result.summary : p))
+        .sort((a, b) => b.updatedAt - a.updatedAt))
+      // The restore snapshotted the pre-restore state, so the list has a new row.
+      setVersions(await listVersions(target.id))
+      setInfoToast(result.missing > 0
+        ? `Restored — ${result.missing} photo${result.missing > 1 ? 's are' : ' is'} no longer on this device.`
+        : 'Version restored.')
+    } catch (err) {
+      console.error('Failed to restore version', err)
+      setErrorToast("Couldn't restore that version. Please try again.")
     } finally {
       setBusy(null)
     }
@@ -702,6 +784,7 @@ export default function HomeScreen() {
             <MenuRow icon={<IconRename size={20} />} label="Rename" onClick={() => startRename(menuProject)} />
             <MenuRow icon={<IconDuplicate size={20} />} label="Duplicate" onClick={() => handleDuplicate(menuProject)} />
             <MenuRow icon={<IconFormat size={20} />} label="Duplicate in another format" onClick={() => openFormatPicker(menuProject)} />
+            <MenuRow icon={<IconHistory size={20} />} label="Version history" onClick={() => openVersionHistory(menuProject)} />
             <MenuRow icon={<IconExportTray size={20} />} label="Export file" onClick={() => handleExport(menuProject)} />
 
             <div style={{ height: 1, background: '#26272C', margin: '6px 0' }} />
@@ -827,6 +910,107 @@ export default function HomeScreen() {
                   </button>
                 )
               })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Version history sheet (#90) ────────────────────────────────────────── */}
+      {versionsTarget && (
+        <div className="fixed inset-0 z-[60] flex items-end" style={{ background: 'rgba(6,6,8,.6)' }} onClick={closeVersionHistory}>
+          <div
+            className="w-full font-inter flex flex-col"
+            style={{ maxHeight: '78%', background: '#16171B', borderTop: '1px solid #2E2F36', borderRadius: '24px 24px 0 0', paddingBottom: 'max(24px, env(safe-area-inset-bottom))', boxShadow: '0 -12px 44px rgba(0,0,0,.5)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="mx-auto mt-1.5 mb-1.5 shrink-0" style={{ width: 36, height: 4, borderRadius: 2, background: '#34353B' }} />
+            <div className="shrink-0 flex items-center justify-between px-6 pt-2 pb-1">
+              <span className="text-[18px] font-bold tracking-[-0.01em]">Version history</span>
+              <button onClick={closeVersionHistory} className="text-[#9C9BA1] active:text-[#F5F4F1]"><IconClose size={18} /></button>
+            </div>
+            <div className="shrink-0 text-[12px] leading-[1.45] text-[#67666C] px-6 pb-3.5">
+              Snapshots of “{versionsTarget.name}”, saved when you open it and about every 15 minutes while you work.
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-3 pb-1">
+              {versionsLoading ? (
+                <div className="px-3 py-6 space-y-3">
+                  {[0, 1, 2].map(i => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="animate-shimmer shrink-0" style={{ width: 40, height: 50, borderRadius: 8 }} />
+                      <div className="flex-1">
+                        <div className="animate-shimmer" style={{ width: '44%', height: 11, borderRadius: 3 }} />
+                        <div className="animate-shimmer" style={{ width: '30%', height: 9, borderRadius: 3, marginTop: 8 }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : versions.length === 0 ? (
+                <div className="px-3 py-10 text-center">
+                  <div className="text-[14px] font-semibold text-[#C9C8CE]">No earlier versions yet</div>
+                  <div className="text-[12px] leading-[1.5] text-[#67666C] mt-1.5 max-w-[260px] mx-auto">
+                    The first snapshot is taken the next time you open this project.
+                  </div>
+                </div>
+              ) : (
+                versions.map(v => (
+                  <button
+                    key={v.id}
+                    onClick={() => askRestore(v)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl text-left active:bg-[#1C1D22] transition-colors"
+                  >
+                    <div className="shrink-0 overflow-hidden" style={{ width: 40, height: 50, borderRadius: 8, background: 'linear-gradient(160deg,#4A3B2A,#2A2016)' }}>
+                      {v.thumbnail && <img src={v.thumbnail} className="w-full h-full object-cover" alt="" draggable={false} />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[15px] font-semibold text-[#F5F4F1]">{formatRelativeTime(v.timestamp)}</div>
+                      <div className="text-[12px] font-medium text-[#67666C] mt-0.5">{formatExactTime(v.timestamp)}</div>
+                    </div>
+                    <span className="shrink-0 text-[13px] font-semibold text-[#C6A052] pr-1">Restore</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Restore confirmation (#90) ─────────────────────────────────────────── */}
+      {restoreTarget && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center px-[34px]" style={{ background: 'rgba(6,6,8,.66)' }} onClick={() => setRestoreTarget(null)}>
+          <div
+            className="w-full font-inter"
+            style={{ maxWidth: 308, background: '#16171B', border: '1px solid #2E2F36', borderRadius: 24, padding: 24, boxShadow: '0 24px 60px rgba(0,0,0,.55)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="text-[18px] font-bold tracking-[-0.01em] text-[#F5F4F1]">
+              Restore this version?
+            </div>
+            <div className="text-[15px] leading-[1.45] text-[#9C9BA1] mt-2.5">
+              This project goes back to the version from {formatExactTime(restoreTarget.version.timestamp)}. Where it
+              is now is saved as a version first, so you can come straight back.
+            </div>
+            {restoreTarget.missing > 0 && (
+              <div className="mt-3 rounded-xl px-3 py-2.5 text-[12px] leading-[1.45] bg-amber-500/12 border border-amber-500/40 text-amber-200/85">
+                {restoreTarget.missing === 1 ? '1 photo in' : `${restoreTarget.missing} photos in`} this version
+                {restoreTarget.missing === 1 ? ' was' : ' were'} replaced or deleted since, so
+                {restoreTarget.missing === 1 ? ' its slot comes' : ' their slots come'} back empty. Everything
+                you&apos;ve added since is kept in the version saved just before this restore.
+              </div>
+            )}
+            <div className="flex gap-2.5 mt-[22px]">
+              <button
+                onClick={() => setRestoreTarget(null)}
+                className="flex-1 h-[48px] rounded-full border border-[#2E2F36] bg-transparent text-[#F5F4F1] text-[15px] font-semibold active:bg-[#1C1D22] transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRestoreConfirmed}
+                className="flex-1 h-[48px] rounded-full bg-[#C6A052] text-[#171205] text-[15px] font-semibold active:translate-y-px active:brightness-95 transition"
+              >
+                Restore
+              </button>
             </div>
           </div>
         </div>
