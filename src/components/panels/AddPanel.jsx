@@ -1,55 +1,21 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { useStore } from '../../useStore'
 import { useCanvasPicker } from '../../CanvasContext'
-import { TEMPLATES, TEMPLATE_CATEGORIES, templateCategory, isStyledTemplate } from '../../templates'
 import { IconImage, IconGrid, IconBlank, IconText, IconClose, IconShapes } from '../icons'
 import { SHAPE_LAYER_TYPES } from '../../shapes'
-import { STICKERS, STICKER_CATEGORIES, STICKER_COLORS, stickerPreviewURL, rasterizeSticker } from '../../stickers'
 import ShapePreview from '../ShapePreview'
-import TemplatePreview from '../TemplatePreview'
-import BrandKitPanel from './BrandKitPanel'
+import { SheetFallback } from '../LazyFallback'
 
-const TemplateThumb = ({ template, ratio, onClick }) => {
-  const ps = template.pageSpan ?? 1
-  const styled = isStyledTemplate(template)
-  return (
-    <button onClick={onClick} className="flex flex-col items-center gap-1.5 active:opacity-60">
-      <div
-        className="w-full bg-white/10 rounded-xl relative overflow-hidden border border-white/15"
-        style={{ aspectRatio: styled ? `${ratio.w * ps} / ${ratio.h}` : '1 / 1' }}
-      >
-        {styled ? (
-          // Live canvas preview (real fonts/colors/shapes) for styled templates.
-          <TemplatePreview template={template} ratio={ratio} />
-        ) : (
-          <>
-            {/* Page divider lines for multi-page templates */}
-            {ps > 1 && Array.from({ length: ps - 1 }, (_, i) => (
-              <div key={`pd${i}`} className="absolute top-0 bottom-0 w-px bg-white/50"
-                style={{ left: `${(i + 1) * 100 / ps}%` }} />
-            ))}
-            {template.cells.map((c, i) => (
-              <div key={i} className="absolute bg-white/25 border border-white/20"
-                style={{
-                  left:   `${c.x * 100 / ps}%`,
-                  top:    `${c.y * 100}%`,
-                  width:  `${c.w * 100 / ps}%`,
-                  height: `${c.h * 100}%`,
-                }} />
-            ))}
-          </>
-        )}
-        {/* Multi-page badge */}
-        {ps > 1 && (
-          <div className="absolute bottom-1 right-1 bg-black/60 text-white text-[8px] px-1 py-0.5 rounded font-medium leading-none">
-            ×{ps}
-          </div>
-        )}
-      </div>
-      <span className="text-[10px] text-white/45 leading-none">{template.label}</span>
-    </button>
-  )
-}
+// The three heavy Add-panel views load on demand (issue #87). The root grid of
+// buttons — the part every "+" tap shows — stays eager, as do Shapes (a handful
+// of inline SVG previews) and the plain actions. Each of these pulls a big
+// payload that most sessions never open:
+//   Templates → 117 template definitions + the live preview renderer
+//   Stickers  → the sticker pack + rasterizer
+//   Brand     → the brand-kit editor and font list
+const TemplatesView = lazy(() => import('./TemplatesView'))
+const StickersView  = lazy(() => import('./StickersView'))
+const BrandKitPanel = lazy(() => import('./BrandKitPanel'))
 
 export default function AddPanel() {
   const setPanel       = useStore(s => s.setPanel)
@@ -65,127 +31,48 @@ export default function AddPanel() {
   const ratio          = useStore(s => s.ratio)
   const openPickerRef  = useCanvasPicker()
   const [view, setView] = useState('root')
-  const [category, setCategory] = useState('all')
-  const [stickerColor, setStickerColor] = useState(STICKER_COLORS[0])
 
   const openImagePicker = () => {
     openPickerRef?.current?.()
     setPanel(null)
   }
 
+  // Each lazy view keeps its own Suspense boundary so only the sheet — never the
+  // editor behind it — is suspended, and the fallback matches the sheet it will
+  // become (see LazyFallback: nothing at all for the first 150ms).
   if (view === 'brand') {
-    return <BrandKitPanel onBack={() => setView('root')} onClose={() => setPanel(null)} />
+    return (
+      <Suspense fallback={<SheetFallback title="Brand" rows={2} cols={4} />}>
+        <BrandKitPanel onBack={() => setView('root')} onClose={() => setPanel(null)} />
+      </Suspense>
+    )
   }
 
   if (view === 'grid') {
-    const visible = TEMPLATES.filter(t =>
-      t.id !== 'blank' && t.id !== 'single' &&
-      (category === 'all' || templateCategory(t) === category))
-    const singlePage = visible.filter(t => !t.pageSpan || t.pageSpan === 1)
-    const multiPage  = visible.filter(t => t.pageSpan && t.pageSpan > 1)
     const apply = t => { applyTemplate(t); setPanel(null) }
     return (
-      <div className="bg-[#111] rounded-t-2xl" style={{ maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
-        <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
-          <button onClick={() => setView('root')} className="text-white/50 text-sm active:text-white">‹ Back</button>
-          <span className="font-semibold text-base">Templates</span>
-          <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
-        </div>
-        {/* Category tabs */}
-        <div className="flex gap-2 px-5 pb-3 overflow-x-auto scrollbar-hide shrink-0">
-          {TEMPLATE_CATEGORIES.map(c => (
-            <button key={c.id} onClick={() => setCategory(c.id)}
-              className={`shrink-0 text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                category === c.id
-                  ? 'bg-white text-black border-white font-semibold'
-                  : 'bg-white/8 text-white/60 border-white/10 active:bg-white/15'}`}>
-              {c.label}
-            </button>
-          ))}
-        </div>
-        <div className="overflow-y-auto px-5 pb-8 space-y-5">
-          {singlePage.length > 0 && (
-            <div className="grid grid-cols-3 gap-3">
-              {singlePage.map(t => (
-                <TemplateThumb key={t.id} template={t} ratio={ratio} onClick={() => apply(t)} />
-              ))}
-            </div>
-          )}
-
-          {multiPage.length > 0 && (
-            <div>
-              <div className="text-xs text-white/30 uppercase tracking-wider mb-3">Multi-page</div>
-              <div className="grid grid-cols-2 gap-3">
-                {multiPage.map(t => (
-                  <TemplateThumb key={t.id} template={t} ratio={ratio} onClick={() => apply(t)} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {visible.length === 0 && (
-            <div className="text-white/30 text-sm text-center py-10">No templates in this category</div>
-          )}
-        </div>
-      </div>
+      <Suspense fallback={<SheetFallback title="Templates" rows={2} cols={3} />}>
+        <TemplatesView
+          ratio={ratio}
+          onApply={apply}
+          onBack={() => setView('root')}
+          onClose={() => setPanel(null)}
+        />
+      </Suspense>
     )
   }
 
   if (view === 'stickers') {
-    // Rasterize the tapped sticker at export-quality resolution, then place it
-    // centered on the active slide as a normal (transparent-PNG) image layer.
-    const placeSticker = async (sticker) => {
-      const placedW = ratio.w * 0.3
-      const placedLong = Math.max(placedW, placedW * (sticker.vb[1] / sticker.vb[0]))
-      // 2× headroom so a 2× export stays crisp; capped so data URLs stay modest.
-      const longPx = Math.min(1024, Math.max(256, Math.round(placedLong * 2)))
-      try {
-        const { src, naturalW, naturalH } = await rasterizeSticker(sticker, stickerColor, longPx)
-        addStickerLayer(src, naturalW, naturalH)
-        setPanel(null)
-      } catch (e) {
-        console.warn('Failed to place sticker', sticker.id, e)
-      }
-    }
+    const place = (src, naturalW, naturalH) => { addStickerLayer(src, naturalW, naturalH); setPanel(null) }
     return (
-      <div className="bg-[#111] rounded-t-2xl" style={{ maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
-        <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
-          <button onClick={() => setView('root')} className="text-white/50 text-sm active:text-white">‹ Back</button>
-          <span className="font-semibold text-base">Stickers</span>
-          <button onClick={() => setPanel(null)} className="text-white/40"><IconClose size={18} /></button>
-        </div>
-        {/* Tint color row */}
-        <div className="flex gap-2.5 px-5 pb-3 overflow-x-auto scrollbar-hide shrink-0">
-          {STICKER_COLORS.map(c => (
-            <button key={c} onClick={() => setStickerColor(c)}
-              aria-label={`Tint ${c}`}
-              className={`shrink-0 w-7 h-7 rounded-full border-2 transition-transform ${
-                stickerColor === c ? 'border-white scale-110' : 'border-white/25'}`}
-              style={{ backgroundColor: c }} />
-          ))}
-        </div>
-        <div className="overflow-y-auto px-5 pb-8 space-y-5">
-          {STICKER_CATEGORIES.map(cat => {
-            const items = STICKERS.filter(s => s.category === cat.id)
-            if (!items.length) return null
-            return (
-              <div key={cat.id}>
-                <div className="text-xs text-white/30 uppercase tracking-wider mb-3">{cat.label}</div>
-                <div className="grid grid-cols-4 gap-3">
-                  {items.map(s => (
-                    <button key={s.id} onClick={() => placeSticker(s)}
-                      className="rounded-xl p-2 flex items-center justify-center active:opacity-60"
-                      style={{ background: '#6b7280', aspectRatio: '1 / 1' }}>
-                      <img src={stickerPreviewURL(s, stickerColor)} alt={s.label} loading="lazy"
-                        className="max-w-full max-h-full" style={{ maxWidth: '80%', maxHeight: '80%' }} />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
+      <Suspense fallback={<SheetFallback title="Stickers" rows={2} cols={4} />}>
+        <StickersView
+          ratio={ratio}
+          onPlace={place}
+          onBack={() => setView('root')}
+          onClose={() => setPanel(null)}
+        />
+      </Suspense>
     )
   }
 

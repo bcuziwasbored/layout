@@ -1,4 +1,4 @@
-import { TEMPLATES } from '../../templates'
+import { TEMPLATES } from '../../templatesData'
 import TemplatePreview from '../TemplatePreview'
 import { IconChevronRight } from '../icons'
 

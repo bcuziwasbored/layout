@@ -1,9 +1,16 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, lazy, Suspense } from 'react'
 import { useStore } from '../useStore'
-import ExportScreen from './ExportScreen'
-import CaptionSheet from './CaptionSheet'
 import { IconUndo, IconRedo, IconCaption } from './icons'
 import { saveProject } from '../projectStorage'
+import { ScreenFallback, BottomSheetFallback } from './LazyFallback'
+
+// Export and caption are one-tap destinations, not part of the editing loop, so
+// their code (the whole render/encode pipeline, the caption store) is fetched on
+// demand (issue #87). Both chunks are precached by the service worker, so the
+// tap resolves from cache — offline included — usually before the delayed
+// fallback ever appears.
+const ExportScreen = lazy(() => import('./ExportScreen'))
+const CaptionSheet = lazy(() => import('./CaptionSheet'))
 
 // ─── Save indicator ───────────────────────────────────────────────────────────
 
@@ -178,8 +185,16 @@ export default function TopBar() {
           </button>
         </div>
       </div>
-      {captionOpen && <CaptionSheet onClose={() => setCaptionOpen(false)} />}
-      {exporting && <ExportScreen onClose={() => setExporting(false)} />}
+      {captionOpen && (
+        <Suspense fallback={<BottomSheetFallback height={280} label="Caption" />}>
+          <CaptionSheet onClose={() => setCaptionOpen(false)} />
+        </Suspense>
+      )}
+      {exporting && (
+        <Suspense fallback={<ScreenFallback label="Preparing export…" dark="#000" />}>
+          <ExportScreen onClose={() => setExporting(false)} />
+        </Suspense>
+      )}
     </>
   )
 }

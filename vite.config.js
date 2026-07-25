@@ -5,6 +5,29 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
   base: '/layout/',
+  build: {
+    rollupOptions: {
+      output: {
+        // Manual grouping on top of what React.lazy already splits (issue #87).
+        // lazy() handles the on-demand SURFACES; these two groups exist for cache
+        // behaviour: konva + react-konva and the React runtime are the largest
+        // things in the eager graph and they change only on a dependency bump, so
+        // pinning them to their own chunks means an app-code release invalidates
+        // ~90KB instead of ~700KB. They stay EAGER on purpose — the editor canvas
+        // must be ready the moment a project opens, so it is never lazy-loaded.
+        //
+        // fflate is deliberately NOT listed: it rides along with the code that
+        // uses it (src/projectArchive.js, dynamically imported), which keeps the
+        // zip machinery out of the initial load entirely.
+        advancedChunks: {
+          groups: [
+            { name: 'konva', test: /node_modules[/\\](konva|react-konva)[/\\]/ },
+            { name: 'react-vendor', test: /node_modules[/\\](react|react-dom|scheduler)[/\\]/ },
+          ],
+        },
+      },
+    },
+  },
   plugins: [
     react(),
     tailwindcss(),
