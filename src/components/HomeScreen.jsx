@@ -15,6 +15,7 @@ import {
   listProjects, loadProject, deleteProject, renameProject, duplicateProject,
   exportProject, backupAllProjects, importProjectFile, duplicateProjectInFormat,
 } from '../projectStorage'
+import { checkStorageHealth, markNudgeSeen, formatBytes } from '../storageHealth'
 
 // ─── File delivery ──────────────────────────────────────────────────────────────
 // Same channel logic as ExportScreen: share a File via the OS share sheet when the
@@ -158,6 +159,14 @@ export default function HomeScreen() {
   const [busy, setBusy]                     = useState(null)  // blocking-op label (export / backup / import)
   const importInputRef = useRef(null)
 
+  // Storage health banner (#84): { kind: 'pressure' | 'nudge', estimate } or null.
+  // Checked once per home-screen mount, after the project list settles (the nudge
+  // rule needs the project count). Dismissal is session-local: real pressure is
+  // worth re-raising next launch, while the nudge is flagged one-time in
+  // localStorage the moment it's shown.
+  const [storageBanner, setStorageBanner]   = useState(null)
+  const storageChecked = useRef(false)
+
   // Fetch the project list. State updates happen only in async callbacks, so this
   // is safe to call from an effect body without triggering a synchronous cascade.
   const fetchProjects = () => listProjects()
@@ -177,6 +186,19 @@ export default function HomeScreen() {
   }
 
   useEffect(() => { fetchProjects() }, [])
+
+  // Ask the browser how healthy local storage is, once the list has loaded.
+  // checkStorageHealth is fully feature-detected and never rejects — on a browser
+  // with partial Storage API support it resolves to no banner at all.
+  useEffect(() => {
+    if (projectsLoading || projectsError || storageChecked.current) return
+    storageChecked.current = true
+    checkStorageHealth(projects.length).then(result => {
+      if (!result.kind) return
+      if (result.kind === 'nudge') markNudgeSeen()
+      setStorageBanner(result)
+    })
+  }, [projectsLoading, projectsError, projects.length])
 
   // Auto-dismiss the error toast.
   useEffect(() => {
@@ -278,6 +300,15 @@ export default function HomeScreen() {
     } finally {
       setBusy(null)
     }
+  }
+
+  // Storage-banner CTA — the same "Back up all" flow the header menu runs. Once a
+  // backup exists the gentle nudge has done its job; a pressure warning stays put
+  // because the device is still short on space.
+  const handleBannerBackup = async () => {
+    const kind = storageBanner?.kind
+    await handleBackupAll()
+    if (kind === 'nudge') setStorageBanner(null)
   }
 
   // Import a .layout file picked from disk / Files.
@@ -422,6 +453,16 @@ export default function HomeScreen() {
               <IconMoreH size={22} />
             </button>
           </div>
+
+          {/* Storage health banner (#84) — pressure warning, else one-time nudge */}
+          {storageBanner && !projectsLoading && !projectsError && (
+            <StorageBanner
+              kind={storageBanner.kind}
+              estimate={storageBanner.estimate}
+              onBackup={handleBannerBackup}
+              onDismiss={() => setStorageBanner(null)}
+            />
+          )}
 
           {/* Body — one of: loading / error / list / empty */}
           {projectsLoading ? (
@@ -807,6 +848,60 @@ export default function HomeScreen() {
           {errorToast}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Storage health banner (#84) ────────────────────────────────────────────────
+// One slot, two priorities. 'pressure' is the loud one: an amber-tinted card in
+// the same language as the export screen's missing-photo warning (amber accent,
+// never the red error state — nothing has actually failed). 'nudge' is the quiet
+// one: the neutral home-screen card with an amber icon, shown at most once ever.
+// Both route to the existing "Back up all" action and can be dismissed.
+function StorageBanner({ kind, estimate, onBackup, onDismiss }) {
+  const pressure = kind === 'pressure'
+  const used = estimate ? `${formatBytes(estimate.usage)} of ${formatBytes(estimate.quota)} used` : null
+
+  return (
+    <div className="px-5 pt-3.5">
+      <div
+        role="status"
+        className={`flex items-start gap-3 rounded-2xl px-3.5 py-3 ${
+          pressure
+            ? 'bg-amber-500/12 border border-amber-500/40'
+            : 'bg-[#141518] border border-[#26272C]'}`}
+      >
+        <span className="shrink-0 flex text-amber-400 mt-px" aria-hidden>
+          {pressure ? <IconAlertTriangle size={19} /> : <IconBackup size={19} />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className={`text-[13px] font-semibold ${pressure ? 'text-amber-200' : 'text-[#F5F4F1]'}`}>
+            {pressure ? 'Storage is nearly full' : 'Keep a backup of your projects'}
+          </div>
+          <div className={`text-[12px] leading-[1.45] mt-1 ${pressure ? 'text-amber-200/75' : 'text-[#9C9BA1]'}`}>
+            {pressure
+              ? <>{used ? `${used} on this device. ` : ''}Back up your projects so nothing is lost if the browser clears space.</>
+              : 'Your projects live only on this device, and the browser hasn’t guaranteed their storage. A backup file keeps them safe.'}
+          </div>
+          <button
+            onClick={onBackup}
+            className={`mt-2.5 h-8 px-3.5 rounded-full text-[12px] font-semibold flex items-center gap-1.5 transition ${
+              pressure
+                ? 'bg-amber-500/20 text-amber-200 border border-amber-500/40 active:bg-amber-500/30'
+                : 'bg-[#1C1D22] text-[#F5F4F1] border border-[#34353B] active:bg-[#26272C]'}`}
+          >
+            <IconBackup size={15} /> Back up all
+          </button>
+        </div>
+        <button
+          onClick={onDismiss}
+          aria-label="Dismiss"
+          className={`shrink-0 w-7 h-7 -mr-1 -mt-0.5 rounded-lg flex items-center justify-center ${
+            pressure ? 'text-amber-200/60 active:text-amber-200' : 'text-[#67666C] active:text-[#F5F4F1]'}`}
+        >
+          <IconClose size={14} />
+        </button>
+      </div>
     </div>
   )
 }
