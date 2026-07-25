@@ -14,6 +14,7 @@ import {
 import { FONTS, loadFont } from '../../fonts'
 import { SHAPE_LAYER_TYPES, STROKE_AWARE_SHAPES } from '../../shapes'
 import { SHADOW_PRESETS, shadowPresetMatches } from '../../shadow'
+import { layerTextArc, arcFromSlider, sliderFromArc } from '../../curvedText'
 import { FILTER_PRESETS, presetAdjust, presetMatches, buildFilterString, ADJUSTMENT_PROPS } from '../../adjustments'
 import ShapePreview from '../ShapePreview'
 import ColorRows from '../ColorRows'
@@ -548,6 +549,11 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
     }
   }
 
+  // Curved text (issue #92): the stored arc span, and whether this very layer is
+  // mid inline-edit (the Curve slider is hidden then — see the section below).
+  const arcDeg = layerTextArc(layer)
+  const editingThisLayer = useStore(s => s.textEditId) === layer.id
+
   // Brand kit default font pair (issue #64) — pinned at the top of the picker
   // under a "Brand" section label so the pair is always one tap away.
   const brandHeading = useStore(s => s.brand.headingFont)
@@ -875,6 +881,49 @@ function TextStylePanel({ layer, updateLayer, updateLayerWithHistory }) {
           </div>
         </div>
       </div>
+
+      {/* Curve (issue #92) — bends the text along an arc.
+          Slider units are −100..100 and map to the stored `textArc` SPAN IN
+          DEGREES via arcFromSlider (±350° at the ends). Positive arcs the ends
+          downward from the apex (∩, "smile" side of the track); negative lifts
+          them (∪); 0 is straight and takes the untouched straight render path.
+          Scrubbing uses the #28 capture-on-press / commit-on-release pattern so a
+          whole drag is one Undo; Reset is a discrete capture→apply→commit entry.
+          HIDDEN while this layer is being inline-edited: curved layers edit as
+          straight text (see InlineTextEditor in Canvas.jsx), so offering the
+          curve control mid-edit would show a value the overlay doesn't reflect —
+          and a mid-edit history push would interleave with the edit session's
+          single snapshot (same reasoning as TextQuickBar's applyText). */}
+      {!editingThisLayer && (
+        <div className="py-3 border-b border-white/8">
+          <div className="flex items-center justify-between mb-2.5">
+            <div className="text-sm font-semibold text-white">Curve</div>
+            {arcDeg !== 0 && (
+              <button
+                onClick={() => applyDiscrete(() => updateLayer(layer.id, { textArc: 0 }), true)}
+                className="text-xs text-white/50 px-2 py-1 rounded-lg bg-white/10 active:bg-white/25">
+                Reset
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <input type="range" min={-100} max={100} step={1}
+              value={sliderFromArc(arcDeg)}
+              onChange={e => updateLayer(layer.id, { textArc: arcFromSlider(+e.target.value) })}
+              onPointerDown={() => useStore.getState()._captureUndo()}
+              onMouseUp={() => useStore.getState()._commitUndo()}
+              onTouchEnd={() => useStore.getState()._commitUndo()}
+              className="flex-1 accent-white" />
+            <div className="bg-white/10 rounded-lg px-2.5 py-1.5 min-w-[56px] text-right shrink-0">
+              <span className="text-white text-sm tabular-nums">{arcDeg}</span>
+              <span className="text-white/40 text-[11px] ml-0.5">°</span>
+            </div>
+          </div>
+          <div className="text-[11px] text-white/30 mt-1.5">
+            Single line, centred on the arc. Editing text shows it straight.
+          </div>
+        </div>
+      )}
 
       {/* Line height */}
       <div className="py-3 border-b border-white/8">

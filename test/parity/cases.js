@@ -142,6 +142,46 @@ export const CASES = [
     })],
   },
   {
+    id: 'text-curved',
+    name: 'Curved text (120° arc, letter-spaced)',
+    // Curved text is drawn glyph-by-glyph under a per-glyph rotation in BOTH
+    // renderers — the same call sequence on both sides, so despite the rotated
+    // antialiasing it measures 0.000/0.000 like the straight text cases and holds
+    // their tolerance. A 2px shift of the export-side arc origin takes it to
+    // mean 1.76 / pct>24 1.27 (`--inject curved-text-origin`), so a one-glyph
+    // placement error — wrong radius, dropped letterSpacing, flipped sign —
+    // blows through this by an order of magnitude.
+    meanTol: 0.20, pctTol: 0.10,
+    curvedText: true,
+    bgColor: '#f4f1ea',
+    slides: ONE_SLIDE, slideIdx: 0,
+    layers: [text('t-arc', {
+      text: 'CURVED HEADLINE',
+      textArc: 120, letterSpacing: 8, bold: true, fontSize: 54,
+    })],
+  },
+  {
+    id: 'text-curved-effects',
+    name: 'Curved text with outline + shadow (buffer-canvas path)',
+    // Negative arc (∪) plus the fill+stroke+shadow combination that sends BOTH
+    // renderers through their buffer canvas: Konva's Shape._useBufferCanvas on
+    // the editor side, renderTextLayer's own buffer on the export side. Proves
+    // the shadow is cast once from the whole curved word in both. Measures
+    // 0.000/0.000; the origin injection takes it to mean 2.10 / pct>24 2.17.
+    meanTol: 0.20, pctTol: 0.10,
+    curvedText: true,
+    bgColor: '#fdf6e3',
+    slides: ONE_SLIDE, slideIdx: 0,
+    layers: [text('t-arc-fx', {
+      text: 'BENT & BOLD',
+      textArc: -150, fontSize: 72, bold: true, color: '#facc15',
+      letterSpacing: 3,
+      textStroke: '#111827', textStrokeWidth: 6,
+      shadowColor: '#111827', shadowBlur: 18,
+      shadowOffsetX: 10, shadowOffsetY: 12, shadowOpacity: 0.55,
+    })],
+  },
+  {
     id: 'image-star-border',
     name: 'Star-shaped image with border',
     meanTol: 0.15, pctTol: 0.10,
@@ -288,6 +328,15 @@ export const CASES = [
   },
 ]
 
-// Cases whose pixels depend on text layout — the ones a baseline/metrics
-// regression in renderSlide must break. Used by the negative-control run.
+// Cases whose pixels depend on STRAIGHT text layout — the ones a baseline/metrics
+// regression in renderSlide's straight path must break. Used by the
+// negative-control run (`npm run test:parity:regression`).
+//
+// Curved cases are deliberately NOT in this list: they never execute the straight
+// path's baseline expression, so the straight-text injection cannot move them.
+// They have their own negative control — see CURVED_TEXT_CASE_IDS below and the
+// `curved-text-origin` injection in run.mjs.
 export const TEXT_CASE_IDS = CASES.filter(c => c.text).map(c => c.id)
+
+// Cases that exercise the curved (arc) text path in both renderers.
+export const CURVED_TEXT_CASE_IDS = CASES.filter(c => c.curvedText).map(c => c.id)
