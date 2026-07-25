@@ -4,6 +4,9 @@
 //   npm run test:parity:regression   — NEGATIVE CONTROL: inject a 2px text
 //                                      baseline offset into renderSlide.js and
 //                                      assert the suite catches it
+//   node test/parity/run.mjs --inject curved-text-origin
+//                                    — the same control for the curved-text
+//                                      (issue #92) path
 //
 // Starts the project's own Vite dev server (no build step, no vite.config
 // changes), drives headless Chrome through puppeteer, and asserts the numbers
@@ -17,7 +20,7 @@ import puppeteer from 'puppeteer'
 import { mkdir, writeFile, rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { CASES, TEXT_CASE_IDS } from './cases.js'
+import { CASES, TEXT_CASE_IDS, CURVED_TEXT_CASE_IDS } from './cases.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(HERE, '../..')
@@ -34,6 +37,19 @@ const INJECTIONS = {
     describe: '2px text-baseline shift in renderSlide.renderTextLayer',
     // Every text-dependent case must fail when this is injected.
     mustFail: TEXT_CASE_IDS,
+  },
+  // Curved text (issue #92) never runs the straight path's baseline expression,
+  // so it needs its own control. The arc GEOMETRY is shared code (curvedText.js,
+  // used by both renderers) and a change there moves both sides equally — the
+  // only thing a pixel diff can police is the export-side anchor, which is
+  // exactly what this shifts. Run it with:
+  //   node test/parity/run.mjs --inject curved-text-origin
+  'curved-text-origin': {
+    file: 'src/renderSlide.js',
+    from: 'const curveOrigin = { x, y }',
+    to: 'const curveOrigin = { x, y: y + 2 }',
+    describe: '2px curved-text origin shift in renderSlide.renderTextLayer',
+    mustFail: CURVED_TEXT_CASE_IDS,
   },
 }
 

@@ -7,6 +7,7 @@
 import { dbGetBlob } from './db'
 import { drawShapePath, STROKE_AWARE_SHAPES } from './shapes'
 import { hasShadow, applyCanvasShadow, clearCanvasShadow } from './shadow'
+import { layerTextArc, arcTextLine, curvedTextLayout, drawCurvedGlyphs } from './curvedText'
 import { ensureLayerFontsLoaded } from './fonts'
 import { buildFilterString, hasOverlay, drawAdjustmentOverlays } from './adjustments'
 
@@ -165,7 +166,16 @@ function renderTextLayer(ctx, layer, sliceStart, scale = 1) {
   const letterSpacing = layer.letterSpacing ?? 0
   const lineHeightPx = (layer.lineHeight ?? 1.2) * fontSize
 
-  const lines = wrapTextLines(ctx, raw, w, h, letterSpacing, lineHeightPx, 'word')
+  // Curved text (issue #92): a non-zero textArc bends the text along an arc and,
+  // per the v1 constraints, renders it as ONE line — wrapping is skipped and
+  // newlines collapse to spaces. textArc 0 falls through to the untouched
+  // straight path below, so straight text is byte-identical to before.
+  const arcDeg = layerTextArc(layer)
+  const curved = arcDeg !== 0
+
+  const lines = curved
+    ? [arcTextLine(raw)]
+    : wrapTextLines(ctx, raw, w, h, letterSpacing, lineHeightPx, 'word')
 
   // Vertical placement matches Konva's non-legacy text rendering: each line box is
   // fontSize*lineHeight tall and the alphabetic baseline sits at
@@ -219,12 +229,37 @@ function renderTextLayer(ctx, layer, sliceStart, scale = 1) {
     }
   }
 
+  // Curved variant. Geometry + per-glyph placement come from the SHARED module
+  // the editor's TextCell uses (src/curvedText.js), so the two renderers can't
+  // drift; only the save/translate/rotate/fillText emission differs in ceremony.
+  // Everything else — outline ordering, the shadow paths below, letterSpacing —
+  // composes exactly as it does for straight text.
+  const drawCurved = (tctx) => {
+    // curveOrigin: the layer box origin in this context's space (the editor draws
+    // the same glyphs at the Group-local origin 0,0). Also the anchor the parity
+    // negative control perturbs — see INJECTIONS in test/parity/run.mjs.
+    const curveOrigin = { x, y }
+    const glyphs = curvedTextLayout(tctx, {
+      text: raw, ox: curveOrigin.x, oy: curveOrigin.y, w, h,
+      fontSize, lineHeight: layer.lineHeight ?? 1.2, letterSpacing,
+      verticalAlign: va, arcDeg,
+    })
+    drawCurvedGlyphs(tctx, glyphs, { stroke: !!strokeColor })
+  }
+
+  const drawText = curved ? drawCurved : drawLines
+
   if (shadowOn && strokeColor) {
     // Konva renders fill+stroke text to a buffer canvas and casts a SINGLE shadow
     // from the composited shape (_useBufferCanvas: hasFill && hasStroke && hasShadow
     // && shadowForStrokeEnabled). Replicate that: draw the glyphs (no shadow) into a
     // device-sized buffer under the SAME transform, then composite once with the
     // shadow set in device space.
+    // Curved text takes this same branch: TextCell's arc node is a Konva Shape
+    // carrying the same fill/stroke/shadow attrs, so Konva applies the identical
+    // buffer rule to it and the shadow is cast once from the whole curved word —
+    // not once per glyph (which is what the non-buffer branch below does, in both
+    // renderers, when there is a shadow but no outline).
     const buf = document.createElement('canvas')
     buf.width = ctx.canvas.width
     buf.height = ctx.canvas.height
@@ -237,7 +272,7 @@ function renderTextLayer(ctx, layer, sliceStart, scale = 1) {
     bctx.strokeStyle = strokeColor
     bctx.lineWidth = strokeWidth
     bctx.lineJoin = 'round'
-    drawLines(bctx)
+    drawText(bctx)
 
     ctx.save()
     // Canvas shadow params ignore the CTM, so they live in device pixels. Konva
@@ -263,7 +298,7 @@ function renderTextLayer(ctx, layer, sliceStart, scale = 1) {
       ctx.lineWidth = strokeWidth
       ctx.lineJoin = 'round'
     }
-    drawLines(ctx)
+    drawText(ctx)
   }
   ctx.restore()
 }

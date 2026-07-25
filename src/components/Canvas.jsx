@@ -6,6 +6,7 @@ import { dbGetBlob } from '../db'
 import { blobCache, dataURLCache } from '../blobCache'
 import { drawShapePath, STROKE_AWARE_SHAPES } from '../shapes'
 import { konvaShadowProps, hasShadow } from '../shadow'
+import { layerTextArc, curvedTextLayout, drawCurvedGlyphs } from '../curvedText'
 import { buildFilterString, hasOverlay, drawAdjustmentOverlays } from '../adjustments'
 import { useCanvasPicker } from '../CanvasContext'
 import { stockEnabled } from '../stockConfig'
@@ -408,6 +409,12 @@ function useAdjustedImage(src, brightness, contrast, saturation, temperature, ti
 export function TextCell({ layer, isEditing }) {
   const fontStyle = [layer.italic && 'italic', layer.bold && 'bold'].filter(Boolean).join(' ') || 'normal'
   const hasText = layer.text && layer.text.trim().length > 0
+  // Curved text (issue #92). Non-zero arc swaps the Konva Text node for a custom
+  // sceneFunc that places each glyph along the arc; 0 keeps the Text node exactly
+  // as it was, so straight text is untouched.
+  const arcDeg = layerTextArc(layer)
+  const textStrokeWidth = layer.textStrokeWidth ?? 0
+  const textStrokeColor = (textStrokeWidth > 0 && layer.textStroke) ? layer.textStroke : null
   // Konva rasterizes text with whatever font is loaded at draw time and doesn't
   // re-measure when a lazily-loaded web font arrives later. Subscribing to
   // fontsVersion re-renders this cell on every 'loadingdone' batch, and keying
@@ -427,12 +434,70 @@ export function TextCell({ layer, isEditing }) {
           listening={false} />
       )}
       {/* While inline-editing, the HTML textarea overlay shows the text instead
-          (true WYSIWYG). We keep the textBg + hit area but hide the Konva text. */}
+          (true WYSIWYG). We keep the textBg + hit area but hide the Konva text.
+          CURVED TEXT (issue #92) DELIBERATELY EDITS STRAIGHT: a <textarea> cannot
+          be bent along an arc, so entering edit mode hides the curved node and
+          the overlay shows the same plain straight editor every other text layer
+          gets — you type normally and the curve snaps back the moment you commit.
+          The Curve slider is hidden while editing to make that state obvious. */}
       {/* Text effects (issue #62): Konva consumes shadow* natively; export
           (renderTextLayer) mirrors them exactly. Outline maps to Konva's
           stroke/strokeWidth with fillAfterStrokeEnabled so the fill draws over the
           outline, and lineJoin='round' for smooth glyph corners. */}
-      {isEditing ? null : hasText ? (
+      {isEditing ? null : hasText ? (arcDeg !== 0 ? (
+        /* ── Curved text (issue #92) ────────────────────────────────────────
+           A custom sceneFunc rather than a Konva Text node: the glyphs are
+           emitted by the SAME shared helper the exporter uses
+           (src/curvedText.js), drawn onto the raw 2D context with
+           save/translate/rotate/fillText — literally the same call sequence
+           renderTextLayer makes, so editor and export agree by construction.
+
+           The fill/stroke/shadow ATTRS below are what Konva reads to decide how
+           to composite: with fill+stroke+shadow it routes the sceneFunc through
+           its buffer canvas and casts one shadow off the whole composited word
+           (Shape._useBufferCanvas); with a shadow but no outline it applies the
+           shadow directly and every fillText casts its own. renderTextLayer
+           mirrors both branches exactly. (Konva never fills/strokes on its own
+           here — nothing calls fillStrokeShape — the attrs only select the
+           compositing mode and carry the shadow.) */
+        <Shape
+          key={`arc-${fontsVersion}`}
+          sceneFunc={(kctx) => {
+            // The raw CanvasRenderingContext2D behind Konva's wrapper (the scene
+            // canvas, or the stage buffer canvas on the shadow+outline path).
+            const c = kctx._context ?? kctx
+            const fontSize = layer.fontSize ?? 72
+            c.font = `${fontStyle} ${fontSize}px "${layer.fontFamily ?? 'Inter'}"`
+            c.textAlign = 'left'
+            c.textBaseline = 'alphabetic'
+            c.fillStyle = layer.color ?? '#000000'
+            if (textStrokeColor) {
+              c.strokeStyle = textStrokeColor
+              c.lineWidth = textStrokeWidth
+              c.lineJoin = 'round'
+            }
+            const glyphs = curvedTextLayout(c, {
+              text: layer.text, ox: 0, oy: 0, w: layer.w, h: layer.h,
+              fontSize, lineHeight: layer.lineHeight ?? 1.2,
+              letterSpacing: layer.letterSpacing ?? 0,
+              verticalAlign: layer.verticalAlign ?? 'middle',
+              arcDeg,
+            })
+            drawCurvedGlyphs(c, glyphs, { stroke: !!textStrokeColor })
+          }}
+          fill={layer.color ?? '#000000'}
+          stroke={textStrokeColor ?? undefined}
+          strokeWidth={textStrokeWidth}
+          lineJoin="round"
+          shadowColor={layer.shadowColor || undefined}
+          shadowEnabled={!!layer.shadowColor}
+          shadowBlur={layer.shadowBlur ?? 0}
+          shadowOffsetX={layer.shadowOffsetX ?? 0}
+          shadowOffsetY={layer.shadowOffsetY ?? 0}
+          shadowOpacity={layer.shadowOpacity ?? 1}
+          listening={false}
+        />
+      ) : (
         <Text
           key={fontsVersion}
           x={0} y={0}
@@ -459,7 +524,7 @@ export function TextCell({ layer, isEditing }) {
           lineJoin="round"
           listening={false}
         />
-      ) : (
+      )) : (
         <Text
           x={0} y={0} width={layer.w} height={layer.h}
           text="Tap to type…"
@@ -1018,6 +1083,12 @@ function QuickToolbar({ layer, view, containerH }) {
 // to match (font, size, color, alignment, rotation), so the user types WYSIWYG
 // on the canvas instead of in a separate panel. The Konva text node is hidden
 // while this is active (TextCell isEditing).
+//
+// Curved layers (textArc ≠ 0, issue #92) edit STRAIGHT here — a textarea can't be
+// bent along an arc, and rebuilding a per-glyph caret/selection model on the
+// canvas is far more machinery than the feature is worth. The overlay shows the
+// unbent text in the layer box, the curve returns on commit, and TextStylePanel
+// hides the Curve slider for the duration so the two modes never fight.
 
 function InlineTextEditor({ layer, view, onDone }) {
   const updateLayer = useStore(s => s.updateLayer)
