@@ -2,6 +2,7 @@ import { dbGet, dbPut, dbDelete, dbGetAll, dbGetBlob, dbPutBlob, dbDeleteBlob } 
 import { blobCache } from './blobCache'
 import { renderSlide } from './renderSlide'
 import { migrateLayers } from './ratioMigrate'
+import { requestPersistentStorage } from './storageHealth'
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 
 const THUMB_W = 240
@@ -236,6 +237,13 @@ export async function saveProject(id, name, storeState) {
     // `?? ''` keeps records written before this field consistent.
     state: { ratio, bgColor, bgGradient, slides, layers: serialized, caption: caption ?? '' },
   })
+
+  // First successful save of the session → ask for durable storage (#84). Placed
+  // here, after the write lands, because browsers grant persistence far more
+  // readily once the origin shows real engagement — and never on app load.
+  // requestPersistentStorage self-guards, so later saves are a cached no-op, and
+  // it never rejects, so a browser without the Storage API changes nothing.
+  requestPersistentStorage()
 }
 
 export async function loadProject(id) {
