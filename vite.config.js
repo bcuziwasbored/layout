@@ -9,7 +9,10 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // 'prompt' (not 'autoUpdate') so the new SW parks in `waiting` and fires
+      // onNeedRefresh instead of swapping itself in mid-session — src/components
+      // /UpdateToast.jsx surfaces that as a tap-to-reload toast (issue #85).
+      registerType: 'prompt',
       manifest: {
         name: 'Layout',
         short_name: 'Layout',
@@ -24,6 +27,17 @@ export default defineConfig({
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
           { src: 'icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+        // Android long-press menu (ignored by iOS). Relative URL for the same
+        // base reason as the icons; App.jsx consumes ?action=new on boot.
+        shortcuts: [
+          {
+            name: 'New project',
+            short_name: 'New',
+            description: 'Start a blank 4:5 project',
+            url: './?action=new',
+            icons: [{ src: 'icon-192.png', sizes: '192x192', type: 'image/png' }],
+          },
         ],
       },
       workbox: {
