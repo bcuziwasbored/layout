@@ -504,3 +504,14 @@ export function IconSearch({ size = 17 }) {
     </svg>
   )
 }
+
+// Counter-clockwise clock — version history (issue #90)
+export function IconHistory({ size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.2 12a8.8 8.8 0 1 0 2.6-6.2" />
+      <path d="M3 3.4V8h4.6" />
+      <path d="M12 7.6V12l3 1.8" />
+    </svg>
+  )
+}

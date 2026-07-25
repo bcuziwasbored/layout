@@ -22,6 +22,12 @@ import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 // A "back up all" archive additionally has a top-level `backup.json` manifest and
 // nests each project under a `<projectId>/` folder. Images are stored as raw bytes
 // (data-URL → bytes on export, reverse on import) so files stay small.
+//
+// Version-history snapshots (issue #90) are deliberately NOT exported: everything
+// here reads the 'projects' store only. A snapshot's images resolve against the
+// project record they were taken from, so they would not survive the fresh ids an
+// import assigns — and a backup file is for the current state of the work, not
+// for the local undo trail.
 
 export const LAYOUT_FORMAT_VERSION = 1
 const LAYOUT_APP = 'layout'

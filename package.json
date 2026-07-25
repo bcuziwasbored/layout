@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "npm run test:unit && npm run test:parity",
-    "test:unit": "vite-node test/undo.test.mjs && vite-node test/bulk.test.mjs && vite-node test/stock.test.mjs",
+    "test:unit": "vite-node test/undo.test.mjs && vite-node test/bulk.test.mjs && vite-node test/stock.test.mjs && vite-node test/versions.test.mjs",
     "test:parity": "node test/parity/run.mjs",
     "test:parity:regression": "node test/parity/run.mjs --inject text-baseline"
   },

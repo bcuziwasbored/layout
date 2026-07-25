@@ -3,6 +3,10 @@ import { blobCache } from './blobCache'
 import { renderSlide } from './renderSlide'
 import { migrateLayers } from './ratioMigrate'
 import { requestPersistentStorage } from './storageHealth'
+import {
+  maybeCaptureVersion, writeVersion, getVersion, resolveVersionLayers,
+  deleteVersionsForProject, noteCapture,
+} from './versionHistory'
 
 const THUMB_W = 240
 
@@ -229,13 +233,23 @@ export async function saveProject(id, name, storeState) {
   const thumbnail = (prev?.thumbFingerprint === fingerprint && prev.thumbnail)
     ? prev.thumbnail
     : await renderThumbnail(serialized, slides, ratio, bgColor, bgGradient)
-  await dbPut('projects', {
+  const record = {
     id, name, updatedAt: Date.now(), thumbnail, thumbFingerprint: fingerprint,
     slideCount: slides.length,
     // `caption` (issue #71) is plain metadata persisted alongside the project;
     // `?? ''` keeps records written before this field consistent.
     state: { ratio, bgColor, bgGradient, slides, layers: serialized, caption: caption ?? '' },
-  })
+  }
+  await dbPut('projects', record)
+
+  // Version history (#90). This runs on every autosave tick but writes at most
+  // one snapshot per 15 minutes of editing — the check itself is a keys-only
+  // index read, cached in memory after the first call. Never fails the save.
+  try {
+    await maybeCaptureVersion(record)
+  } catch (e) {
+    console.warn('version snapshot failed', e)
+  }
 
   // First successful save of the session → ask for durable storage (#84). Placed
   // here, after the write lands, because browsers grant persistence far more
@@ -356,7 +370,56 @@ export async function deleteProject(id) {
   for (const key of collectOriginalKeys(record?.state?.layers)) {
     try { await dbDeleteBlob(key) } catch (e) { console.warn('original cleanup failed', key, e) }
   }
+  // GC this project's history snapshots along with it (#90) — they are worthless
+  // without the project record their images resolve against.
+  try { await deleteVersionsForProject(id) } catch (e) { console.warn('version cleanup failed', id, e) }
   await dbDelete('projects', id)
+}
+
+// ─── Version history restore (#90) ─────────────────────────────────────────────
+
+// Overwrite a project with one of its snapshots. The CURRENT state is snapshotted
+// first, so a restore is itself reversible from the same list. Image strings come
+// from the project's current layers (see versionHistory.resolveVersionLayers) —
+// `missing` counts the layers whose photo has since been replaced or deleted and
+// therefore comes back empty. Returns { summary, missing } or null.
+//
+// Deliberately does NOT garbage-collect stored originals: a layer absent from the
+// restored state may well come back via another snapshot, and the reference count
+// that matters spans versions, not just this write.
+export async function restoreVersion(projectId, versionId) {
+  const [record, version] = await Promise.all([dbGet('projects', projectId), getVersion(versionId)])
+  if (!record || !version?.state) return null
+
+  // Snapshot where we are before overwriting it.
+  try { await writeVersion(record, Date.now()) } catch (e) { console.warn('pre-restore snapshot failed', e) }
+
+  const { layers, missing } = resolveVersionLayers(version.state.layers, record.state?.layers)
+  const { ratio, bgColor, bgGradient, slides, caption } = version.state
+  const thumbnail = await renderThumbnail(layers, slides, ratio, bgColor, bgGradient)
+  const fingerprint = thumbFingerprint(layers, slides, ratio, bgColor, bgGradient)
+
+  const updated = {
+    ...record,
+    updatedAt: Date.now(),
+    thumbnail,
+    thumbFingerprint: fingerprint,
+    slideCount: slides.length,
+    state: { ratio, bgColor, bgGradient, slides, caption: caption ?? '', layers },
+  }
+  await dbPut('projects', updated)
+  // A restore is a fresh starting point; don't snapshot again 2s later.
+  noteCapture(projectId, Date.now())
+  return { summary: projectSummary(updated), missing }
+}
+
+// Count the photos a restore would leave empty, without changing anything —
+// lets the confirmation say so before the user commits.
+export async function previewVersionRestore(projectId, versionId) {
+  const [record, version] = await Promise.all([dbGet('projects', projectId), getVersion(versionId)])
+  if (!record || !version?.state) return { missing: 0 }
+  const { missing } = resolveVersionLayers(version.state.layers, record.state?.layers)
+  return { missing }
 }
 
 // ─── Duplicate in another format (Magic-Resize lite, #68) ───────────────────────
