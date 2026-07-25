@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react'
+import React, { useRef, useEffect, useState, useCallback, lazy, Suspense } from 'react'
 import { Stage, Layer, Rect, Circle, Ellipse, Image as KImage, Group, Text, Line, Shape } from 'react-konva'
 import { useStore, fitInCell } from '../useStore'
 import useImage from 'use-image'
@@ -10,8 +10,14 @@ import { buildFilterString, hasOverlay, drawAdjustmentOverlays } from '../adjust
 import { useCanvasPicker } from '../CanvasContext'
 import { stockEnabled } from '../stockConfig'
 import { getStockProvider } from '../stockProviders'
-import StockPicker from './StockPicker'
 import { IconImage } from './icons'
+import { ScreenFallback } from './LazyFallback'
+
+// The stock search UI only exists when a provider key is configured AND the user
+// picks "Stock photos" from the chooser, so it loads on demand (issue #87). The
+// tiny provider module above stays eager — stockEnabled()/getStockProvider are
+// called synchronously while deciding which picker to open.
+const StockPicker = lazy(() => import('./StockPicker'))
 
 // ─── Image downscaling ─────────────────────────────────────────────────────────
 // Phone cameras produce 12–50MP images. Drawing a 4032×3024 image in Konva every
@@ -2006,12 +2012,14 @@ export default function Canvas({ openPickerRef }) {
 
       {/* Full-screen stock search (issue #66) */}
       {stockProvider && (
-        <StockPicker
-          provider={stockProvider}
-          onPick={handleStockPick}
-          onClose={() => setStockProvider(null)}
-          onError={handleStockError}
-        />
+        <Suspense fallback={<ScreenFallback label="Loading stock photos…" dark="#0d0d0d" />}>
+          <StockPicker
+            provider={stockProvider}
+            onPick={handleStockPick}
+            onClose={() => setStockProvider(null)}
+            onError={handleStockError}
+          />
+        </Suspense>
       )}
 
       {/* Transient stock error toast */}
