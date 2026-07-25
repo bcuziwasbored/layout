@@ -123,7 +123,6 @@ function heartPath(ctx, x, y, w, h, reverse = false) {
   const seq = reverse ? [...segs].reverse() : segs
   // For reverse, also swap each segment's control points and end point
   // (each prev segment's end becomes start; control points reverse order)
-  let curX = startX, curY = startY
   for (let i = 0; i < seq.length; i++) {
     const [c1x, c1y, c2x, c2y, ex, ey] = seq[i]
     if (reverse) {
@@ -138,14 +137,12 @@ function heartPath(ctx, x, y, w, h, reverse = false) {
         x + c1x * w, y + c1y * h,
         targetX, targetY,
       )
-      curX = targetX; curY = targetY
     } else {
       ctx.bezierCurveTo(
         x + c1x * w, y + c1y * h,
         x + c2x * w, y + c2y * h,
         x + ex * w,  y + ey * h,
       )
-      curX = x + ex * w; curY = y + ey * h
     }
   }
   ctx.closePath()

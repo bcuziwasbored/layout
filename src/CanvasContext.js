@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef } from 'react'
+import { createContext, useContext } from 'react'
 
 export const CanvasContext = createContext(null)
 

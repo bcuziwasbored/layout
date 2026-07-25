@@ -18,4 +18,11 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
+  {
+    // test/parity is a headless test page driven over CDP, not part of the app's
+    // hot-reload graph — react-refresh's "a file with components must export
+    // them" constraint doesn't apply to it.
+    files: ['test/**/*.{js,jsx}'],
+    rules: { 'react-refresh/only-export-components': 'off' },
+  },
 ])

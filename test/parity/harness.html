@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Layout — editor/export parity harness</title>
+    <!-- Empty icon so the browser's automatic /favicon.ico probe can't 404 into
+         the runner's page-error diagnostics. -->
+    <link rel="icon" href="data:," />
+    <style>
+      /* No page styling that could affect canvas rasterization: the Stage is
+         rendered at exactly ratio.w × ratio.h CSS px with pixelRatio forced to 1,
+         so the layer canvas is the bitmap we compare. */
+      html, body { margin: 0; padding: 0; background: #2b2b2b; }
+      #stage-host { position: absolute; left: 0; top: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="stage-host"></div>
+    <script type="module" src="./harness.jsx"></script>
+  </body>
+</html>

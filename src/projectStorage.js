@@ -264,7 +264,7 @@ export async function loadProject(id) {
         if (blob && blob.size > 0) {
           try {
             return { ...layer, src: await blobToDataURL(blob), srcOriginal }
-          } catch {}
+          } catch { /* corrupted legacy blob — fall through to the null-src path below */ }
         }
         return { ...layer, src: null, srcOriginal }
       }

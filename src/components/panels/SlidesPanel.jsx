@@ -130,7 +130,7 @@ export default function SlidesPanel() {
             slides, layers, ratio, bgColor, bgGradient,
             scale: pxScale, quality: 0.75, preferOriginal: false, imgCache,
           })
-        } catch {}
+        } catch { /* a thumbnail that fails to render is simply skipped */ }
       }
       if (!cancelToken.cancelled) setThumbs(results)
     }, 200)
@@ -141,6 +141,9 @@ export default function SlidesPanel() {
   // dragState: { fromIdx, currentIdx, startX }
   const [dragState, setDragState] = useState(null)
   const dragStateRef = useRef(null)
+  // latest-value mirror read by the pointermove/pointerup handlers registered in startDrag
+  // (never during render).
+  // eslint-disable-next-line react-hooks/refs
   dragStateRef.current = dragState
 
   // Compute visual order while dragging
@@ -152,6 +155,7 @@ export default function SlidesPanel() {
 
   // ── Pointer-based drag-to-reorder ──────────────────────────────────────────
   const slideCountRef = useRef(slides.length)
+  // eslint-disable-next-line react-hooks/refs -- same latest-value mirror pattern.
   slideCountRef.current = slides.length
 
   const startDrag = (e, idx) => {
@@ -215,7 +219,7 @@ export default function SlidesPanel() {
 
         {/* Thumbnail strip */}
         <div className="flex px-5 overflow-x-auto pb-2" style={{ gap: GAP }}>
-          {visualOrder.map((slideIdx, visualPos) => {
+          {visualOrder.map(slideIdx => {
             const slide = slides[slideIdx]
             const isActive  = slideIdx === activeSlideIdx
             const isDragging = dragState?.fromIdx === slideIdx

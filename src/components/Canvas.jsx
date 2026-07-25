@@ -338,6 +338,9 @@ function useBlobSrc(src) {
   })
 
   React.useEffect(() => {
+    // Syncing state to a prop: the non-blob-ref and cache-hit branches resolve
+    // synchronously, but the IDB branch can't — so all three land in state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!blobId) { setResolved(src ?? null); return }
     // Already cached — no IDB round-trip needed
     const cached = dataURLCache.get(blobId)
@@ -369,6 +372,9 @@ function useAdjustedImage(src, brightness, contrast, saturation, temperature, ti
   // image dimensions change. See issue #16 (b).
   const canvasRef = React.useRef(null)
   React.useEffect(() => {
+    // The adjusted bitmap is produced by drawing to a canvas — an external system
+    // that cannot be touched during render, so the result must land in state here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!img) { setAdjusted(null); return }
     // The CSS-filter string (brightness/contrast/saturation/temperature/tint) is
     // built by the SAME shared builder the export path uses — identical pixels in
@@ -396,7 +402,10 @@ function useAdjustedImage(src, brightness, contrast, saturation, temperature, ti
   return adjusted
 }
 
-function TextCell({ layer, isEditing }) {
+// Exported for the editor/export parity suite (test/parity), which renders these
+// exact components against renderSlide.js — the harness must exercise the real
+// editor code path, not a reconstruction of it.
+export function TextCell({ layer, isEditing }) {
   const fontStyle = [layer.italic && 'italic', layer.bold && 'bold'].filter(Boolean).join(' ') || 'normal'
   const hasText = layer.text && layer.text.trim().length > 0
   // Konva rasterizes text with whatever font is loaded at draw time and doesn't
@@ -467,7 +476,7 @@ function TextCell({ layer, isEditing }) {
   )
 }
 
-function ShapeCell({ layer }) {
+export function ShapeCell({ layer }) {
   const sw = layer.strokeWidth ?? 0
   const shapeType = layer.shapeType ?? 'rect'
   // Stroke pass matches export (renderShapeLayer): only when a stroke color is
@@ -556,7 +565,7 @@ function EmptyCell({ layer, onTap, vs }) {
 
 // All interaction (select, drag, cell-edit) is handled at the Stage level via
 // handleStageDown/Move/Up — FilledCell is purely visual.
-function FilledCell({ layer, vs }) {
+export function FilledCell({ layer }) {
   const img = useAdjustedImage(layer.src, layer.brightness, layer.contrast, layer.saturation,
     layer.temperature, layer.tint)
   // useAdjustedImage redraws onto a REUSED canvas, so its object reference is
@@ -882,6 +891,8 @@ function QuickToolbar({ layer, view, containerH }) {
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" />
           </svg>)}
+        {/* eslint-disable-next-line react-hooks/refs -- the ref is only dereferenced
+            inside the button's onClick handler; btn() just stores the closure. */}
         {canFillWithPhoto && btn('photo', 'Photo', () => openPickerRef?.current?.(layer.id),
           // Framed-photo glyph — fill the shape with an image (converts in place)
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -916,7 +927,7 @@ function InlineTextEditor({ layer, view, onDone }) {
     if (!ta) return
     ta.focus()
     const len = ta.value.length
-    try { ta.setSelectionRange(len, len) } catch {}
+    try { ta.setSelectionRange(len, len) } catch { /* not all input types support selection */ }
     ta.style.height = 'auto'
     ta.style.height = ta.scrollHeight + 'px'
   }, [])
@@ -1021,6 +1032,10 @@ export default function Canvas({ openPickerRef }) {
 
   // Keep always-fresh values accessible in stable callbacks
   const fresh = useRef({})
+  // intentional latest-value mirror: the Stage pointer handlers are stable closures and
+  // must see THIS render's store values; deferring the assignment to an effect would make
+  // them stale.
+  // eslint-disable-next-line react-hooks/refs
   fresh.current = { layers, slides, ratio, activeLayerId, activeCellId, cropMode, cropAspect, activeSlideIdx,
     setActiveLayer, setActiveCellId, setCropMode, addSlide, updateLayer, updateLayerWithHistory,
     addImageLayer, fillCells, setTextEditId }
@@ -1434,7 +1449,6 @@ export default function Canvas({ openPickerRef }) {
     const clientY = pt.clientY - (containerRect?.top ?? 0)
     const canvasX = (clientX - v.x) / v.scale
     const canvasY = (clientY - v.y) / v.scale
-    const { ratio: curRatio } = fresh.current
 
     if (info?.type === 'resize' && info.layerId === activeId && !isCrop) {
       const layer = curLayers.find(l => l.id === info.layerId)
@@ -1756,7 +1770,7 @@ export default function Canvas({ openPickerRef }) {
     }
   }
 
-  const handleStageUp = (e) => {
+  const handleStageUp = () => {
     const p = panRef.current
     if (!p) return
     panRef.current = null
@@ -2129,7 +2143,7 @@ export default function Canvas({ openPickerRef }) {
                 return <ShapeCell key={layer.id} layer={layer} />
               }
               return layer.src ? (
-                <FilledCell key={layer.id} layer={layer} vs={vs} />
+                <FilledCell key={layer.id} layer={layer} />
               ) : (
                 <EmptyCell key={layer.id} layer={layer} vs={vs}
                   onTap={() => {

@@ -54,6 +54,8 @@ export default function Editor() {
     const hasEmptyCells = layers.some(l => !l.src && l.type !== 'text' && l.type !== 'shape')
     if (hasEmptyCells) {
       hintShownRef.current = true
+      // one-shot first-use hint; it exists only as a post-mount side effect.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setHint(true)
       const t = setTimeout(() => setHint(false), 4000)
       return () => clearTimeout(t)

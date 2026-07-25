@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to the same branch supersedes the run in flight.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: lint · build · tests · parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22 (active LTS), not the 20 used by deploy.yml: puppeteer — the
+      # parity suite's headless browser — declares engines node >= 22.12.0, and
+      # Node 20 reached end-of-life in April 2026. Vite 8 supports both.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The Chrome build puppeteer downloads on install (~150 MB). Cached against
+      # the lockfile so only a dependency change pays for the download again.
+      - name: Cache Puppeteer browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/puppeteer
+          key: ${{ runner.os }}-puppeteer-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-puppeteer-
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      # Store-level suites (issues #14 / #57 / #66), run through vite-node.
+      - name: Unit tests
+        run: npm run test:unit
+
+      # Editor (Konva) vs export (renderSlide) pixel parity — the app's core
+      # fidelity invariant. Cases and tolerances live in test/parity/cases.js.
+      - name: Parity suite
+        run: npm run test:parity
+
+      # Negative control: injects a 2px text-baseline shift into renderSlide and
+      # asserts the parity suite CATCHES it. Guards against the suite silently
+      # degrading into one that can no longer fail.
+      - name: Parity negative control
+        run: npm run test:parity:regression
+
+      - name: Upload parity diff images
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-artifacts
+          path: test/parity/artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
