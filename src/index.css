@@ -24,7 +24,8 @@ html, body, #root {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
-/* Loading-skeleton shimmer (home redesign frame 05). */
+/* Loading-skeleton shimmer (home redesign frame 05). The static gradient reads
+   fine as a placeholder on its own, so only the sweep is motion-gated. */
 @keyframes lyShimmer {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
@@ -32,5 +33,20 @@ html, body, #root {
 .animate-shimmer {
   background: linear-gradient(90deg, #1C1D22 25%, #2A2B31 37%, #1C1D22 63%);
   background-size: 200% 100%;
-  animation: lyShimmer 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .animate-shimmer {
+    animation: lyShimmer 1.4s ease-in-out infinite;
+  }
+}
+
+/* Decorative looping animation that Tailwind's utilities set unconditionally
+   (template thumbnails while they rasterize). Spinners are deliberately left
+   alone — they report that work is still in flight, not decoration. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse {
+    animation: none;
+    opacity: 0.6;
+  }
 }
