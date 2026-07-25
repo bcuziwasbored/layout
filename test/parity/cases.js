@@ -174,7 +174,18 @@ export const CASES = [
   {
     id: 'shapes-fill-stroke',
     name: 'Star + heart shapes with fill and stroke',
-    meanTol: 0.35, pctTol: 0.10,
+    // The heart is semi-transparent (opacity 0.9), which is exactly the case
+    // Konva sends through its buffer canvas (Shape._useBufferCanvas:
+    // hasFill && hasStroke && isTransparent): fill and stroke composite at full
+    // alpha first, opacity applies once. renderShapeLayer used to alpha the fill
+    // and the stroke separately, double-blending the overlap band (mean 0.105,
+    // peaks at 15/255 — issue #102) and forcing a loose 0.35 tolerance. Now that
+    // the exporter buffers this case too, it diffs at 0.000 (peak 3/255).
+    // 0.05, not the 0.15 the other shape cases carry: the pre-fix render scored
+    // 0.105, so a 0.15 tolerance would sit ABOVE the very bug this case exists to
+    // document and would not fail on a regression. 0.05 is 2× below the pre-fix
+    // number and 50× above the post-fix one — measured both ways.
+    meanTol: 0.05, pctTol: 0.10,
     bgColor: '#fef3c7',
     slides: ONE_SLIDE, slideIdx: 0,
     layers: [
@@ -223,6 +234,27 @@ export const CASES = [
       fill: '#10b981', stroke: '#064e3b', strokeWidth: 8,
       shadowEnabled: true, shadowColor: '#0f172a', shadowOpacity: 0.5,
       shadowBlur: 26, shadowOffsetX: 12, shadowOffsetY: 16,
+    }],
+  },
+  {
+    id: 'shape-shadow-stroked-alpha',
+    name: 'Stroked shape with drop shadow AND opacity < 1',
+    // Both buffer triggers at once (issue #102): fill+stroke+shadow AND
+    // opacity ≠ 1. Konva still buffers exactly ONCE and the single composite
+    // blit carries the shadow and the opacity together (Shape.drawScene:
+    // _applyShadow, then _applyOpacity, then drawImage) — so the shadow is cast
+    // from the fill ∪ stroke silhouette, the stroke/fill overlap is not
+    // double-blended, and the shadow itself is not alpha'd twice. Buffering
+    // twice, or applying alpha inside the buffer, shows up here.
+    meanTol: 0.15, pctTol: 0.1,
+    bgColor: '#fdf4ff',
+    slides: ONE_SLIDE, slideIdx: 0,
+    layers: [{
+      id: 's-shadow-str-a', type: 'shape', shapeType: 'star',
+      x: 90, y: 175, w: 400, h: 400,
+      fill: '#a855f7', stroke: '#1e1b4b', strokeWidth: 16, opacity: 0.7,
+      shadowEnabled: true, shadowColor: '#0f172a', shadowOpacity: 0.6,
+      shadowBlur: 22, shadowOffsetX: 14, shadowOffsetY: 10,
     }],
   },
   {

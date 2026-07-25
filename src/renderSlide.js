@@ -301,22 +301,35 @@ function renderShapeLayer(ctx, layer, sliceStart, scale = 1) {
   const strokeColor = sw > 0 && layer.stroke && !STROKE_AWARE_SHAPES.has(shapeType)
     ? layer.stroke : null
   const shadowOn = hasShadow(layer)
+  const opacity = layer.opacity ?? 1
+  // Konva routes a fill+stroke shape through its buffer canvas in BOTH of
+  // Shape._useBufferCanvas' cases:
+  //   hasFill && hasStroke && isTransparent                        (opacity ≠ 1)
+  //   hasFill && hasStroke && hasShadow && shadowForStrokeEnabled  (shadow)
+  // Either way fill and stroke are composited FIRST, at full alpha and with no
+  // shadow, and the shadow + opacity are applied once to the finished composite.
+  const useBuffer = !!strokeColor && (shadowOn || opacity < 1)
   const path = (c) => {
     c.beginPath()
     drawShapePath(c, x, y, w, h, shapeType, cr, false, sw)
   }
 
   ctx.save()
-  ctx.globalAlpha = layer.opacity ?? 1
+  ctx.globalAlpha = opacity
 
-  if (shadowOn && strokeColor) {
-    // Konva renders a fill+stroke+shadow shape through a buffer canvas and casts
-    // a SINGLE shadow from the COMPOSITE (fill ∪ stroke) silhouette
-    // (Shape._useBufferCanvas: hasFill && hasStroke && hasShadow &&
-    // shadowForStrokeEnabled). Shadowing the fill path alone loses half a stroke
-    // width all round (issue #100). Replicate the buffer: draw fill+stroke with
-    // NO shadow under the SAME transform, then composite once with the shadow —
-    // the exact pattern renderTextLayer uses for outline+shadow text (#62).
+  if (useBuffer) {
+    // Drawing fill and stroke straight onto the slide canvas gets both wrong:
+    //  - with a shadow, the shadow is cast from the FILL path alone and comes out
+    //    half a stroke-width small everywhere (issue #100);
+    //  - with opacity < 1, globalAlpha is applied to the fill and AGAIN to the
+    //    stroke, so the band where the stroke overlaps the fill is double-blended
+    //    and reads darker than the editor (issue #102).
+    // Replicate the buffer instead: draw fill+stroke with NO shadow and NO alpha
+    // under the SAME transform, then composite once with the shadow and the layer
+    // opacity — the exact pattern renderTextLayer uses for outline+shadow text
+    // (#62). When shadow and opacity < 1 arrive together this still buffers ONCE
+    // and the single blit carries both, matching Konva's order in Shape.drawScene
+    // (_applyShadow, then _applyOpacity, then drawImage).
     //
     // The buffer covers the shape's device-space bounds plus a stroke margin
     // (miter joins on sharp corners — star points — can reach well past sw/2, so
@@ -344,13 +357,16 @@ function renderShapeLayer(ctx, layer, sliceStart, scale = 1) {
     // applyCanvasShadow bakes in the export scale, matching Konva's
     // absoluteScale × pixelRatio. Composite under an identity transform at the
     // integer bounds origin so drawImage is a 1:1 device blit. globalAlpha
-    // (layer opacity) is applied here on the composite, as Konva does.
+    // (layer opacity, still set from the save() above) is applied here on the
+    // composite exactly once, as Konva does.
     ctx.setTransform(1, 0, 0, 1, 0, 0)
-    applyCanvasShadow(ctx, layer, scale)
+    if (shadowOn) applyCanvasShadow(ctx, layer, scale)
     ctx.drawImage(buf, b.x, b.y)
   } else {
-    // Unstroked (or stroke-aware) shapes: the fill path IS the whole silhouette,
-    // so a direct shadowed fill is already pixel-identical to the editor.
+    // Konva's direct path, for the same shapes it takes directly: unstroked (or
+    // stroke-aware) shapes, whose fill path IS the whole silhouette; and fully
+    // opaque unshadowed stroked ones, where fill-then-stroke at alpha 1 leaves
+    // nothing to double-blend. Both are already pixel-identical to the editor.
     ctx.fillStyle = fill
     if (shadowOn) applyCanvasShadow(ctx, layer, scale)
     path(ctx)
