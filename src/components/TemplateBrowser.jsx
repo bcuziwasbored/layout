@@ -6,10 +6,12 @@
 // multi-page grids of tiles (live canvas previews for styled templates, cheap
 // div schematics for bare grids).
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { TEMPLATE_CATEGORIES, templateCategory, isStyledTemplate } from '../templates'
 import { TEMPLATES } from '../templatesData'
+import { browsableTemplates, categoryCounts, searchTemplateGroups } from '../templateSearch'
 import { IconClose } from './icons'
+import SearchField from './SearchField'
 import TemplatePreview from './TemplatePreview'
 
 const sectionLabel = 'text-[12px] font-semibold uppercase tracking-[0.14em] text-[#67666C]'
@@ -59,10 +61,24 @@ function TemplateTile({ template, ratio, onClick }) {
 
 export default function TemplateBrowser({ ratio, onPick, onBack, onClose }) {
   const [templateCat, setTemplateCat] = useState('all')
+  const [query, setQuery] = useState('')
 
-  const visibleTemplates = TEMPLATES.filter(t =>
-    t.id !== 'blank' && t.id !== 'single' &&
-    (templateCat === 'all' || templateCategory(t) === templateCat))
+  const browsable = useMemo(() => browsableTemplates(TEMPLATES), [])
+  const counts    = useMemo(() => categoryCounts(browsable), [browsable])
+
+  // A live query spans every category (issue #91); the tab selection only drives
+  // the browse view underneath it, so typing resets it to All for honesty.
+  const searching = query.trim().length > 0
+  const groups = useMemo(
+    () => searchTemplateGroups(browsable, query),
+    [browsable, query],
+  )
+
+  const handleQuery = (v) => { setQuery(v); if (v.trim()) setTemplateCat('all') }
+  const pickCategory = (id) => { setTemplateCat(id); setQuery('') }
+
+  const visibleTemplates = browsable.filter(t =>
+    templateCat === 'all' || templateCategory(t) === templateCat)
   const singlePageTemplates = visibleTemplates.filter(t => !t.pageSpan || t.pageSpan === 1)
   const multiPageTemplates  = visibleTemplates.filter(t => t.pageSpan && t.pageSpan > 1)
 
@@ -81,54 +97,84 @@ export default function TemplateBrowser({ ratio, onPick, onBack, onClose }) {
         </button>
       </div>
 
-      {/* Category tabs */}
+      {/* Search across every category (issue #91) */}
+      <div className="px-5 pb-3 shrink-0">
+        <SearchField value={query} onChange={handleQuery} variant="home" />
+      </div>
+
+      {/* Category tabs, with low-contrast count badges */}
       <div className="flex gap-2 px-5 pb-3 overflow-x-auto scrollbar-hide shrink-0">
-        {TEMPLATE_CATEGORIES.map(c => (
-          <button key={c.id} onClick={() => setTemplateCat(c.id)}
-            className={`shrink-0 text-[13px] px-3.5 py-1.5 rounded-full border transition-colors ${
-              templateCat === c.id
-                ? 'bg-[#C6A052] text-[#171205] border-[#C6A052] font-semibold'
-                : 'bg-transparent text-[#9C9BA1] border-[#2E2F36] active:bg-[#1C1D22]'}`}>
-            {c.label}
-          </button>
-        ))}
+        {TEMPLATE_CATEGORIES.map(c => {
+          const active = templateCat === c.id && !searching
+          return (
+            <button key={c.id} onClick={() => pickCategory(c.id)}
+              className={`shrink-0 flex items-center gap-1.5 text-[13px] px-3.5 py-1.5 rounded-full border transition-colors ${
+                active
+                  ? 'bg-[#C6A052] text-[#171205] border-[#C6A052] font-semibold'
+                  : 'bg-transparent text-[#9C9BA1] border-[#2E2F36] active:bg-[#1C1D22]'}`}>
+              {c.label}
+              <span className={`text-[11px] tabular-nums ${active ? 'text-[#171205]/55' : 'text-[#67666C]'}`}>
+                {counts[c.id] ?? 0}
+              </span>
+            </button>
+          )
+        })}
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 pb-10">
-        {/* Blank option */}
-        <button
-          onClick={() => onPick({ id: 'blank', label: 'Blank', cells: [] })}
-          className="w-full mb-6 flex items-center gap-4 rounded-2xl px-5 py-4 bg-[#141518] border border-[#26272C] active:bg-[#1C1D22]"
-        >
-          <div
-            className="rounded-lg bg-white/8 border border-white/10 shrink-0"
-            style={{ width: Math.round(52 * ratio.w / ratio.h), height: 52 }}
-          />
-          <div className="text-left">
-            <div className="text-[15px] font-semibold text-[#F5F4F1]">Blank</div>
-            <div className="text-[12px] text-[#67666C] mt-0.5">Start from scratch</div>
-          </div>
-        </button>
-
-        {singlePageTemplates.length > 0 && (
+        {searching ? (
+          groups.length === 0 ? (
+            <div className="text-[13px] text-[#67666C] text-center py-14">No matches</div>
+          ) : (
+            groups.map(g => (
+              <div key={g.id} className="mb-8 last:mb-0">
+                <div className={`${sectionLabel} mb-3`}>{g.label}</div>
+                <div className="grid grid-cols-3 gap-3">
+                  {g.items.map(t => (
+                    <TemplateTile key={t.id} template={t} ratio={ratio} onClick={() => onPick(t)} />
+                  ))}
+                </div>
+              </div>
+            ))
+          )
+        ) : (
           <>
-            <div className={`${sectionLabel} mb-3`}>Single page</div>
-            <div className="grid grid-cols-3 gap-3 mb-8">
-              {singlePageTemplates.map(t => (
-                <TemplateTile key={t.id} template={t} ratio={ratio} onClick={() => onPick(t)} />
-              ))}
-            </div>
-          </>
-        )}
+            {/* Blank option */}
+            <button
+              onClick={() => onPick({ id: 'blank', label: 'Blank', cells: [] })}
+              className="w-full mb-6 flex items-center gap-4 rounded-2xl px-5 py-4 bg-[#141518] border border-[#26272C] active:bg-[#1C1D22]"
+            >
+              <div
+                className="rounded-lg bg-white/8 border border-white/10 shrink-0"
+                style={{ width: Math.round(52 * ratio.w / ratio.h), height: 52 }}
+              />
+              <div className="text-left">
+                <div className="text-[15px] font-semibold text-[#F5F4F1]">Blank</div>
+                <div className="text-[12px] text-[#67666C] mt-0.5">Start from scratch</div>
+              </div>
+            </button>
 
-        {multiPageTemplates.length > 0 && (
-          <>
-            <div className={`${sectionLabel} mb-3`}>Multi-page</div>
-            <div className="grid grid-cols-3 gap-3">
-              {multiPageTemplates.map(t => (
-                <TemplateTile key={t.id} template={t} ratio={ratio} onClick={() => onPick(t)} />
-              ))}
-            </div>
+            {singlePageTemplates.length > 0 && (
+              <>
+                <div className={`${sectionLabel} mb-3`}>Single page</div>
+                <div className="grid grid-cols-3 gap-3 mb-8">
+                  {singlePageTemplates.map(t => (
+                    <TemplateTile key={t.id} template={t} ratio={ratio} onClick={() => onPick(t)} />
+                  ))}
+                </div>
+              </>
+            )}
+
+            {multiPageTemplates.length > 0 && (
+              <>
+                <div className={`${sectionLabel} mb-3`}>Multi-page</div>
+                <div className="grid grid-cols-3 gap-3">
+                  {multiPageTemplates.map(t => (
+                    <TemplateTile key={t.id} template={t} ratio={ratio} onClick={() => onPick(t)} />
+                  ))}
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
