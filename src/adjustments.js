@@ -17,6 +17,10 @@
 //
 // This module has NO top-level browser dependency (the noise tile is generated
 // lazily on first use) so it is safe to import from Node test runners via useStore.
+// (colorSpace.js keeps that property — it only touches `document` inside its
+// lazily-invoked feature probe.)
+
+import { get2dContext } from './colorSpace'
 
 // The full set of per-image adjustment props. Used for reset, preset apply, and
 // the "apply to all slides" store action. Every one defaults to 0.
@@ -142,7 +146,11 @@ export function getNoiseTile() {
   if (typeof document === 'undefined') return null
   const c = document.createElement('canvas')
   c.width = c.height = NOISE_TILE_SIZE
-  const ctx = c.getContext('2d')
+  // Wide-gamut (issue #109). The tile is neutral grey noise, and neutral grey has
+  // the same encoded value in sRGB and Display-P3 (identical white point and
+  // transfer curve) — so this changes no pixel, it just keeps the tile in the same
+  // space as the canvas it is composited onto, avoiding a needless conversion.
+  const ctx = get2dContext(c)
   const img = ctx.createImageData(NOISE_TILE_SIZE, NOISE_TILE_SIZE)
   const rand = mulberry32(0x9e3779b9) // fixed seed → identical tile every run
   for (let i = 0; i < NOISE_TILE_SIZE * NOISE_TILE_SIZE; i++) {

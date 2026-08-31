@@ -3,6 +3,7 @@ import { blobCache } from './blobCache'
 import { renderSlide } from './renderSlide'
 import { migrateLayers } from './ratioMigrate'
 import { requestPersistentStorage } from './storageHealth'
+import { get2dContext } from './colorSpace'
 import {
   maybeCaptureVersion, writeVersion, getVersion, resolveVersionLayers,
   deleteVersionsForProject, noteCapture,
@@ -64,7 +65,7 @@ async function blobFromURL(url) {
       img.onload = () => {
         const c = document.createElement('canvas')
         c.width = img.naturalWidth; c.height = img.naturalHeight
-        c.getContext('2d').drawImage(img, 0, 0)
+        get2dContext(c).drawImage(img, 0, 0)
         c.toBlob(b => b ? resolve(b) : reject(new Error('toBlob')), 'image/jpeg', 0.92)
       }
       img.onerror = () => reject(new Error('img load failed'))
@@ -107,7 +108,9 @@ async function prepareOriginalDataURL(srcUrl) {
   const h = Math.round(img.naturalHeight * scale)
   const canvas = document.createElement('canvas')
   canvas.width = w; canvas.height = h
-  const ctx = canvas.getContext('2d')
+  // Wide-gamut (issue #109): this re-encode is what a reloaded project exports
+  // from, so clipping here would throw away P3 colour permanently.
+  const ctx = get2dContext(canvas)
   ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(img, 0, 0, w, h)
   return isAlpha ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.92)

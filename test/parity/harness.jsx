@@ -15,10 +15,32 @@ import { createRoot } from 'react-dom/client'
 import Konva from 'konva'
 import { Stage, Layer, Group, Rect } from 'react-konva'
 
+import { setForceSRGB, photoColorSpace } from '../../src/colorSpace.js'
 import { TextCell, ShapeCell, FilledCell } from '../../src/components/Canvas.jsx'
 import { renderSlide } from '../../src/renderSlide.js'
 import { ensureLayerFontsLoaded } from '../../src/fonts.js'
 import { CASES, RATIO, PHOTO_SRC, PHOTO_W, PHOTO_H } from './cases.js'
+
+// ─── Colour-space normalization (issue #109) ───────────────────────────────────
+// The exporter now draws into a Display-P3 canvas where the browser supports one,
+// but Konva 10 exposes no colour-space knob (Layer builds `new SceneCanvas()`;
+// SceneContext hardcodes its getContext attributes), so the editor side of every
+// comparison is unavoidably sRGB. Diffing an sRGB bitmap against a P3 one measures
+// the gamut conversion, not the renderers — a saturated fill would read as a large
+// "regression" that no code change caused.
+//
+// So the suite pins BOTH sides to sRGB. That keeps every case an apples-to-apples
+// geometry/rasterization comparison at its existing tolerances, and it doubles as
+// the regression guard for the sRGB fallback path: if routing the exporter through
+// get2dContext changed any pixel in sRGB mode, these 16 cases would say so.
+//
+// The wide-gamut behaviour itself is covered separately, by test/colorspace.test.mjs.
+//
+// This runs at module scope. None of the modules imported above creates a canvas
+// while it is being evaluated (adjustments.js generates its noise tile lazily, on
+// first use), so no context can have been cached in the wrong space by this point;
+// boot() re-asserts it before any case is measured.
+setForceSRGB(true)
 
 // The editor never rasterizes at a device pixel ratio the exporter doesn't know
 // about in this harness — pin both sides to 1 device pixel per logical pixel.
@@ -316,6 +338,11 @@ async function runAll(opts = {}) {
 }
 
 async function boot() {
+  // Both sides of every diff must be in the same colour space — see the
+  // normalization note at the top of this file.
+  if (photoColorSpace() !== 'srgb') {
+    throw new Error(`parity harness expected a forced-sRGB pipeline, got ${photoColorSpace()}`)
+  }
   // Fonts first, and settled, so neither renderer can pick up a font mid-run.
   const textLayers = CASES.flatMap(c => c.layers.filter(l => l.type === 'text'))
   await ensureLayerFontsLoaded(textLayers, 10000)

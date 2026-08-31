@@ -10,6 +10,7 @@ import { hasShadow, applyCanvasShadow, clearCanvasShadow } from './shadow'
 import { layerTextArc, arcTextLine, curvedTextLayout, drawCurvedGlyphs } from './curvedText'
 import { ensureLayerFontsLoaded } from './fonts'
 import { buildFilterString, hasOverlay, drawAdjustmentOverlays } from './adjustments'
+import { get2dContext } from './colorSpace'
 
 function linearGradientPoints(angleDeg, w, h) {
   const rad = (angleDeg * Math.PI) / 180
@@ -263,7 +264,9 @@ function renderTextLayer(ctx, layer, sliceStart, scale = 1) {
     const buf = document.createElement('canvas')
     buf.width = ctx.canvas.width
     buf.height = ctx.canvas.height
-    const bctx = buf.getContext('2d')
+    // Same colour space as the slide canvas it composites into (issue #109) —
+    // a mismatch here would round-trip the glyph fill through a gamut conversion.
+    const bctx = get2dContext(buf)
     bctx.setTransform(ctx.getTransform())
     bctx.font = fontString
     bctx.textAlign = 'left'
@@ -375,7 +378,8 @@ function renderShapeLayer(ctx, layer, sliceStart, scale = 1) {
     const buf = document.createElement('canvas')
     buf.width = b.w
     buf.height = b.h
-    const bctx = buf.getContext('2d')
+    // Same colour space as the slide canvas (issue #109).
+    const bctx = get2dContext(buf)
     // Same CTM as the slide canvas, shifted so the bounds origin lands at (0,0):
     // the shape is drawn in the very same logical coordinates, and the export
     // scale keeps flowing through the transform exactly as on the direct path.
@@ -502,7 +506,10 @@ export async function renderSlide(slideIdx, args) {
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, Math.round(ratio.w * scale))
   canvas.height = Math.max(1, Math.round(ratio.h * scale))
-  const ctx = canvas.getContext('2d')
+  // Display-P3 where the browser supports it (issue #109), so a wide-gamut photo
+  // survives the export instead of being clipped to sRGB on the way out. The
+  // encoded JPEG/PNG is ICC-tagged, so sRGB displays still tone-map it correctly.
+  const ctx = get2dContext(canvas)
   // Large originals downscaled into the output canvas look softer with default
   // smoothing — request the highest-quality resampling the browser offers.
   ctx.imageSmoothingEnabled = true
