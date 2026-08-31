@@ -27,6 +27,7 @@
 // are unaffected — they simply aren't part of the older layout.
 
 import { dbGet, dbPut, dbDelete, dbGetAllByIndex, dbGetAllKeysByIndex } from './db'
+import { get2dContext } from './colorSpace'
 
 // Snapshots kept per project. The oldest are pruned past this.
 export const VERSION_LIMIT = 10
@@ -132,7 +133,9 @@ async function miniThumbnail(dataURL) {
     const canvas = document.createElement('canvas')
     canvas.width = VERSION_THUMB_W
     canvas.height = Math.max(1, Math.round(img.naturalHeight * scale))
-    const ctx = canvas.getContext('2d')
+    // Wide-gamut (issue #109) — the mini is a downscale of an already-P3 export,
+    // so an sRGB context here would make the history strip disagree with it.
+    const ctx = get2dContext(canvas)
     ctx.imageSmoothingQuality = 'high'
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
     return canvas.toDataURL('image/jpeg', 0.6)

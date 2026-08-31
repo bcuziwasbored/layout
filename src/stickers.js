@@ -12,6 +12,8 @@
 //         chosen tint at raster time. `tint:true` means the fill/stroke tracks the
 //         picked colour; a few decorative accents use fixed black-alpha on purpose.
 
+import { get2dContext } from './colorSpace'
+
 export const STICKER_CATEGORIES = [
   { id: 'arrows',    label: 'Arrows' },
   { id: 'scribbles', label: 'Scribbles' },
@@ -175,7 +177,11 @@ export function rasterizeSticker(sticker, color, longPx) {
     img.onload = () => {
       const canvas = document.createElement('canvas')
       canvas.width = w; canvas.height = h
-      const ctx = canvas.getContext('2d')
+      // Wide-gamut (issue #109): a rasterized sticker becomes an ordinary image
+      // layer, so it rides the same pipeline a photo does. The tints themselves are
+      // sRGB hex, so no colour changes here — this just keeps the sticker in the
+      // export's colour space instead of forcing a conversion on the way in.
+      const ctx = get2dContext(canvas)
       ctx.imageSmoothingQuality = 'high'
       ctx.drawImage(img, 0, 0, w, h)
       // PNG keeps the alpha channel — the whole point of the sticker pipeline.
