@@ -158,11 +158,23 @@ async function main() {
       }
     })
 
+    // Boot with one retry: on a cold node_modules/.vite, the dev server's
+    // dependency optimizer can trigger a full-page reload mid-boot, and the
+    // first load after an interrupted install has raced it in practice. A
+    // single fresh goto after a shorter first wait recovers both cases; a
+    // genuine boot failure still fails, just ~45s later.
     await page.goto(url, { waitUntil: 'load', timeout: 60000 })
-    await page.waitForFunction(
+    const bootWait = () => page.waitForFunction(
       'window.__parityReady === true || typeof window.__parityError === "string"',
-      { timeout: 120000, polling: 250 },
+      { timeout: 45000, polling: 250 },
     )
+    try {
+      await bootWait()
+    } catch {
+      console.warn('Harness boot slow (cold optimizer cache?) — reloading once…')
+      await page.goto(url, { waitUntil: 'load', timeout: 60000 })
+      await bootWait()
+    }
     const bootError = await page.evaluate(() => window.__parityError ?? null)
     if (bootError) throw new Error(`harness failed to boot:\n${bootError}`)
 
