@@ -4,6 +4,7 @@ import { renderSlide } from './renderSlide'
 import { migrateLayers } from './ratioMigrate'
 import { requestPersistentStorage } from './storageHealth'
 import { get2dContext } from './colorSpace'
+import { detectGainMapInBlob } from './gainMap'
 import {
   maybeCaptureVersion, writeVersion, getVersion, resolveVersionLayers,
   deleteVersionsForProject, noteCapture,
@@ -20,6 +21,13 @@ export const ORIG_REF_PREFIX = 'blob-ref://'
 // Cap stored originals at 4096px on the long edge (re-encode JPEG q0.92 when
 // larger) to respect iOS storage quotas.
 const MAX_ORIGINAL_DIM = 4096
+// ...except for gain-map photos (issue #110), where the cap's re-encode would
+// destroy the very thing we are trying to preserve: a canvas cannot carry a gain
+// map, so a capped original is an SDR original. These keep their bytes verbatim
+// up to a hard ceiling, which exists only so one enormous file can't exhaust the
+// IDB quota outright. Past it we fall back to the capped SDR original — the
+// export simply won't offer the HDR path for that photo.
+const MAX_GAIN_MAP_ORIGINAL_BYTES = 40 * 1024 * 1024
 
 export const originalKey = (projectId, layerId) => `orig:${projectId}:${layerId}`
 
@@ -100,6 +108,13 @@ async function prepareOriginalDataURL(srcUrl) {
   const blob = await blobFromURL(srcUrl)
   const isAlpha = ALPHA_BLOB_TYPES.has(blob.type)
   const dataURL = await blobToDataURL(blob)
+  // A gain-map photo skips the dimension cap entirely (issue #110). Re-encoding
+  // it through a canvas would strip the gain map, so a "safely capped" original
+  // would be exactly the SDR file we're trying not to make.
+  if (blob.size <= MAX_GAIN_MAP_ORIGINAL_BYTES &&
+      (await detectGainMapInBlob(blob)).hasGainMap) {
+    return dataURL
+  }
   const img = await loadImageEl(dataURL)
   const long = Math.max(img.naturalWidth, img.naturalHeight)
   if (long <= MAX_ORIGINAL_DIM) return dataURL

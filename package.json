@@ -8,9 +8,10 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "npm run test:unit && npm run test:parity && npm run test:colorspace",
-    "test:unit": "vite-node test/undo.test.mjs && vite-node test/bulk.test.mjs && vite-node test/stock.test.mjs && vite-node test/versions.test.mjs",
+    "test": "npm run test:unit && npm run test:parity && npm run test:colorspace && npm run test:hdr",
+    "test:unit": "vite-node test/undo.test.mjs && vite-node test/bulk.test.mjs && vite-node test/stock.test.mjs && vite-node test/versions.test.mjs && node test/gainmap.test.mjs && vite-node test/hdrslice.test.mjs",
     "test:colorspace": "node test/colorspace.test.mjs",
+    "test:hdr": "node test/hdrcrop/run.mjs",
     "test:parity": "node test/parity/run.mjs",
     "test:parity:regression": "node test/parity/run.mjs --inject text-baseline"
   },

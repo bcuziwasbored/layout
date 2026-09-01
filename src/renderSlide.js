@@ -428,7 +428,7 @@ const BLOB_REF_PREFIX = 'blob-ref://'
 // blob:/data: URL on layer.srcOriginal; after a reload it's a `blob-ref://` pointer
 // into the IDB blobs store. If a persisted original is missing (older project, or
 // GC'd), we transparently fall back to the preview `src` so the image still renders.
-async function resolveLayerSrc(layer, preferOriginal) {
+export async function resolveLayerSrc(layer, preferOriginal) {
   if (preferOriginal && layer.srcOriginal) {
     const orig = layer.srcOriginal
     if (orig.startsWith(BLOB_REF_PREFIX)) {
