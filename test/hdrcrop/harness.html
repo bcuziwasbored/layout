@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Layout — HDR gain-map crop harness</title>
+    <link rel="icon" href="data:," />
+  </head>
+  <body>
+    <script type="module">
+      import { cropGainMapJpeg, mapEdge } from '/src/hdrCrop.js'
+      import { detectGainMap } from '/src/gainMap.js'
+
+      // Decode a JPEG's pixels for the seam comparison. Colour management is off
+      // so we compare stored values, not a re-rendered view of them.
+      async function pixels(bytes) {
+        const bmp = await createImageBitmap(
+          new Blob([bytes], { type: 'image/jpeg' }), { colorSpaceConversion: 'none' },
+        )
+        // Read the dimensions BEFORE close() — closing zeroes them.
+        const w = bmp.width, h = bmp.height
+        const c = document.createElement('canvas')
+        c.width = w; c.height = h
+        const g = c.getContext('2d', { alpha: false, colorSpace: 'srgb' })
+        g.imageSmoothingEnabled = false
+        g.drawImage(bmp, 0, 0)
+        const d = g.getImageData(0, 0, w, h)
+        bmp.close?.()
+        return { w, h, data: d.data }
+      }
+
+      // Slice bytes, for validating output against an external decoder.
+      window.hdrCropBytes = async (fixtureUrl, sliceCount) => {
+        const src = new Uint8Array(await (await fetch(fixtureUrl)).arrayBuffer())
+        const info = detectGainMap(src)
+        const W = info.primary.width, H = info.primary.height
+        const sliceW = Math.round(W / sliceCount)
+        const out = []
+        for (let i = 0; i < sliceCount; i++) {
+          const r = await cropGainMapJpeg(src, { x: i * sliceW, y: 0, w: sliceW, h: H })
+          out.push(Array.from(r.bytes))
+        }
+        return out
+      }
+
+      window.runHdrCrop = async (fixtureUrl, sliceCount) => {
+        const src = new Uint8Array(await (await fetch(fixtureUrl)).arrayBuffer())
+        const info = detectGainMap(src)
+        const W = info.primary.width, H = info.primary.height
+        const gw = info.gainMap.width, gh = info.gainMap.height
+
+        // One shared grid, exactly as hdrSlice.hdrSliceRect builds it.
+        const sliceW = Math.round(W / sliceCount)
+        const slices = []
+        for (let i = 0; i < sliceCount; i++) {
+          const rect = { x: i * sliceW, y: 0, w: sliceW, h: H }
+          const out = await cropGainMapJpeg(src, rect)
+          const det = detectGainMap(out.bytes)
+          slices.push({
+            rect, det, baseRect: out.baseRect, gainRect: out.gainRect,
+            variant: out.variant, size: out.bytes.length,
+            bytes: Array.from(out.bytes),
+          })
+        }
+
+        // Reassemble the base slices and compare against the source base, plus a
+        // deliberately 1px-shifted control. On high-frequency content a single
+        // column of drift makes the shifted error far smaller than it should be.
+        const split = { primary: src.subarray(0, info.primary.end) }
+        const srcPx = await pixels(split.primary)
+        let alignedErr = 0, shiftedErr = 0, n = 0, seamErr = 0, seamN = 0, interiorErr = 0, interiorN = 0
+        for (const s of slices) {
+          const sub = new Uint8Array(s.bytes)
+          const d = detectGainMap(sub)
+          const px = await pixels(sub.subarray(0, d.primary.end))
+          for (let y = 0; y < px.h; y += 3) {
+            for (let x = 0; x < px.w; x++) {
+              const sx = s.baseRect.x + x
+              if (sx >= srcPx.w) continue
+              const a = (y * px.w + x) * 4
+              const b = (y * srcPx.w + sx) * 4
+              const e = Math.abs(px.data[a] - srcPx.data[b])
+                + Math.abs(px.data[a + 1] - srcPx.data[b + 1])
+                + Math.abs(px.data[a + 2] - srcPx.data[b + 2])
+              alignedErr += e; n++
+              const isEdge = x < 2 || x >= px.w - 2
+              if (isEdge) { seamErr += e; seamN++ } else { interiorErr += e; interiorN++ }
+              if (sx + 1 < srcPx.w) {
+                const b2 = (y * srcPx.w + sx + 1) * 4
+                shiftedErr += Math.abs(px.data[a] - srcPx.data[b2])
+                  + Math.abs(px.data[a + 1] - srcPx.data[b2 + 1])
+                  + Math.abs(px.data[a + 2] - srcPx.data[b2 + 2])
+              }
+            }
+          }
+        }
+
+        return {
+          source: { W, H, gw, gh, variant: info.variant, components: info.gainMap.components },
+          slices: slices.map(s => ({
+            baseRect: s.baseRect, gainRect: s.gainRect, variant: s.variant, size: s.size,
+            hasGainMap: s.det.hasGainMap,
+            detVariant: s.det.variant,
+            primaryW: s.det.primary?.width, primaryH: s.det.primary?.height,
+            gainW: s.det.gainMap?.width, gainH: s.det.gainMap?.height,
+            gainComponents: s.det.gainMap?.components,
+          })),
+          alignedMeanErr: alignedErr / n / 3,
+          shiftedMeanErr: shiftedErr / n / 3,
+          seamMeanErr: seamErr / Math.max(1, seamN) / 3,
+          interiorMeanErr: interiorErr / Math.max(1, interiorN) / 3,
+          mapEdgeCheck: [0, 1, 2, 3].map(i => mapEdge(i * sliceW, W, gw)),
+        }
+      }
+      window.__hdrReady = true
+    </script>
+  </body>
+</html>
