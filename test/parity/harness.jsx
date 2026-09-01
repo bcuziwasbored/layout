@@ -345,7 +345,16 @@ async function boot() {
   }
   // Fonts first, and settled, so neither renderer can pick up a font mid-run.
   const textLayers = CASES.flatMap(c => c.layers.filter(l => l.type === 'text'))
-  await ensureLayerFontsLoaded(textLayers, 10000)
+  // document.fonts.ready hangs indefinitely while any font fetch is pending —
+// observed locally when a Google Fonts request stalls in headless Chrome. The
+// fonts that matter are already awaited (with their own timeout) by
+// ensureLayerFontsLoaded above, so cap this wait: if a straggler font is truly
+// missing, cases diff loudly instead of the harness hanging silently.
+const fontsSettled = () => Promise.race([
+  document.fonts.ready,
+  sleep(10000),
+])
+await ensureLayerFontsLoaded(textLayers, 10000)
   // Decode the test photo once up front so per-case image loads are cache hits.
   await new Promise(resolve => {
     const img = new Image()
@@ -353,12 +362,12 @@ async function boot() {
     img.onerror = () => resolve()
     img.src = PHOTO_DATA_URL
   })
-  await document.fonts.ready
+  await fontsSettled()
   await sleep(250)
   // Discarded warm-up pass: decodes the test photo, primes the grain tile, and
   // — critically — forces any late-arriving webfont to land BEFORE measuring.
   await runAll({ warmup: true })
-  await document.fonts.ready
+  await fontsSettled()
   window.__parityReady = true
 }
 
