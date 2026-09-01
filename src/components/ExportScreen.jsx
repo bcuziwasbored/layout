@@ -1,6 +1,7 @@
 import { useEffect, useState, lazy, Suspense } from 'react'
 import { useStore } from '../useStore'
 import { renderSlide } from '../renderSlide'
+import { renderHdrSlide, createHdrSourceCache } from '../hdrExport'
 import { ScreenFallback } from './LazyFallback'
 
 // The swipe preview (issue #89) is an optional detour on the way to saving, so
@@ -219,6 +220,12 @@ export default function ExportScreen({ onClose }) {
   const [failedCount, setFailedCount] = useState(0)
   const [failedSlides, setFailedSlides] = useState(() => new Set())
 
+  // Slides that kept their HDR gain map by being cropped from the photo's
+  // original bytes instead of composited (issue #110). Populated as the render
+  // runs; a slide that doesn't qualify just isn't in the set and is exported the
+  // ordinary way, with no message and nothing for the user to decide.
+  const [hdrSlides, setHdrSlides] = useState(() => new Set())
+
   const [renderKey, setRenderKey] = useState(0)
 
   // Brand kit logo stamp (issue #64): session-only toggle (not persisted with the
@@ -271,11 +278,33 @@ export default function ExportScreen({ onClose }) {
     const failedLayerIds = new Set()
     const affectedSlides = new Set()
     const acc = []
+    // Original bytes are shared across every slide of a panorama, so they're
+    // fetched and decoded once per run rather than once per slide.
+    const hdrCache = createHdrSourceCache()
+    const hdrDone = new Set()
 
     async function run() {
       for (let i = 0; i < slides.length; i++) {
         if (cancelled) return
         try {
+          // Try the HDR path first. It only succeeds for a slide that is a
+          // single full-bleed, unadjusted photo cell whose source carries a gain
+          // map; everything else returns null and falls straight through to the
+          // composited render below, exactly as before.
+          const hdr = await renderHdrSlide(i, {
+            slides, layers, ratio, format, quality: QUALITY_PRESETS[qualityKey],
+            stampLogo: stampLogoOn && brandLogo ? brandLogo : undefined,
+            cache: hdrCache,
+          })
+          if (cancelled) return
+          if (hdr) {
+            acc[i] = hdr.dataURL
+            hdrDone.add(i)
+            setRendered(acc.slice())
+            setHdrSlides(new Set(hdrDone))
+            continue
+          }
+
           const url = await renderSlide(i, {
             slides, layers, ratio, bgColor, bgGradient, imgCache,
             scale: outScale,
@@ -312,6 +341,7 @@ export default function ExportScreen({ onClose }) {
     setRenderDone(false)
     setFailedCount(0)
     setFailedSlides(new Set())
+    setHdrSlides(new Set())
     setRenderKey(k => k + 1)
   }
 
@@ -391,6 +421,11 @@ export default function ExportScreen({ onClose }) {
                         <span aria-hidden>⚠</span> Photo missing
                       </div>
                     )}
+                    {hdrSlides.has(i) && (
+                      <div className="absolute top-2 right-2 bg-white/90 text-black text-[10px] font-bold px-2 py-1 rounded-full shadow tracking-wide">
+                        HDR
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center gap-3">
@@ -420,20 +455,27 @@ export default function ExportScreen({ onClose }) {
         <div className="flex gap-2 overflow-x-auto pb-3">
           {rendered.map((src, i) => {
             const isFailed = failedSlides.has(i)
+            const isHdr = hdrSlides.has(i)
             const thumb = (
               <>
                 <img
                   src={src}
                   className={`rounded-lg object-cover ${isFailed ? 'ring-2 ring-amber-500' : ''}`}
                   style={{ height: 72, width: Math.round(72 * ratio.w / ratio.h) }}
-                  alt={`Slide ${i + 1}${isFailed ? ' (photo missing)' : ''}`}
+                  alt={`Slide ${i + 1}${isFailed ? ' (photo missing)' : ''}${isHdr ? ' (HDR preserved)' : ''}`}
                 />
                 <div className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded-full font-medium">
                   {i + 1}
                 </div>
-                {isFailed && (
+                {/* A failure warning always outranks the HDR badge — they share
+                    the corner, and "photo missing" is what the user must act on. */}
+                {isFailed ? (
                   <div className="absolute top-1 right-1 bg-amber-500 text-black text-[10px] w-4 h-4 flex items-center justify-center rounded-full font-bold shadow">
                     !
+                  </div>
+                ) : isHdr && (
+                  <div className="absolute top-1 right-1 bg-white text-black text-[8px] leading-none px-1 py-0.5 rounded font-bold shadow tracking-wide">
+                    HDR
                   </div>
                 )}
               </>
